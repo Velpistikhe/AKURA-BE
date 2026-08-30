@@ -1,6 +1,7 @@
 {
   "name": "api-gateway",
   "version": "1.0.0",
+  "type": "module",
   "description": "Express TypeScript API Gateway for Microservices Architecture",
   "main": "dist/server.js",
   "scripts": {

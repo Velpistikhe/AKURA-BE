@@ -1,6 +1,7 @@
 {
   "name": "marketing-service",
   "version": "1.0.0",
+  "type": "module",
   "description": "Akura marketing microservice for company and service management",
   "main": "dist/server.js",
   "scripts": {
