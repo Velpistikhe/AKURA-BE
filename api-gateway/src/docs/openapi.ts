@@ -439,7 +439,7 @@ export const openApiDocument = {
         },
       },
       CreateMenuAccessRequest: {
-        type: 'object', required: ['menuItemId'],
+        type: 'object', required: ['menuItemId'], additionalProperties: false,
         properties: {
           menuItemId: { type: 'string', format: 'uuid' },
           role: schemaRef('NullableMenuAccessRole'),
@@ -447,7 +447,7 @@ export const openApiDocument = {
         },
       },
       UpdateMenuAccessRequest: {
-        type: 'object', minProperties: 1,
+        type: 'object', minProperties: 1, additionalProperties: false,
         properties: {
           menuItemId: { type: 'string', format: 'uuid' },
           role: schemaRef('NullableMenuAccessRole'),
@@ -485,6 +485,7 @@ export const openApiDocument = {
       },
       CreateMenuRequest: {
         type: 'object',
+        additionalProperties: false,
         required: ['key', 'label'],
         properties: {
           key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'app_manager', description: 'Unique slug key.' },
@@ -494,6 +495,7 @@ export const openApiDocument = {
       },
       UpdateMenuRequest: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'app_manager' },
           label: { type: 'string', minLength: 1, maxLength: 200, example: 'App Manager' },
@@ -548,6 +550,7 @@ export const openApiDocument = {
       },
       CreateMenuItemRequest: {
         type: 'object',
+        additionalProperties: false,
         required: ['menuId', 'key', 'label', 'path'],
         properties: {
           menuId: { type: 'string', format: 'uuid', description: 'ID of the parent menu.' },
@@ -561,6 +564,7 @@ export const openApiDocument = {
       },
       UpdateMenuItemRequest: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           menuId: { type: 'string', format: 'uuid' },
           key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'users_list' },
@@ -615,12 +619,13 @@ export const openApiDocument = {
       },
       Service: {
         type: 'object',
-        required: ['id', 'code', 'name', 'hasService', 'isActive', 'createdAt', 'updatedAt', 'scopes'],
+        required: ['id', 'code', 'name', 'hasService', 'maintenanceId', 'maintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           code: { type: 'string', example: 'SOCIAL_MEDIA' },
           name: { type: 'string', example: 'Social Media Management' },
           hasService: { type: 'boolean' },
+          maintenanceId: { type: 'string', format: 'uuid', nullable: true },
           maintenance: { allOf: [{ $ref: '#/components/schemas/Maintenance' }], nullable: true },
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
@@ -630,12 +635,23 @@ export const openApiDocument = {
       },
       ServiceListItem: {
         type: 'object',
-        required: ['id', 'code', 'name', 'hasService', 'isActive', 'createdAt', 'updatedAt', 'scopes'],
+        required: ['id', 'code', 'name', 'hasService', 'maintenanceId', 'maintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           code: { type: 'string', example: 'SOCIAL_MEDIA' },
           name: { type: 'string', example: 'Social Media Management' },
           hasService: { type: 'boolean' },
+          maintenanceId: { type: 'string', format: 'uuid', nullable: true },
+          maintenance: {
+            type: 'object',
+            nullable: true,
+            required: ['id', 'name', 'isActive'],
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string' },
+              isActive: { type: 'boolean' },
+            },
+          },
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
@@ -643,7 +659,7 @@ export const openApiDocument = {
         },
       },
       Maintenance: {
-        type: 'object', required: ['id', 'name', 'isActive', 'createdAt', 'updatedAt', 'scopes'],
+        type: 'object', required: ['id', 'name', 'isActive', 'scopes'],
         properties: {
           id: { type: 'string', format: 'uuid' }, name: { type: 'string' },
           isActive: { type: 'boolean' },
@@ -651,18 +667,8 @@ export const openApiDocument = {
           scopes: { type: 'array', items: schemaRef('MaintenanceScope') },
         },
       },
-      MaintenanceListItem: {
-        type: 'object',
-        required: ['id', 'name', 'isActive', 'createdAt', 'updatedAt', 'scopes'],
-        properties: {
-          id: { type: 'string', format: 'uuid' }, name: { type: 'string' },
-          isActive: { type: 'boolean' },
-          createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
-          scopes: { type: 'string', example: 'Inspection, Cleaning', description: 'Active scopes joined with a comma and one space.' },
-        },
-      },
       Item: {
-        type: 'object', required: ['id', 'name', 'isActive', 'createdAt', 'updatedAt'],
+        type: 'object', required: ['id', 'serviceId', 'name', 'isActive', 'createdAt', 'updatedAt', 'sizes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           serviceId: { type: 'string', format: 'uuid' },
@@ -700,7 +706,7 @@ export const openApiDocument = {
         },
       },
       MaintenanceScope: {
-        type: 'object', required: ['id', 'maintenanceId', 'scope', 'revoked', 'createdAt', 'updatedAt'],
+        type: 'object', required: ['id', 'scope'],
         properties: {
           id: { type: 'string', format: 'uuid' }, maintenanceId: { type: 'string', format: 'uuid' },
           scope: { type: 'string' }, revoked: { type: 'boolean', example: false },
@@ -826,21 +832,6 @@ export const openApiDocument = {
           requestId: { type: 'string', format: 'uuid' },
         },
       },
-      MaintenanceListResponse: {
-        type: 'object', required: ['status', 'success', 'message', 'data'],
-        properties: {
-          status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] },
-          message: { type: 'string' },
-          data: {
-            type: 'object', required: ['maintenances', 'pagination'],
-            properties: {
-              maintenances: { type: 'array', items: schemaRef('MaintenanceListItem') },
-              pagination: schemaRef('Pagination'),
-            },
-          },
-          requestId: { type: 'string', format: 'uuid' },
-        },
-      },
       ServiceScopeResponse: {
         type: 'object', required: ['status', 'success', 'message', 'data'],
         properties: {
@@ -879,7 +870,7 @@ export const openApiDocument = {
         },
       },
       CreateCompanyRequest: {
-        type: 'object', required: ['name', 'type', 'address'],
+        type: 'object', required: ['name', 'type', 'address'], additionalProperties: false,
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 200 },
           type: { type: 'string', minLength: 1, maxLength: 100 },
@@ -888,7 +879,7 @@ export const openApiDocument = {
         },
       },
       UpdateCompanyRequest: {
-        type: 'object',
+        type: 'object', minProperties: 1, additionalProperties: false,
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 200 },
           type: { type: 'string', minLength: 1, maxLength: 100 },
@@ -897,7 +888,7 @@ export const openApiDocument = {
         },
       },
       CreateCompanyStaffRequest: {
-        type: 'object', required: ['companyId', 'name', 'title'],
+        type: 'object', required: ['companyId', 'name', 'title'], additionalProperties: false,
         properties: {
           companyId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
@@ -907,7 +898,7 @@ export const openApiDocument = {
         },
       },
       UpdateCompanyStaffRequest: {
-        type: 'object',
+        type: 'object', minProperties: 1, additionalProperties: false,
         properties: {
           companyId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
@@ -917,7 +908,7 @@ export const openApiDocument = {
         },
       },
       CreateServiceRequest: {
-        type: 'object', required: ['code', 'name', 'hasService'],
+        type: 'object', required: ['code', 'name', 'hasService'], additionalProperties: false,
         properties: {
           code: { type: 'string', minLength: 1, maxLength: 50, pattern: '^[A-Z0-9_-]+$' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
@@ -926,16 +917,8 @@ export const openApiDocument = {
           scopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
         },
       },
-      UpdateServiceRequest: {
-        type: 'object',
-        properties: {
-          code: { type: 'string', minLength: 1, maxLength: 50, pattern: '^[A-Z0-9_-]+$' },
-          name: { type: 'string', minLength: 1, maxLength: 200 },
-          isActive: { type: 'boolean' },
-        },
-      },
       CreateMaintenanceRequest: {
-        type: 'object', required: ['name'],
+        type: 'object', required: ['name'], additionalProperties: false,
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 200 },
           scopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
@@ -1735,17 +1718,6 @@ export const openApiDocument = {
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
-      patch: {
-        tags: ['Marketing'], summary: 'Update a service', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: { required: true, ...jsonContent(schemaRef('UpdateServiceRequest')) },
-        responses: {
-          200: { description: 'Service updated', ...jsonContent(schemaRef('ServiceResponse')) },
-          400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'), 409: errorResponse('Service code already exists'),
-          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
-        },
-      },
       delete: {
         tags: ['Marketing'], summary: 'Delete a service', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
@@ -1786,115 +1758,49 @@ export const openApiDocument = {
         },
       },
     },
-    '/api/v1/marketing/maintenances': {
-      get: {
-        tags: ['Marketing'], summary: 'List maintenances', security: protectedSecurity,
-        parameters: [
-          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
-          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'code', description: 'Case-insensitive partial match on code.', schema: { type: 'string', maxLength: 50 } },
-          { in: 'query', name: 'name', description: 'Case-insensitive partial match on name.', schema: { type: 'string', maxLength: 200 } },
-          { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
-          ...listSortParameters(['code', 'name', 'isActive']),
-        ],
-        responses: {
-          200: { description: 'Maintenances retrieved', ...jsonContent(schemaRef('MaintenanceListResponse')) },
-          400: errorResponse('Invalid query parameters'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
-        },
-      },
+    '/api/v1/marketing/services/{serviceId}/maintenance': {
       post: {
-        tags: ['Marketing'], summary: 'Create a maintenance', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Create maintenance for a service', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('CreateMaintenanceRequest')) },
         responses: {
           201: { description: 'Maintenance created', ...jsonContent(schemaRef('MaintenanceResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 409: errorResponse('Maintenance code already exists'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
+          409: errorResponse('Service is inactive or already has maintenance'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
     },
-    '/api/v1/marketing/maintenances/{maintenanceId}': {
-      get: {
-        tags: ['Marketing'], summary: 'Get a maintenance', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'maintenanceId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        responses: {
-          200: { description: 'Maintenance retrieved', ...jsonContent(schemaRef('MaintenanceResponse')) },
-          400: errorResponse('Invalid maintenance ID'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Maintenance not found'),
-          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
-        },
-      },
-    },
-    '/api/v1/marketing/maintenances/{maintenanceId}/scopes': {
+    '/api/v1/marketing/services/{serviceId}/maintenance/scopes': {
       post: {
-        tags: ['Marketing'], summary: 'Create a single maintenance scope', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'maintenanceId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        tags: ['Marketing'], summary: 'Create a maintenance scope for a service', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('CreateScopeRequest')) },
         responses: {
           201: { description: 'Maintenance scope created', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Maintenance not found'),
-          409: errorResponse('Maintenance scope already exists'), 429: errorResponse('Rate limit exceeded'),
-          500: errorResponse('Internal server error'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
+          409: errorResponse('Service is inactive, does not provide maintenance, or maintenance is not configured'),
+          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
     },
-    '/api/v1/marketing/maintenances/{maintenanceId}/scopes/{scopeId}': {
+    '/api/v1/marketing/services/{serviceId}/maintenance/scopes/{scopeId}': {
       delete: {
-        tags: ['Marketing'], summary: 'Soft delete a maintenance scope', description: 'Sets revoked to true instead of deleting the row.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Soft delete a maintenance scope for a service', description: 'Sets revoked to true instead of deleting the row.', security: protectedSecurity,
         parameters: [
-          { in: 'path', name: 'maintenanceId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
           { in: 'path', name: 'scopeId', required: true, schema: { type: 'string', format: 'uuid' } },
         ],
         responses: {
           200: { description: 'Maintenance scope soft deleted', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
           400: errorResponse('Invalid ID'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Maintenance scope not found'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Service or maintenance scope not found'),
+          409: errorResponse('Service is inactive or does not provide maintenance'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
-    },
-  },
-};
-
-// Standalone maintenance routes were removed; maintenance is managed via services.
-for (const path of Object.keys(openApiDocument.paths)) {
-  if (path.startsWith('/api/v1/marketing/maintenances')) {
-    delete (openApiDocument.paths as Record<string, unknown>)[path];
-  }
-}
-delete (openApiDocument.paths['/api/v1/marketing/services/{serviceId}'] as Record<string, unknown>).patch;
-(openApiDocument.paths as Record<string, unknown>)['/api/v1/marketing/services/{serviceId}/maintenance/scopes'] = {
-  post: {
-    tags: ['Marketing'], summary: 'Create a maintenance scope for a service', security: protectedSecurity,
-    parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
-    requestBody: { required: true, ...jsonContent(schemaRef('CreateScopeRequest')) },
-    responses: {
-      201: { description: 'Maintenance scope created', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
-      400: errorResponse('Validation failed'), 404: errorResponse('Service not found'), 409: errorResponse('Service does not provide maintenance'),
-    },
-  },
-};
-(openApiDocument.paths as Record<string, unknown>)['/api/v1/marketing/services/{serviceId}/maintenance'] = {
-  post: {
-    tags: ['Marketing'], summary: 'Create maintenance for a service', security: protectedSecurity,
-    parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
-    requestBody: { required: true, ...jsonContent(schemaRef('CreateMaintenanceRequest')) },
-    responses: { 201: { description: 'Maintenance created', ...jsonContent(schemaRef('MaintenanceResponse')) }, 404: errorResponse('Service not found'), 409: errorResponse('Service already has maintenance') },
-  },
-};
-(openApiDocument.paths as Record<string, unknown>)['/api/v1/marketing/services/{serviceId}/maintenance/scopes/{scopeId}'] = {
-  delete: {
-    tags: ['Marketing'], summary: 'Soft delete a maintenance scope for a service', security: protectedSecurity,
-    parameters: [
-      { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
-      { in: 'path', name: 'scopeId', required: true, schema: { type: 'string', format: 'uuid' } },
-    ],
-    responses: {
-      200: { description: 'Maintenance scope soft deleted', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
-      400: errorResponse('Invalid ID'), 404: errorResponse('Service or maintenance scope not found'),
-      409: errorResponse('Service does not provide maintenance'),
     },
   },
 };

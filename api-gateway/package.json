@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "rimraf dist && tsc",
+    "verify:openapi": "npm run build && node scripts/verify-openapi.cjs",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit"
   },
