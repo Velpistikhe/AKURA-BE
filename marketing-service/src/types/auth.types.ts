@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { JWTPayload } from 'jose';
+import type { JWTPayload } from 'jose';
 
 export interface AccessTokenPayload extends JWTPayload {
   sub: string;

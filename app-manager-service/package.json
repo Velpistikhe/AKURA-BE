@@ -1,7 +1,6 @@
 {
   "name": "app-manager-service",
   "version": "1.0.0",
-  "type": "module",
   "description": "Modular administration microservice for Akura",
   "main": "dist/server.js",
   "scripts": {

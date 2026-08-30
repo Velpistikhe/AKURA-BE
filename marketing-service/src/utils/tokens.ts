@@ -1,14 +1,18 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
 import { AccessTokenPayload } from '../types/auth.types.js';
 
-const jwks = createRemoteJWKSet(new URL(env.AUTH_JWKS_URL), {
-  timeoutDuration: 5_000,
-  cooldownDuration: 30_000,
-  cacheMaxAge: 10 * 60 * 1_000,
-});
+type RemoteJwkSet = ReturnType<(typeof import('jose'))['createRemoteJWKSet']>;
+
+let jwks: RemoteJwkSet | undefined;
 
 export const verifyAccessToken = async (token: string): Promise<AccessTokenPayload> => {
+  const { createRemoteJWKSet, jwtVerify } = await import('jose');
+  jwks ??= createRemoteJWKSet(new URL(env.AUTH_JWKS_URL), {
+    timeoutDuration: 5_000,
+    cooldownDuration: 30_000,
+    cacheMaxAge: 10 * 60 * 1_000,
+  });
+
   const { payload } = await jwtVerify(token, jwks, {
     algorithms: ['RS256'],
     issuer: env.JWT_ISSUER,
