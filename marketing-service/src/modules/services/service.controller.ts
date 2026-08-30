@@ -1,0 +1,39 @@
+import { Request, Response } from 'express';
+import { CreateServiceInput, CreateServiceScopeInput, ListServicesInput, UpdateServiceInput } from './service.schemas.js';
+import { serviceService } from './service.service.js';
+
+const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
+  res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
+};
+export const serviceController = {
+  async list(req: Request, res: Response) { send(req, res, 200, 'Services retrieved successfully', await serviceService.list(res.locals.query as ListServicesInput)); },
+  async get(req: Request, res: Response) {
+    const query = res.locals.query as { itemPage: number; itemLimit: number };
+    send(req, res, 200, 'Service retrieved successfully', await serviceService.get((res.locals.params as { serviceId: string }).serviceId, query.itemPage, query.itemLimit));
+  },
+  async create(req: Request, res: Response) { send(req, res, 201, 'Service created successfully', await serviceService.create(res.locals.body as CreateServiceInput)); },
+  async update(req: Request, res: Response) { send(req, res, 200, 'Service updated successfully', await serviceService.update((res.locals.params as { serviceId: string }).serviceId, res.locals.body as UpdateServiceInput)); },
+  async createMaintenanceScope(req: Request, res: Response) {
+    const { serviceId } = res.locals.params as { serviceId: string };
+    send(req, res, 201, 'Maintenance scope created successfully', await serviceService.createMaintenanceScope(serviceId, res.locals.body as CreateServiceScopeInput));
+  },
+  async createMaintenance(req: Request, res: Response) {
+    const { serviceId } = res.locals.params as { serviceId: string };
+    send(req, res, 201, 'Maintenance created successfully', await serviceService.createMaintenance(serviceId, res.locals.body));
+  },
+  async deleteMaintenanceScope(req: Request, res: Response) {
+    const params = res.locals.params as { serviceId: string; scopeId: string };
+    send(req, res, 200, 'Maintenance scope deleted successfully', await serviceService.deleteMaintenanceScope(params.serviceId, params.scopeId));
+  },
+  async delete(req: Request, res: Response) { send(req, res, 200, 'Service deleted successfully', await serviceService.delete((res.locals.params as { serviceId: string }).serviceId)); },
+  async createScope(req: Request, res: Response) {
+    send(req, res, 201, 'Service scope created successfully', await serviceService.createScope(
+      (res.locals.params as { serviceId: string }).serviceId,
+      res.locals.body as CreateServiceScopeInput,
+    ));
+  },
+  async deleteScope(req: Request, res: Response) {
+    const params = res.locals.params as { serviceId: string; scopeId: string };
+    send(req, res, 200, 'Service scope deleted successfully', await serviceService.deleteScope(params.serviceId, params.scopeId));
+  },
+};

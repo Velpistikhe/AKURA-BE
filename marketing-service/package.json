@@ -1,0 +1,42 @@
+{
+  "name": "marketing-service",
+  "version": "1.0.0",
+  "description": "Akura marketing microservice for company and service management",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "rimraf dist && tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate-postgresql-names": "node scripts/migrate-postgresql-names.mjs && prisma generate",
+    "db:migrate-company-versioning": "node scripts/migrate-company-versioning.mjs && prisma generate",
+    "db:migrate-scope-soft-delete": "node scripts/migrate-scope-soft-delete.mjs && prisma generate",
+    "db:migrate-maintenance-code": "node scripts/migrate-maintenance-code.mjs",
+    "db:migrate-remove-item-code": "node scripts/migrate-remove-item-code.mjs && prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "test:api": "node tests/api-verification.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
+    "helmet": "^7.2.0",
+    "jose": "^6.1.0",
+    "winston": "^3.19.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.19.43",
+    "prisma": "^5.22.0",
+    "rimraf": "^5.0.10",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3"
+  }
+}

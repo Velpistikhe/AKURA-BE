@@ -1,0 +1,70 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserSection {
+  ACCOUNTING
+  FINANCE
+  HRD_MANAGEMENT
+  MARKETING
+  FIELD_SERVICE
+
+  @@map("user_section")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  APP_MANAGER
+
+  @@map("user_role")
+}
+
+model Menu {
+  id        String     @id @default(uuid()) @db.Uuid
+  key       String     @unique
+  label     String
+  order     Int        @default(0)
+  isActive  Boolean    @default(true) @map("is_active")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  items     MenuItem[]
+
+  @@map("menus")
+}
+
+model MenuItem {
+  id        String       @id @default(uuid()) @db.Uuid
+  menuId    String       @map("menu_id") @db.Uuid
+  menu      Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  key       String       @unique
+  label     String
+  path      String
+  order     Int          @default(0)
+  isActive  Boolean      @default(true) @map("is_active")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  accesses  MenuAccess[]
+
+  @@index([menuId])
+  @@map("menu_items")
+}
+
+model MenuAccess {
+  id         String       @id @default(uuid()) @db.Uuid
+  menuItemId String       @map("menu_item_id") @db.Uuid
+  menuItem   MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  role       UserRole?
+  section    UserSection?
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  @@unique([menuItemId, role, section])
+  @@index([role, section])
+  @@map("menu_accesses")
+}

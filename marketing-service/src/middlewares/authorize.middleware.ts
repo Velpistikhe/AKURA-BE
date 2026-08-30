@@ -1,0 +1,58 @@
+import { NextFunction, Request, Response } from 'express';
+import { env } from '../config/env.js';
+import { AuthenticatedRequest, AuthUser } from '../types/auth.types.js';
+import { getAccessToken } from '../utils/requestTokens.js';
+
+export const requireMarketingAccess = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const token = getAccessToken(req);
+  const tokenPayload = (req as AuthenticatedRequest).user;
+  const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
+  if (!token || !tokenPayload) {
+    res.status(401).json({ status: 401, success: false, message: 'Unauthorized: missing access token', requestId });
+    return;
+  }
+
+  const gatewayUserId = req.headers['x-user-id'];
+  const gatewayUserRole = req.headers['x-user-role'];
+  if (gatewayUserId !== tokenPayload.sub || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)) {
+    res.status(401).json({
+      status: 401,
+      success: false,
+      message: 'Unauthorized: gateway identity does not match access token',
+      requestId,
+    });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${env.AUTH_SERVICE_URL}/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-gateway-secret': env.GATEWAY_SECRET,
+        ...(requestId ? { 'x-request-id': requestId } : {}),
+      },
+    });
+    if (!response.ok) {
+      res.status(response.status === 403 ? 403 : 401).json({ status: response.status === 403 ? 403 : 401, success: false, message: 'Unable to validate the authenticated user', requestId });
+      return;
+    }
+    const body = await response.json() as { data?: AuthUser };
+    const user = body.data;
+    if (!user || user.id !== tokenPayload.sub) {
+      res.status(401).json({ status: 401, success: false, message: 'Unauthorized: user identity mismatch', requestId });
+      return;
+    }
+    if (!user?.isActive) {
+      res.status(403).json({ status: 403, success: false, message: 'Account is inactive', requestId });
+      return;
+    }
+    if (!['ADMIN', 'APP_MANAGER'].includes(user.role) && user.section !== 'MARKETING') {
+      res.status(403).json({ status: 403, success: false, message: 'Marketing section, admin, or app_manager access is required', requestId });
+      return;
+    }
+    res.locals.authUser = user;
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
