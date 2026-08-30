@@ -15,21 +15,21 @@ API Gateway Akura berbasis Express dan TypeScript. Gateway menyediakan reverse p
 
 ## Endpoint gateway
 
-| Endpoint | Method | Fungsi |
-|---|---|---|
-| `/health` | GET | Status dan uptime gateway |
-| `/services` | GET | Daftar downstream service |
-| `/api-docs` | GET | Swagger UI |
-| `/api-docs.json` | GET | Spesifikasi OpenAPI JSON |
+| Endpoint         | Method | Fungsi                    |
+| ---------------- | ------ | ------------------------- |
+| `/health`        | GET    | Status dan uptime gateway |
+| `/services`      | GET    | Daftar downstream service |
+| `/api-docs`      | GET    | Swagger UI                |
+| `/api-docs.json` | GET    | Spesifikasi OpenAPI JSON  |
 
 ## Route proxy
 
-| Prefix | Target default | Access token di gateway | Fungsi |
-|---|---|---|---|
-| `/api/v1/auth` | `http://localhost:5001` | Diverifikasi auth-service untuk endpoint protected | Autentikasi dan profil |
-| `/api/v1/app-manager` | `http://localhost:5002` | Wajib | Administrasi aplikasi dan user management |
-| `/api/v1/products` | `http://localhost:5003` | Tidak wajib | Product catalog |
-| `/api/v1/orders` | `http://localhost:5004` | Wajib | Order dan checkout |
+| Prefix                | Target default          | Access token di gateway                            | Fungsi                                    |
+| --------------------- | ----------------------- | -------------------------------------------------- | ----------------------------------------- |
+| `/api/v1/auth`        | `http://localhost:5001` | Diverifikasi auth-service untuk endpoint protected | Autentikasi dan profil                    |
+| `/api/v1/app-manager` | `http://localhost:5002` | Wajib                                              | Administrasi aplikasi dan user management |
+| `/api/v1/products`    | `http://localhost:5003` | Tidak wajib                                        | Product catalog                           |
+| `/api/v1/orders`      | `http://localhost:5004` | Wajib                                              | Order dan checkout                        |
 
 Route `/api/v1/auth` berisi campuran endpoint publik dan protected. Karena itu gateway meneruskannya tanpa middleware global, lalu auth-service memverifikasi access token pada `/me`, `/profile`, dan `/password`.
 
@@ -75,21 +75,21 @@ Kontrak App Manager mengikuti schema menu terbaru. `Menu` berisi `key`, `label`,
 
 Salin `.env.example` menjadi `.env` dan ganti seluruh nilai secret.
 
-| Variable | Default | Keterangan |
-|---|---|---|
-| `PORT` | `5000` | Port gateway |
-| `NODE_ENV` | `development` | Environment runtime |
-| `GATEWAY_SECRET` | Tidak ada | Secret internal yang dibagikan dengan microservice |
-| `CORS_ORIGIN` | `*` | Origin yang diizinkan |
-| `AUTH_SERVICE_URL` | `http://localhost:5001` | Target Auth Service |
-| `AUTH_JWKS_URL` | `http://localhost:5001/.well-known/jwks.json` | Endpoint public key Auth Service |
-| `JWT_ISSUER` | `akura-auth` | Issuer access token yang diterima |
-| `JWT_AUDIENCE` | `akura-api` | Audience access token yang diterima |
-| `APP_MANAGER_SERVICE_URL` | `http://localhost:5002` | Target App Manager Service |
-| `PRODUCT_SERVICE_URL` | `http://localhost:5003` | Target Products Service |
-| `ORDER_SERVICE_URL` | `http://localhost:5004` | Target Orders Service |
-| `RATE_LIMIT_WINDOW_MS` | `900000` | Durasi window rate limiter |
-| `RATE_LIMIT_MAX_REQUESTS` | `100` | Maksimum request per IP per window |
+| Variable                  | Default                                       | Keterangan                                         |
+| ------------------------- | --------------------------------------------- | -------------------------------------------------- |
+| `PORT`                    | `5000`                                        | Port gateway                                       |
+| `NODE_ENV`                | `development`                                 | Environment runtime                                |
+| `GATEWAY_SECRET`          | Tidak ada                                     | Secret internal yang dibagikan dengan microservice |
+| `CORS_ORIGIN`             | `*`                                           | Origin yang diizinkan                              |
+| `AUTH_SERVICE_URL`        | `http://localhost:5001`                       | Target Auth Service                                |
+| `AUTH_JWKS_URL`           | `http://localhost:5001/.well-known/jwks.json` | Endpoint public key Auth Service                   |
+| `JWT_ISSUER`              | `akura-auth`                                  | Issuer access token yang diterima                  |
+| `JWT_AUDIENCE`            | `akura-api`                                   | Audience access token yang diterima                |
+| `APP_MANAGER_SERVICE_URL` | `http://localhost:5002`                       | Target App Manager Service                         |
+| `PRODUCT_SERVICE_URL`     | `http://localhost:5003`                       | Target Products Service                            |
+| `ORDER_SERVICE_URL`       | `http://localhost:5004`                       | Target Orders Service                              |
+| `RATE_LIMIT_WINDOW_MS`    | `900000`                                      | Durasi window rate limiter                         |
+| `RATE_LIMIT_MAX_REQUESTS` | `100`                                         | Maksimum request per IP per window                 |
 
 Gateway tidak membutuhkan access-token secret atau private key. Nilai `JWT_ISSUER` dan `JWT_AUDIENCE` harus sama dengan Auth Service. `GATEWAY_SECRET` harus identik pada gateway dan seluruh downstream service.
 
