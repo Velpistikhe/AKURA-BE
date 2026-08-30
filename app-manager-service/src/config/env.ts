@@ -8,8 +8,10 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   GATEWAY_SECRET: z.string().min(1, 'GATEWAY_SECRET is required'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  AUTH_JWKS_URL: z.string().url().default('http://localhost:5001/.well-known/jwks.json'),
-  AUTH_SERVICE_URL: z.string().url().default('http://localhost:5001'),
+  AUTH_JWKS_URL: z.string({ required_error: 'AUTH_JWKS_URL is required' })
+    .url('AUTH_JWKS_URL must be a valid URL'),
+  AUTH_SERVICE_URL: z.string({ required_error: 'AUTH_SERVICE_URL is required' })
+    .url('AUTH_SERVICE_URL must be a valid URL'),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),
 });

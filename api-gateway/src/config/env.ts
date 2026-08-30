@@ -8,14 +8,16 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   GATEWAY_SECRET: z.string().min(1, 'GATEWAY_SECRET is required'),
   CORS_ORIGIN: z.string().default('*'),
-  AUTH_SERVICE_URL: z.string().url().default('http://localhost:5001'),
-  AUTH_JWKS_URL: z.string().url().default('http://localhost:5001/.well-known/jwks.json'),
+  AUTH_SERVICE_URL: z.string({ required_error: 'AUTH_SERVICE_URL is required' })
+    .url('AUTH_SERVICE_URL must be a valid URL'),
+  AUTH_JWKS_URL: z.string({ required_error: 'AUTH_JWKS_URL is required' })
+    .url('AUTH_JWKS_URL must be a valid URL'),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),
-  APP_MANAGER_SERVICE_URL: z.string().url().default('http://localhost:5002'),
-  MARKETING_SERVICE_URL: z.string().url().default('http://localhost:5005'),
-  PRODUCT_SERVICE_URL: z.string().url().default('http://localhost:5003'),
-  ORDER_SERVICE_URL: z.string().url().default('http://localhost:5004'),
+  APP_MANAGER_SERVICE_URL: z.string({ required_error: 'APP_MANAGER_SERVICE_URL is required' })
+    .url('APP_MANAGER_SERVICE_URL must be a valid URL'),
+  MARKETING_SERVICE_URL: z.string({ required_error: 'MARKETING_SERVICE_URL is required' })
+    .url('MARKETING_SERVICE_URL must be a valid URL'),
   RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform((value) => Number.parseInt(value, 10)),
   RATE_LIMIT_MAX_REQUESTS: z.string().default('100').transform((value) => Number.parseInt(value, 10)),
 });

@@ -16,6 +16,14 @@ import { servicesConfig } from './config/services.config.js';
 const app: Express = express();
 const swaggerCss = readFileSync(require.resolve('swagger-ui-dist/swagger-ui.css'), 'utf8');
 
+// Vercel overwrites X-Forwarded-For with the public client IP before invoking
+// the Express function. Trust only the direct Vercel proxy hop so req.ip and
+// express-rate-limit identify clients correctly without accepting arbitrary
+// forwarded chains in local or non-Vercel environments.
+if (process.env.VERCEL === '1') {
+  app.set('trust proxy', 1);
+}
+
 app.use(helmet());
 app.use(cors({
   origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,

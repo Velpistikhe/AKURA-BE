@@ -160,8 +160,8 @@ Salin `.env.example` menjadi `.env`.
 | `NODE_ENV` | `development` | Environment runtime |
 | `GATEWAY_SECRET` | Tidak ada | Harus sama dengan gateway |
 | `DATABASE_URL` | Tidak ada | Database menu milik App Manager Service |
-| `AUTH_JWKS_URL` | `http://localhost:5001/.well-known/jwks.json` | Endpoint public key Auth Service |
-| `AUTH_SERVICE_URL` | `http://localhost:5001` | Validasi profil user aktif melalui Auth Service |
+| `AUTH_JWKS_URL` | Tidak ada | Endpoint public key Auth Service |
+| `AUTH_SERVICE_URL` | Tidak ada | Validasi profil user aktif melalui Auth Service |
 | `JWT_ISSUER` | `akura-auth` | Issuer access token yang diterima |
 | `JWT_AUDIENCE` | `akura-api` | Audience access token yang diterima |
 

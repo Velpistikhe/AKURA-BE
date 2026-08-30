@@ -28,8 +28,6 @@ API Gateway Akura berbasis Express dan TypeScript. Gateway menyediakan reverse p
 | --------------------- | ----------------------- | -------------------------------------------------- | ----------------------------------------- |
 | `/api/v1/auth`        | `http://localhost:5001` | Diverifikasi auth-service untuk endpoint protected | Autentikasi dan profil                    |
 | `/api/v1/app-manager` | `http://localhost:5002` | Wajib                                              | Administrasi aplikasi dan user management |
-| `/api/v1/products`    | `http://localhost:5003` | Tidak wajib                                        | Product catalog                           |
-| `/api/v1/orders`      | `http://localhost:5004` | Wajib                                              | Order dan checkout                        |
 
 Route `/api/v1/auth` berisi campuran endpoint publik dan protected. Karena itu gateway meneruskannya tanpa middleware global, lalu auth-service memverifikasi access token pada `/me`, `/profile`, dan `/password`.
 
@@ -81,13 +79,12 @@ Salin `.env.example` menjadi `.env` dan ganti seluruh nilai secret.
 | `NODE_ENV`                | `development`                                 | Environment runtime                                |
 | `GATEWAY_SECRET`          | Tidak ada                                     | Secret internal yang dibagikan dengan microservice |
 | `CORS_ORIGIN`             | `*`                                           | Origin yang diizinkan                              |
-| `AUTH_SERVICE_URL`        | `http://localhost:5001`                       | Target Auth Service                                |
-| `AUTH_JWKS_URL`           | `http://localhost:5001/.well-known/jwks.json` | Endpoint public key Auth Service                   |
+| `AUTH_SERVICE_URL`        | Tidak ada                                     | Target Auth Service                                |
+| `AUTH_JWKS_URL`           | Tidak ada                                     | Endpoint public key Auth Service                   |
 | `JWT_ISSUER`              | `akura-auth`                                  | Issuer access token yang diterima                  |
 | `JWT_AUDIENCE`            | `akura-api`                                   | Audience access token yang diterima                |
-| `APP_MANAGER_SERVICE_URL` | `http://localhost:5002`                       | Target App Manager Service                         |
-| `PRODUCT_SERVICE_URL`     | `http://localhost:5003`                       | Target Products Service                            |
-| `ORDER_SERVICE_URL`       | `http://localhost:5004`                       | Target Orders Service                              |
+| `APP_MANAGER_SERVICE_URL` | Tidak ada                                     | Target App Manager Service                         |
+| `MARKETING_SERVICE_URL`   | Tidak ada                                     | Target Marketing Service                           |
 | `RATE_LIMIT_WINDOW_MS`    | `900000`                                      | Durasi window rate limiter                         |
 | `RATE_LIMIT_MAX_REQUESTS` | `100`                                         | Maksimum request per IP per window                 |
 

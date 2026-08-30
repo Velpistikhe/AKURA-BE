@@ -30,18 +30,4 @@ export const servicesConfig: ServiceRouteConfig[] = [
     pathRewrite: { '^/api/v1/marketing': '' },
     description: 'Marketing Service',
   },
-  {
-    prefix: '/api/v1/products',
-    target: env.PRODUCT_SERVICE_URL,
-    authRequired: false,
-    pathRewrite: { '^/api/v1/products': '' },
-    description: 'Product Catalog Service',
-  },
-  {
-    prefix: '/api/v1/orders',
-    target: env.ORDER_SERVICE_URL,
-    authRequired: true,
-    pathRewrite: { '^/api/v1/orders': '' },
-    description: 'Order and Checkout Service',
-  },
 ];
