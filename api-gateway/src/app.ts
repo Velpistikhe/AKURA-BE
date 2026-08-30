@@ -1,4 +1,5 @@
 import express, { Express, Request, Response } from 'express';
+import { readFileSync } from 'node:fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -13,6 +14,7 @@ import proxyRoutes from './routes/proxy.routes.js';
 import { servicesConfig } from './config/services.config.js';
 
 const app: Express = express();
+const swaggerCss = readFileSync(require.resolve('swagger-ui-dist/swagger-ui.css'), 'utf8');
 
 app.use(helmet());
 app.use(cors({
@@ -25,7 +27,7 @@ app.use(loggerMiddleware);
 app.use(cookieParser());
 
 app.use(globalRateLimiter);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customCss: swaggerCss }));
 app.get('/api-docs.json', (_req: Request, res: Response) => {
   res.status(200).json(swaggerSpec);
 });

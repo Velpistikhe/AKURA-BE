@@ -1,5 +1,3 @@
-import { env } from '../config/env.js';
-
 const schemaRef = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 
 const jsonContent = (schema: object) => ({
@@ -58,8 +56,8 @@ export const openApiDocument = {
   },
   servers: [
     {
-      url: `http://localhost:${env.PORT}`,
-      description: 'Local API Gateway',
+      url: '/',
+      description: 'Current API Gateway host',
     },
   ],
   tags: [
