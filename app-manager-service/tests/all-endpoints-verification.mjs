@@ -196,8 +196,6 @@ try {
       label: 'Endpoint Test Item',
       path: `/endpoint-test/${slug}`,
       order: 1,
-      role: 'USER',
-      section: 'MARKETING',
     },
   }), [201]);
   menuItemId = item.body.data.id;
@@ -230,7 +228,7 @@ try {
   }), [200]);
   item = check('PATCH /api/v1/app-manager/menu-items/{menuItemId}', await request(`/api/v1/app-manager/menu-items/${menuItemId}`, {
     method: 'PATCH', cookies: managerCookies, json: {
-      label: 'Updated Endpoint Test Item', role: null, section: null,
+      label: 'Updated Endpoint Test Item',
     },
   }), [200]);
 

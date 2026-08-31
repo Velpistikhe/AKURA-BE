@@ -8,8 +8,7 @@ const send = (req: Request, res: Response, status: number, message: string, data
 export const serviceController = {
   async list(req: Request, res: Response) { send(req, res, 200, 'Services retrieved successfully', await serviceService.list(res.locals.query as ListServicesInput)); },
   async get(req: Request, res: Response) {
-    const query = res.locals.query as { itemPage: number; itemLimit: number };
-    send(req, res, 200, 'Service retrieved successfully', await serviceService.get((res.locals.params as { serviceId: string }).serviceId, query.itemPage, query.itemLimit));
+    send(req, res, 200, 'Service retrieved successfully', await serviceService.get((res.locals.params as { serviceId: string }).serviceId));
   },
   async create(req: Request, res: Response) { send(req, res, 201, 'Service created successfully', await serviceService.create(res.locals.body as CreateServiceInput)); },
   async update(req: Request, res: Response) { send(req, res, 200, 'Service updated successfully', await serviceService.update((res.locals.params as { serviceId: string }).serviceId, res.locals.body as UpdateServiceInput)); },

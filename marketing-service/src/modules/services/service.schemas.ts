@@ -1,7 +1,6 @@
 import { z } from 'zod';
+import { SERVICE_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
-
-export const SERVICE_SORT_FIELDS = ['code', 'name', 'isActive'] as const;
 
 const fields = {
   code: z.string().trim().min(1).max(50).regex(/^[A-Z0-9_-]+$/),
@@ -16,14 +15,8 @@ export const serviceScopeIdSchema = z.object({
   scopeId: z.string().uuid(),
 }).strict();
 export const listServicesSchema = z.object({
-  ...createListQueryFields(SERVICE_SORT_FIELDS),
-  code: z.string().trim().min(1).max(50).optional(),
-  name: z.string().trim().min(1).max(200).optional(),
-  isActive: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-}).strict();
-export const serviceItemsQuerySchema = z.object({
-  itemPage: z.coerce.number().int().min(1).default(1),
-  itemLimit: z.coerce.number().int().min(1).max(100).default(20),
+  ...createListQueryFields(SERVICE_LIST_CONFIG),
+  ...SERVICE_LIST_CONFIG.filterFields,
 }).strict();
 export const maintenanceInput = z.object({
   name: fields.name,

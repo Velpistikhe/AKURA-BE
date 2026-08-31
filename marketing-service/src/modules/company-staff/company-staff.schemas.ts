@@ -1,15 +1,12 @@
 import { StaffTitle } from '@prisma/client';
 import { z } from 'zod';
+import { COMPANY_STAFF_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
-
-export const COMPANY_STAFF_SORT_FIELDS = ['companyId', 'name', 'title', 'version', 'updatedAt'] as const;
 
 export const companyStaffIdSchema = z.object({ companyStaffId: z.string().uuid() });
 export const listCompanyStaffSchema = z.object({
-  ...createListQueryFields(COMPANY_STAFF_SORT_FIELDS),
-  companyId: z.string().uuid().optional(),
-  search: z.string().trim().min(1).max(100).optional(),
-  title: z.nativeEnum(StaffTitle).optional(),
+  ...createListQueryFields(COMPANY_STAFF_LIST_CONFIG),
+  ...COMPANY_STAFF_LIST_CONFIG.filterFields,
 }).strict();
 export const createCompanyStaffSchema = z.object({
   companyId: z.string().uuid(),

@@ -1,11 +1,10 @@
 import { z } from 'zod';
+import { ITEM_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
 export const listItemsSchema = z
   .object({
-    ...createListQueryFields(['serviceName', 'itemName', 'size'] as const),
-    serviceName: z.string().trim().min(1).max(200).optional(),
-    itemName: z.string().trim().min(1).max(200).optional(),
-    size: z.string().trim().min(1).max(100).optional(),
+    ...createListQueryFields(ITEM_LIST_CONFIG),
+    ...ITEM_LIST_CONFIG.filterFields,
   })
   .strict();
 

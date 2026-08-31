@@ -1,18 +1,15 @@
 import { UserRole, UserSection } from '@prisma/client';
 import { z } from 'zod';
+import { MENU_ACCESS_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
-
-export const MENU_ACCESS_SORT_FIELDS = ['menuItemId', 'role', 'section', 'updatedAt'] as const;
 
 export const menuAccessIdSchema = z.object({
   menuAccessId: z.string().uuid('Invalid menu access ID'),
 }).strict();
 
 export const listMenuAccessesSchema = z.object({
-  ...createListQueryFields(MENU_ACCESS_SORT_FIELDS),
-  menuItemId: z.string().uuid('Invalid menu item ID').optional(),
-  role: z.nativeEnum(UserRole).optional(),
-  section: z.nativeEnum(UserSection).optional(),
+  ...createListQueryFields(MENU_ACCESS_LIST_CONFIG),
+  ...MENU_ACCESS_LIST_CONFIG.filterFields,
 }).strict();
 
 export const createMenuAccessSchema = z.object({

@@ -1,7 +1,6 @@
 import { z } from 'zod';
+import { COMPANY_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
-
-export const COMPANY_SORT_FIELDS = ['name', 'type', 'address', 'hasContract', 'version', 'updatedAt'] as const;
 
 const fields = {
   name: z.string().trim().min(1).max(200),
@@ -11,9 +10,8 @@ const fields = {
 
 export const companyIdSchema = z.object({ companyId: z.string().uuid() });
 export const listCompaniesSchema = z.object({
-  ...createListQueryFields(COMPANY_SORT_FIELDS),
-  search: z.string().trim().min(1).max(100).optional(),
-  hasContract: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  ...createListQueryFields(COMPANY_LIST_CONFIG),
+  ...COMPANY_LIST_CONFIG.filterFields,
 }).strict();
 export const createCompanySchema = z.object({ ...fields, hasContract: z.boolean().optional().default(false) }).strict();
 export const updateCompanySchema = z.object({

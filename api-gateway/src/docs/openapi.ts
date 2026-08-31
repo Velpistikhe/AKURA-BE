@@ -558,8 +558,6 @@ export const openApiDocument = {
           label: { type: 'string', minLength: 1, maxLength: 200, example: 'Daftar Pengguna' },
           path: { type: 'string', minLength: 1, maxLength: 500, example: '/app-manager/users', description: 'Frontend route path.' },
           order: { type: 'integer', minimum: 0, default: 0 },
-          role: { ...schemaRef('NullableMenuAccessRole'), deprecated: true, description: 'Legacy compatibility field. Accepted but not stored; configure access on the parent menu through accesses.' },
-          section: { ...schemaRef('NullableUserSection'), deprecated: true, description: 'Legacy compatibility field. Accepted but not stored; configure access on the parent menu through accesses.' },
         },
       },
       UpdateMenuItemRequest: {
@@ -572,8 +570,6 @@ export const openApiDocument = {
           path: { type: 'string', minLength: 1, maxLength: 500, example: '/app-manager/users' },
           order: { type: 'integer', minimum: 0 },
           isActive: { type: 'boolean' },
-          role: { ...schemaRef('NullableMenuAccessRole'), deprecated: true, description: 'Legacy compatibility field. Accepted but not stored; configure access on the parent menu through accesses.' },
-          section: { ...schemaRef('NullableUserSection'), deprecated: true, description: 'Legacy compatibility field. Accepted but not stored; configure access on the parent menu through accesses.' },
         },
       },
       Company: {
@@ -1708,8 +1704,6 @@ export const openApiDocument = {
         tags: ['Marketing'], summary: 'Get a service', security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
-          { in: 'query', name: 'itemPage', schema: { type: 'integer', minimum: 1, default: 1 } },
-          { in: 'query', name: 'itemLimit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
         ],
         responses: {
           200: { description: 'Service retrieved', ...jsonContent(schemaRef('ServiceResponse')) },

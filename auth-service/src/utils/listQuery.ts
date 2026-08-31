@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 export type SortDirection = 'asc' | 'desc';
 
+type ListQueryConfig<TSortField extends string> = {
+  sortFields: readonly [TSortField, ...TSortField[]];
+  pagination: { defaultPage: number; defaultLimit: number; maxLimit: number };
+};
+
 type BaseListQuery<TSortField extends string> = {
   page: number;
   limit: number;
@@ -14,12 +19,11 @@ type FilterRules<TInput, TWhere extends object> = {
 };
 
 export const createListQueryFields = <TSortField extends string>(
-  sortFields: readonly [TSortField, ...TSortField[]],
-  defaults: { limit?: number } = {},
+  config: ListQueryConfig<TSortField>,
 ) => ({
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(defaults.limit ?? 20),
-  sortBy: z.enum(sortFields).optional(),
+  page: z.coerce.number().int().positive().default(config.pagination.defaultPage),
+  limit: z.coerce.number().int().min(1).max(config.pagination.maxLimit).default(config.pagination.defaultLimit),
+  sortBy: z.enum(config.sortFields).optional(),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 

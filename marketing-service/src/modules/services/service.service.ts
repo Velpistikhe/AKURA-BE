@@ -4,8 +4,8 @@ import { serviceRepository } from './service.repository.js';
 
 export const serviceService = {
   list: (input: ListServicesInput) => serviceRepository.list(input),
-  async get(id: string, itemPage = 1, itemLimit = 20) {
-    const service = await serviceRepository.findById(id, itemPage, itemLimit);
+  async get(id: string) {
+    const service = await serviceRepository.findById(id);
     if (!service) throw new HttpError('Service not found', 404);
     return service;
   },

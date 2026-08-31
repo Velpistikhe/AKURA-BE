@@ -1,7 +1,6 @@
 import { z } from 'zod';
+import { MAINTENANCE_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
-
-export const MAINTENANCE_SORT_FIELDS = ['name', 'isActive'] as const;
 
 const scopes = z.array(z.string().trim().min(1).max(500)).max(100).default([])
   .refine((values) => new Set(values).size === values.length, 'Scopes must be unique');
@@ -12,9 +11,8 @@ export const maintenanceScopeIdSchema = z.object({
   scopeId: z.string().uuid(),
 }).strict();
 export const listMaintenancesSchema = z.object({
-  ...createListQueryFields(MAINTENANCE_SORT_FIELDS),
-  name: z.string().trim().min(1).max(200).optional(),
-  isActive: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  ...createListQueryFields(MAINTENANCE_LIST_CONFIG),
+  ...MAINTENANCE_LIST_CONFIG.filterFields,
 }).strict();
 export const createMaintenanceSchema = z.object({
   name: z.string().trim().min(1).max(200),

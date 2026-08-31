@@ -54,7 +54,7 @@ export const serviceRepository = {
       pagination: result.pagination,
     };
   },
-  async findById(id: string, _itemPage = 1, _itemLimit = 20) {
+  async findById(id: string) {
     const service = await prisma.service.findUnique({ where: { id }, select: detailSelect });
     if (!service) return null;
     return service;

@@ -1,16 +1,14 @@
 import { z } from 'zod';
+import { MENU_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
-
-export const MENU_SORT_FIELDS = ['key', 'label', 'order', 'isActive', 'updatedAt'] as const;
 
 export const menuIdSchema = z.object({
   menuId: z.string().uuid('Invalid menu ID'),
 });
 
 export const listMenusSchema = z.object({
-  ...createListQueryFields(MENU_SORT_FIELDS),
-  search: z.string().trim().min(1).max(100).optional(),
-  isActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  ...createListQueryFields(MENU_LIST_CONFIG),
+  ...MENU_LIST_CONFIG.filterFields,
 }).strict();
 
 export const createMenuSchema = z.object({
