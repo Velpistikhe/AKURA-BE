@@ -10,13 +10,11 @@ export const serviceService = {
     return service;
   },
   async create(data: CreateServiceInput) {
-    if (await serviceRepository.findByCode(data.code)) throw new HttpError(`Service code '${data.code}' already exists`, 409);
     return serviceRepository.create(data);
   },
   async update(id: string, data: UpdateServiceInput) {
     const current = await serviceRepository.findById(id);
     if (!current) throw new HttpError('Service not found', 404);
-    if (data.code && data.code !== current.code && await serviceRepository.findByCode(data.code)) throw new HttpError(`Service code '${data.code}' already exists`, 409);
     const hasMaintenance = data.hasMaintenance ?? current.hasMaintenance;
     if (!hasMaintenance && data.maintenanceScopes && data.maintenanceScopes.length > 0) {
       throw new HttpError('Maintenance scopes require hasMaintenance to be true', 400);

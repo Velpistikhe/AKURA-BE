@@ -615,10 +615,9 @@ export const openApiDocument = {
       },
       Service: {
         type: 'object',
-        required: ['id', 'code', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
-          code: { type: 'string', example: 'SOCIAL_MEDIA' },
           name: { type: 'string', example: 'Social Media Management' },
           hasMaintenance: { type: 'boolean' },
           isActive: { type: 'boolean' },
@@ -630,10 +629,9 @@ export const openApiDocument = {
       },
       ServiceListItem: {
         type: 'object',
-        required: ['id', 'code', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
-          code: { type: 'string', example: 'SOCIAL_MEDIA' },
           name: { type: 'string', example: 'Social Media Management' },
           hasMaintenance: { type: 'boolean' },
           isActive: { type: 'boolean' },
@@ -875,9 +873,8 @@ export const openApiDocument = {
         },
       },
       CreateServiceRequest: {
-        type: 'object', required: ['code', 'name', 'hasMaintenance'], additionalProperties: false,
+        type: 'object', required: ['name', 'hasMaintenance'], additionalProperties: false,
         properties: {
-          code: { type: 'string', minLength: 1, maxLength: 50, pattern: '^[A-Z0-9_-]+$' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
           hasMaintenance: { type: 'boolean', description: 'When true, at least one maintenanceScopes item is required.' },
           scopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
@@ -887,7 +884,6 @@ export const openApiDocument = {
       UpdateServiceRequest: {
         type: 'object', minProperties: 1, additionalProperties: false,
         properties: {
-          code: { type: 'string', minLength: 1, maxLength: 50, pattern: '^[A-Z0-9_-]+$' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
           hasMaintenance: { type: 'boolean', description: 'Enabling maintenance requires at least one maintenanceScopes item; disabling it revokes active maintenance scopes.' },
           isActive: { type: 'boolean' },
@@ -1652,10 +1648,9 @@ export const openApiDocument = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'code', description: 'Case-insensitive partial match on code.', schema: { type: 'string', maxLength: 50 } },
           { in: 'query', name: 'name', description: 'Case-insensitive partial match on name.', schema: { type: 'string', maxLength: 200 } },
           { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
-          ...listSortParameters(['code', 'name', 'isActive']),
+          ...listSortParameters(['name', 'isActive']),
         ],
         responses: {
           200: { description: 'Services retrieved', ...jsonContent(schemaRef('ServiceListResponse')) },
@@ -1669,7 +1664,7 @@ export const openApiDocument = {
         responses: {
           201: { description: 'Service created', ...jsonContent(schemaRef('ServiceResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 409: errorResponse('Service code already exists'),
+          403: errorResponse('Marketing access is required'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
@@ -1695,7 +1690,6 @@ export const openApiDocument = {
           200: { description: 'Service updated', ...jsonContent(schemaRef('ServiceResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
-          409: errorResponse('Service code already exists'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },

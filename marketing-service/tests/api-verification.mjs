@@ -5,10 +5,11 @@ import { PrismaClient as MarketingPrismaClient } from '@prisma/client';
 const requireFromAuth = createRequire(new URL('../../auth-service/package.json', import.meta.url));
 const { PrismaClient: AuthPrismaClient } = requireFromAuth('@prisma/client');
 const gatewayUrl = process.env.TEST_GATEWAY_URL || 'http://localhost:5000';
+const stressTotal = Number.parseInt(process.env.TEST_STRESS_TOTAL || '25', 10);
+const stressConcurrency = Number.parseInt(process.env.TEST_STRESS_CONCURRENCY || '5', 10);
 const runId = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
 const username = `marketing_${runId}`.slice(0, 50);
 const password = 'MarketingTest-123!';
-const serviceCode = `SVC_${runId}`.toUpperCase();
 const companyName = `Test Company ${runId}`;
 const updatedCompanyName = `Updated Test Company ${runId}`;
 const companyNormalizeNames = [companyName, updatedCompanyName].map((name) => name.toLowerCase().replace(/\s+/g, ''));
@@ -16,6 +17,7 @@ const checks = [];
 let companyId;
 let companyStaffId;
 let serviceId;
+let itemId;
 
 const readEnv = (path) => Object.fromEntries(readFileSync(path, 'utf8').split(/\r?\n/)
   .filter((line) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(line))
@@ -47,6 +49,30 @@ const check = (name, result, expected, predicate = () => true) => {
   return result;
 };
 
+const summarizeStatuses = (results) => results.reduce((summary, result) => {
+  summary[result.status] = (summary[result.status] || 0) + 1;
+  return summary;
+}, {});
+
+const runLoad = async (name, total, concurrency, operation) => {
+  let cursor = 0;
+  const results = [];
+  const startedAt = Date.now();
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (cursor < total) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await operation(index);
+    }
+  });
+  await Promise.all(workers);
+  const durationMs = Date.now() - startedAt;
+  check(name, {
+    status: results.every((result) => result.status === 200) ? 200 : 500,
+    body: { total, concurrency, durationMs, statuses: summarizeStatuses(results) },
+  }, [200]);
+};
+
 try {
   check('Gateway rejects missing token', await request('/api/v1/marketing/companies'), [401]);
   check('OpenAPI exposes marketing endpoints', await request('/api-docs.json'), [200], (body) => [
@@ -56,6 +82,7 @@ try {
     '/api/v1/marketing/services/{serviceId}/scopes', '/api/v1/marketing/services/{serviceId}/scopes/{scopeId}',
     '/api/v1/marketing/services/{serviceId}/maintenance/scopes',
     '/api/v1/marketing/services/{serviceId}/maintenance/scopes/{scopeId}',
+    '/api/v1/marketing/items', '/api/v1/marketing/items/{itemId}',
   ].every((path) => body?.paths?.[path]));
 
   check('Register test user', await request('/api/v1/auth/register', {
@@ -72,6 +99,17 @@ try {
     json: { name: companyName, type: 'CUSTOMER', address: 'Jakarta', hasContract: false },
   }), [201], (body) => body?.data?.normalizeName === companyNormalizeNames[0] && body?.data?.version === 0);
   companyId = company.body.data.id;
+  const raceCompanyName = `Race Company ${runId}`;
+  companyNormalizeNames.push(raceCompanyName.toLowerCase().replace(/\s+/g, ''));
+  const companyRace = await Promise.all(Array.from({ length: 6 }, () => request('/api/v1/marketing/companies', {
+    method: 'POST', cookies: login.cookies,
+    json: { name: raceCompanyName, type: 'CUSTOMER', address: 'Jakarta' },
+  })));
+  const companyRaceStatuses = summarizeStatuses(companyRace);
+  check('Concurrent company create preserves unique active normalized name', {
+    status: companyRaceStatuses[201] === 1 && companyRaceStatuses[409] === 5 ? 200 : 500,
+    body: companyRaceStatuses,
+  }, [200]);
   check('POST duplicate normalized company', await request('/api/v1/marketing/companies', {
     method: 'POST', cookies: login.cookies,
     json: { name: companyName.toUpperCase().replaceAll(' ', '   '), type: 'CUSTOMER', address: 'Bandung' },
@@ -113,7 +151,6 @@ try {
   const service = check('POST services', await request('/api/v1/marketing/services', {
     method: 'POST', cookies: login.cookies,
     json: {
-      code: serviceCode,
       name: 'Campaign Management',
       hasMaintenance: true,
       scopes: ['Planning', 'Execution'],
@@ -122,7 +159,7 @@ try {
   }), [201], (body) => body?.data?.maintenanceScopes?.length === 2);
   serviceId = service.body.data.id;
   if (service.body.data.scopes?.length !== 2) throw new Error('POST services did not create scopes');
-  check('GET services returns joined scopes', await request(`/api/v1/marketing/services?code=${encodeURIComponent(serviceCode)}&sortBy=name&sortOrder=asc`, { cookies: login.cookies }), [200],
+  check('GET services returns joined scopes', await request('/api/v1/marketing/services?name=Campaign%20Management&sortBy=name&sortOrder=asc', { cookies: login.cookies }), [200],
     (body) => body?.data?.services?.some((item) => item.id === serviceId
       && item.scopes === 'Planning, Execution'
       && item.maintenanceScopes === 'Inspection, Cleaning'));
@@ -159,6 +196,78 @@ try {
   if (!revokedMaintenanceScope?.revoked) throw new Error('DELETE maintenance scope did not persist revoked=true');
   check('GET service excludes revoked maintenance scope', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200],
     (body) => !body?.data?.maintenanceScopes?.some((scope) => scope.id === maintenanceScope.body.data.id));
+
+  const racingScopeName = `Racing Scope ${runId}`;
+  const scopeRace = await Promise.all(Array.from({ length: 8 }, () => request(`/api/v1/marketing/services/${serviceId}/scopes`, {
+    method: 'POST', cookies: login.cookies, json: { scope: racingScopeName },
+  })));
+  const racingScopeRows = await marketingPrisma.serviceScope.count({ where: { serviceId, scope: racingScopeName, revoked: false } });
+  check('Concurrent service scope requests preserve one active row', {
+    status: scopeRace.every((result) => [201, 409].includes(result.status)) && racingScopeRows === 1 ? 200 : 500,
+    body: { statuses: summarizeStatuses(scopeRace), activeRows: racingScopeRows },
+  }, [200]);
+
+  const lostUpdateName = `Lost Update Safe ${runId}`;
+  const lostUpdateScopes = [`Lost Update Scope ${runId}`];
+  const lostUpdateRace = await Promise.all([
+    request(`/api/v1/marketing/services/${serviceId}`, {
+      method: 'PATCH', cookies: login.cookies, json: { name: lostUpdateName },
+    }),
+    request(`/api/v1/marketing/services/${serviceId}`, {
+      method: 'PATCH', cookies: login.cookies, json: { scopes: lostUpdateScopes },
+    }),
+  ]);
+  const serviceAfterLostUpdateRace = await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies });
+  check('Concurrent disjoint service updates do not lose either change', {
+    status: lostUpdateRace.every((result) => result.status === 200)
+      && serviceAfterLostUpdateRace.status === 200
+      && serviceAfterLostUpdateRace.body?.data?.name === lostUpdateName
+      && serviceAfterLostUpdateRace.body?.data?.scopes?.map((scope) => scope.scope).join(',') === lostUpdateScopes[0]
+      ? 200 : 500,
+    body: { patchStatuses: summarizeStatuses(lostUpdateRace), service: serviceAfterLostUpdateRace.body?.data },
+  }, [200]);
+
+  const item = check('POST item', await request('/api/v1/marketing/items', {
+    method: 'POST', cookies: login.cookies,
+    json: {
+      serviceId,
+      name: `Endpoint Item ${runId}`,
+      sizes: [{
+        size: `Size ${runId}`,
+        priceServicePrimary: 100,
+        priceServiceSisterCompany: 90,
+        priceMaintenancePrimary: 50,
+        priceMaintenanceSisterCompany: 40,
+      }],
+    },
+  }), [201], (body) => body?.data?.sizes?.length === 1);
+  itemId = item.body.data.id;
+  check('GET items', await request(`/api/v1/marketing/items?itemName=${encodeURIComponent(`Endpoint Item ${runId}`)}`, {
+    cookies: login.cookies,
+  }), [200], (body) => body?.data?.items?.some((row) => row.item?.id === itemId));
+  check('GET item detail', await request(`/api/v1/marketing/items/${itemId}`, { cookies: login.cookies }), [200],
+    (body) => body?.data?.id === itemId);
+  check('PATCH item', await request(`/api/v1/marketing/items/${itemId}`, {
+    method: 'PATCH', cookies: login.cookies,
+    json: {
+      serviceId,
+      name: `Updated Endpoint Item ${runId}`,
+      sizes: [{
+        size: `Updated Size ${runId}`,
+        priceServicePrimary: 110,
+        priceServiceSisterCompany: 95,
+        priceMaintenancePrimary: 55,
+        priceMaintenanceSisterCompany: 45,
+      }],
+    },
+  }), [200], (body) => body?.data?.name === `Updated Endpoint Item ${runId}`);
+  check('DELETE item', await request(`/api/v1/marketing/items/${itemId}`, {
+    method: 'DELETE', cookies: login.cookies,
+  }), [200], (body) => body?.data?.isActive === false);
+  itemId = undefined;
+
+  await runLoad('Concurrent service detail stress test', stressTotal, stressConcurrency,
+    () => request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }));
   check('DELETE service', await request(`/api/v1/marketing/services/${serviceId}`, { method: 'DELETE', cookies: login.cookies }), [200]);
   serviceId = undefined;
   check('DELETE company staff', await request(`/api/v1/marketing/company-staffs/${companyStaffId}`, { method: 'DELETE', cookies: login.cookies }), [200],
@@ -171,6 +280,7 @@ try {
   console.error(JSON.stringify({ runId, passed: checks.filter((item) => item.passed).length, failed: 1, error: error.message, checks }, null, 2));
   process.exitCode = 1;
 } finally {
+  if (itemId) await marketingPrisma.item.deleteMany({ where: { id: itemId } }).catch(() => undefined);
   if (serviceId) await marketingPrisma.service.deleteMany({ where: { id: serviceId } }).catch(() => undefined);
   await marketingPrisma.company.deleteMany({ where: { normalizeName: { in: companyNormalizeNames } } }).catch(() => undefined);
   await authPrisma.user.deleteMany({ where: { normalizeUsername: username.toLowerCase() } }).catch(() => undefined);

@@ -52,7 +52,6 @@ model CompanyStaff {
 
 model Service {
   id                String             @id @default(uuid()) @db.Uuid
-  code              String             @unique
   name              String
   hasMaintenance    Boolean            @default(false) @map("has_maintenance")
   isActive          Boolean            @default(true) @map("is_active")

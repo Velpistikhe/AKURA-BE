@@ -19,9 +19,8 @@ export const COMPANY_LIST_CONFIG = {
 } as const;
 
 export const SERVICE_LIST_CONFIG = {
-  sortFields: ['code', 'name', 'isActive'],
+  sortFields: ['name', 'isActive'],
   filterFields: {
-    code: z.string().trim().min(1).max(50).optional(),
     name: z.string().trim().min(1).max(200).optional(),
     isActive: booleanFilter,
   },

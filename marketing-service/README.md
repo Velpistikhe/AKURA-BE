@@ -42,7 +42,7 @@ Endpoint daftar menerima `page` (default `1`), `limit` (default `20`, maksimum `
 |---|---|---|---|---|
 | `GET /companies` | `hasContract` | `name`, `type`, `address` | `name`, `type`, `address`, `hasContract`, `version`, `updatedAt` | `createdAt desc` |
 | `GET /company-staffs` | `companyId`, `title` | `name`, `telp`, `email` | `companyId`, `name`, `title`, `version`, `updatedAt` | `createdAt desc` |
-| `GET /services` | `isActive` | `code`, `name` | `code`, `name`, `isActive`, `updatedAt` | `createdAt desc` |
+| `GET /services` | `isActive`, `name` | - | `name`, `isActive` | `createdAt desc` |
 
 Jika `sortBy` tidak dikirim, hasil selalu memakai `createdAt desc`; `createdAt` tidak dapat dipilih secara eksplisit oleh user. Contoh: `/api/v1/marketing/services?isActive=true&sortBy=name&sortOrder=asc&page=1&limit=20`.
 
@@ -61,7 +61,6 @@ Contoh payload create service:
 
 ```json
 {
-  "code": "INSTALLATION",
   "name": "Installation",
   "hasMaintenance": true,
   "scopes": ["Survey lokasi", "Instalasi perangkat"],
@@ -79,6 +78,12 @@ Jika migrasi relasi maintenance scope sebelumnya sudah pernah dijalankan, rename
 
 ```powershell
 npm run db:migrate-service-has-maintenance
+```
+
+Untuk menghapus kolom `code` lama dari tabel `services`, jalankan:
+
+```powershell
+npm run db:migrate-remove-service-code
 ```
 
 Untuk menyelaraskan nama tabel lama `company_staff` dengan konvensi PostgreSQL plural `company_staffs`, hentikan service lalu jalankan:
@@ -104,3 +109,14 @@ npm run dev
 ```
 
 Melalui gateway, endpoint tersedia pada `/api/v1/marketing/companies` dan `/api/v1/marketing/services`.
+
+## Pengujian API dan concurrency
+
+Dengan Auth Service, Marketing Service, dan API Gateway aktif, jalankan:
+
+```powershell
+npm run test:api
+```
+
+Harness menguji seluruh endpoint Marketing, race condition pada pembuatan company, request scope concurrent, perlindungan lost update untuk PATCH parsial, invariant row aktif, cleanup data, dan stress test request paralel.
+Jumlah request stress default adalah `25` dengan concurrency `5`; keduanya dapat dinaikkan melalui `TEST_STRESS_TOTAL` dan `TEST_STRESS_CONCURRENCY` dengan memperhatikan konfigurasi rate limit Gateway.

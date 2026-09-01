@@ -3,7 +3,6 @@ import { SERVICE_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
 
 const fields = {
-  code: z.string().trim().min(1).max(50).regex(/^[A-Z0-9_-]+$/),
   name: z.string().trim().min(1).max(200),
 };
 const scopeList = z.array(z.string().trim().min(1).max(500)).max(100)
@@ -35,7 +34,7 @@ export const createServiceScopeSchema = z.object({
   scope: z.string().trim().min(1).max(500),
 }).strict();
 export const updateServiceSchema = z.object({
-  code: fields.code.optional(), name: fields.name.optional(),
+  name: fields.name.optional(),
   hasMaintenance: z.boolean().optional(),
   isActive: z.boolean().optional(),
   scopes: scopeList.optional(),

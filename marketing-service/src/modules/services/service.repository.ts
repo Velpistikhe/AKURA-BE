@@ -12,14 +12,14 @@ const maintenanceScopeSelect = {
 } satisfies Prisma.MaintenanceScopeSelect;
 
 const detailSelect = {
-  id: true, code: true, name: true, hasMaintenance: true,
+  id: true, name: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: { where: { revoked: false }, select: scopeSelect },
   maintenanceScopes: { where: { revoked: false }, select: maintenanceScopeSelect },
 } satisfies Prisma.ServiceSelect;
 
 const listSelect = {
-  id: true, code: true, name: true, hasMaintenance: true,
+  id: true, name: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: {
     where: { revoked: false },
@@ -40,12 +40,11 @@ export const serviceRepository = {
       {
       filters: {
         isActive: (isActive) => ({ isActive }),
-        code: (code) => ({ code: { contains: code, mode: 'insensitive' } }),
         name: (name) => ({ name: { contains: name, mode: 'insensitive' } }),
       },
       defaultSort: { createdAt: 'desc' },
       sorts: defineSortRules<NonNullable<ListServicesInput['sortBy']>, Prisma.ServiceOrderByWithRelationInput>({
-        code: (direction) => ({ code: direction }), name: (direction) => ({ name: direction }),
+        name: (direction) => ({ name: direction }),
         isActive: (direction) => ({ isActive: direction }),
       }),
       },
@@ -66,10 +65,8 @@ export const serviceRepository = {
     if (!service) return null;
     return service;
   },
-  findByCode: (code: string) => prisma.service.findUnique({ where: { code }, select: { id: true } }),
   create: (data: CreateServiceInput) => prisma.service.create({
     data: {
-      code: data.code,
       name: data.name,
       hasMaintenance: data.hasMaintenance,
       isActive: true,
