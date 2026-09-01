@@ -35,8 +35,7 @@ export const itemRepository = {
           select: {
             id: true,
             name: true,
-            hasService: true,
-            maintenance: { select: { id: true, isActive: true } },
+            hasMaintenance: true,
           },
         },
         sizes: { where: { isActive: true } },

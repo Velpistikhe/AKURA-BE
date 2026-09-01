@@ -7,20 +7,26 @@ const scopeSelect = {
   id: true, serviceId: true, scope: true, revoked: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.ServiceScopeSelect;
 
+const maintenanceScopeSelect = {
+  id: true, serviceId: true, scope: true, revoked: true, createdAt: true, updatedAt: true,
+} satisfies Prisma.MaintenanceScopeSelect;
+
 const detailSelect = {
-  id: true, code: true, name: true, hasService: true,
-  maintenanceId: true,
-  maintenance: { select: { id: true, name: true, isActive: true, scopes: { where: { revoked: false }, select: { id: true, scope: true } } } },
+  id: true, code: true, name: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: { where: { revoked: false }, select: scopeSelect },
+  maintenanceScopes: { where: { revoked: false }, select: maintenanceScopeSelect },
 } satisfies Prisma.ServiceSelect;
 
 const listSelect = {
-  id: true, code: true, name: true, hasService: true,
-  maintenanceId: true,
-  maintenance: { select: { id: true, name: true, isActive: true } },
+  id: true, code: true, name: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: {
+    where: { revoked: false },
+    orderBy: { createdAt: 'asc' as const },
+    select: { scope: true },
+  },
+  maintenanceScopes: {
     where: { revoked: false },
     orderBy: { createdAt: 'asc' as const },
     select: { scope: true },
@@ -47,9 +53,10 @@ export const serviceRepository = {
       (where) => prisma.service.count({ where }),
     );
     return {
-      services: result.items.map(({ scopes, ...service }) => ({
+      services: result.items.map(({ scopes, maintenanceScopes, ...service }) => ({
         ...service,
         scopes: scopes.map(({ scope }) => scope).join(', '),
+        maintenanceScopes: maintenanceScopes.map(({ scope }) => scope).join(', '),
       })),
       pagination: result.pagination,
     };
@@ -64,60 +71,75 @@ export const serviceRepository = {
     data: {
       code: data.code,
       name: data.name,
-      hasService: data.hasService,
-      maintenance: data.hasService && data.maintenance ? { create: {
-        name: data.maintenance.name, isActive: true,
-        scopes: { create: data.maintenance.scopes.map((scope) => ({ scope, revoked: false })) },
-      } } : undefined,
+      hasMaintenance: data.hasMaintenance,
       isActive: true,
       scopes: { create: data.scopes.map((scope) => ({ scope, revoked: false })) },
+      maintenanceScopes: data.hasMaintenance
+        ? { create: data.maintenanceScopes.map((scope) => ({ scope, revoked: false })) }
+        : undefined,
     },
     select: detailSelect,
   }),
-  update: (id: string, data: UpdateServiceInput) => prisma.service.update({ where: { id }, data, select: detailSelect }),
+  update: (id: string, data: UpdateServiceInput) => prisma.$transaction(async (tx) => {
+    const { scopes, maintenanceScopes, ...serviceData } = data;
+    await tx.service.update({ where: { id }, data: serviceData });
+
+    if (scopes !== undefined) {
+      await tx.serviceScope.updateMany({ where: { serviceId: id, revoked: false }, data: { revoked: true } });
+      for (const scope of scopes) {
+        await tx.serviceScope.upsert({
+          where: { serviceId_scope: { serviceId: id, scope } },
+          create: { serviceId: id, scope, revoked: false },
+          update: { revoked: false },
+        });
+      }
+    }
+
+    if (data.hasMaintenance === false) {
+      await tx.maintenanceScope.updateMany({ where: { serviceId: id, revoked: false }, data: { revoked: true } });
+    } else if (maintenanceScopes !== undefined) {
+      await tx.maintenanceScope.updateMany({ where: { serviceId: id, revoked: false }, data: { revoked: true } });
+      for (const scope of maintenanceScopes) {
+        await tx.maintenanceScope.upsert({
+          where: { serviceId_scope: { serviceId: id, scope } },
+          create: { serviceId: id, scope, revoked: false },
+          update: { revoked: false },
+        });
+      }
+    }
+
+    return tx.service.findUniqueOrThrow({ where: { id }, select: detailSelect });
+  }),
   async deactivate(id: string) {
-    return prisma.$transaction(async (tx) => {
-      const current = await tx.service.findUnique({ where: { id }, select: { maintenanceId: true } });
-      if (!current) return null;
-      await tx.service.update({ where: { id }, data: { isActive: false } });
-      if (current.maintenanceId) await tx.maintenance.update({ where: { id: current.maintenanceId }, data: { isActive: false } });
-      return tx.service.findUnique({ where: { id }, select: detailSelect });
-    });
+    return prisma.service.update({ where: { id }, data: { isActive: false }, select: detailSelect });
   },
   findScopeByName: (serviceId: string, scope: string) => prisma.serviceScope.findUnique({
     where: { serviceId_scope: { serviceId, scope } },
     select: scopeSelect,
   }),
+  findMaintenanceScopeByName: (serviceId: string, scope: string) => prisma.maintenanceScope.findUnique({
+    where: { serviceId_scope: { serviceId, scope } },
+    select: maintenanceScopeSelect,
+  }),
   async createMaintenanceScope(serviceId: string, scope: string) {
-    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { maintenanceId: true, maintenance: { select: { isActive: true } } } });
-    if (!service?.maintenanceId || !service.maintenance?.isActive) return null;
+    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { hasMaintenance: true, isActive: true } });
+    if (!service?.isActive || !service.hasMaintenance) return null;
     return prisma.maintenanceScope.upsert({
-      where: { maintenanceId_scope: { maintenanceId: service.maintenanceId, scope } },
-      create: { maintenanceId: service.maintenanceId, scope, revoked: false },
+      where: { serviceId_scope: { serviceId, scope } },
+      create: { serviceId, scope, revoked: false },
       update: { revoked: false },
-      select: { id: true, maintenanceId: true, scope: true, revoked: true, createdAt: true, updatedAt: true },
+      select: maintenanceScopeSelect,
     });
   },
   async revokeMaintenanceScope(serviceId: string, scopeId: string) {
-    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { maintenanceId: true, maintenance: { select: { isActive: true } } } });
-    if (!service?.maintenanceId || !service.maintenance?.isActive) return null;
+    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { hasMaintenance: true, isActive: true } });
+    if (!service?.isActive || !service.hasMaintenance) return null;
     return prisma.maintenanceScope.updateMany({
-      where: { id: scopeId, maintenanceId: service.maintenanceId, revoked: false },
+      where: { id: scopeId, serviceId, revoked: false },
       data: { revoked: true },
-    }).then(async (result) => result.count ? prisma.maintenanceScope.findUnique({ where: { id: scopeId }, select: { id: true, maintenanceId: true, scope: true, revoked: true, createdAt: true, updatedAt: true } }) : null);
-  },
-  async createMaintenance(serviceId: string, data: { name: string; scopes: string[] }) {
-    return prisma.$transaction(async (tx) => {
-      const service = await tx.service.findUnique({ where: { id: serviceId }, select: { maintenanceId: true } });
-      if (!service) return null;
-      if (service.maintenanceId) return null;
-      const maintenance = await tx.maintenance.create({
-        data: { name: data.name, isActive: true, scopes: { create: data.scopes.map((scope) => ({ scope, revoked: false })) } },
-        select: { id: true, name: true, isActive: true, scopes: { where: { revoked: false }, select: { id: true, scope: true } } },
-      });
-      await tx.service.update({ where: { id: serviceId }, data: { maintenanceId: maintenance.id, hasService: true } });
-      return maintenance;
-    });
+    }).then(async (result) => result.count
+      ? prisma.maintenanceScope.findUnique({ where: { id: scopeId }, select: maintenanceScopeSelect })
+      : null);
   },
   async createScope(serviceId: string, scope: string) {
     const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { isActive: true } });

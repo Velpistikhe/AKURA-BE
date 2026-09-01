@@ -1,5 +1,5 @@
 import { HttpError } from '../../utils/httpError.js';
-import { CreateServiceInput, CreateServiceMaintenanceInput, CreateServiceScopeInput, ListServicesInput, UpdateServiceInput } from './service.schemas.js';
+import { CreateServiceInput, CreateServiceScopeInput, ListServicesInput, UpdateServiceInput } from './service.schemas.js';
 import { serviceRepository } from './service.repository.js';
 
 export const serviceService = {
@@ -17,30 +17,31 @@ export const serviceService = {
     const current = await serviceRepository.findById(id);
     if (!current) throw new HttpError('Service not found', 404);
     if (data.code && data.code !== current.code && await serviceRepository.findByCode(data.code)) throw new HttpError(`Service code '${data.code}' already exists`, 409);
+    const hasMaintenance = data.hasMaintenance ?? current.hasMaintenance;
+    if (!hasMaintenance && data.maintenanceScopes && data.maintenanceScopes.length > 0) {
+      throw new HttpError('Maintenance scopes require hasMaintenance to be true', 400);
+    }
+    if (hasMaintenance && data.maintenanceScopes !== undefined && data.maintenanceScopes.length === 0) {
+      throw new HttpError('At least one maintenance scope is required when maintenance is enabled', 400);
+    }
     return serviceRepository.update(id, data);
   },
   async createMaintenanceScope(serviceId: string, data: CreateServiceScopeInput) {
     const service = await serviceRepository.findById(serviceId);
     if (!service) throw new HttpError('Service not found', 404);
     if (!service.isActive) throw new HttpError('Service is inactive', 409);
-    if (!service.hasService) throw new HttpError('Service does not provide maintenance', 409);
+    if (!service.hasMaintenance) throw new HttpError('Service does not provide maintenance', 409);
+    const existing = await serviceRepository.findMaintenanceScopeByName(serviceId, data.scope);
+    if (existing && !existing.revoked) throw new HttpError(`Maintenance scope '${data.scope}' already exists`, 409);
     const scope = await serviceRepository.createMaintenanceScope(serviceId, data.scope);
-    if (!scope) throw new HttpError('Maintenance is inactive or not configured', 409);
+    if (!scope) throw new HttpError('Service is inactive or does not provide maintenance', 409);
     return scope;
-  },
-  async createMaintenance(serviceId: string, data: CreateServiceMaintenanceInput) {
-    const service = await serviceRepository.findById(serviceId);
-    if (!service) throw new HttpError('Service not found', 404);
-    if (!service.isActive) throw new HttpError('Service is inactive', 409);
-    const maintenance = await serviceRepository.createMaintenance(serviceId, data);
-    if (!maintenance) throw new HttpError('Service already has maintenance', 409);
-    return maintenance;
   },
   async deleteMaintenanceScope(serviceId: string, scopeId: string) {
     const service = await serviceRepository.findById(serviceId);
     if (!service) throw new HttpError('Service not found', 404);
     if (!service.isActive) throw new HttpError('Service is inactive', 409);
-    if (!service.hasService) throw new HttpError('Service does not provide maintenance', 409);
+    if (!service.hasMaintenance) throw new HttpError('Service does not provide maintenance', 409);
     const scope = await serviceRepository.revokeMaintenanceScope(serviceId, scopeId);
     if (!scope) throw new HttpError('Maintenance scope not found', 404);
     return scope;

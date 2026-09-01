@@ -9,7 +9,6 @@ const runId = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
 const username = `marketing_${runId}`.slice(0, 50);
 const password = 'MarketingTest-123!';
 const serviceCode = `SVC_${runId}`.toUpperCase();
-const maintenanceCode = `MNT_${runId}`.toUpperCase();
 const companyName = `Test Company ${runId}`;
 const updatedCompanyName = `Updated Test Company ${runId}`;
 const companyNormalizeNames = [companyName, updatedCompanyName].map((name) => name.toLowerCase().replace(/\s+/g, ''));
@@ -17,7 +16,6 @@ const checks = [];
 let companyId;
 let companyStaffId;
 let serviceId;
-let maintenanceId;
 
 const readEnv = (path) => Object.fromEntries(readFileSync(path, 'utf8').split(/\r?\n/)
   .filter((line) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(line))
@@ -56,8 +54,8 @@ try {
     '/api/v1/marketing/company-staffs', '/api/v1/marketing/company-staffs/{companyStaffId}',
     '/api/v1/marketing/services', '/api/v1/marketing/services/{serviceId}',
     '/api/v1/marketing/services/{serviceId}/scopes', '/api/v1/marketing/services/{serviceId}/scopes/{scopeId}',
-    '/api/v1/marketing/maintenances', '/api/v1/marketing/maintenances/{maintenanceId}',
-    '/api/v1/marketing/maintenances/{maintenanceId}/scopes', '/api/v1/marketing/maintenances/{maintenanceId}/scopes/{scopeId}',
+    '/api/v1/marketing/services/{serviceId}/maintenance/scopes',
+    '/api/v1/marketing/services/{serviceId}/maintenance/scopes/{scopeId}',
   ].every((path) => body?.paths?.[path]));
 
   check('Register test user', await request('/api/v1/auth/register', {
@@ -114,15 +112,26 @@ try {
 
   const service = check('POST services', await request('/api/v1/marketing/services', {
     method: 'POST', cookies: login.cookies,
-    json: { code: serviceCode, name: 'Campaign Management', scopes: ['Planning', 'Execution'] },
-  }), [201]);
+    json: {
+      code: serviceCode,
+      name: 'Campaign Management',
+      hasMaintenance: true,
+      scopes: ['Planning', 'Execution'],
+      maintenanceScopes: ['Inspection', 'Cleaning'],
+    },
+  }), [201], (body) => body?.data?.maintenanceScopes?.length === 2);
   serviceId = service.body.data.id;
   if (service.body.data.scopes?.length !== 2) throw new Error('POST services did not create scopes');
   check('GET services returns joined scopes', await request(`/api/v1/marketing/services?code=${encodeURIComponent(serviceCode)}&sortBy=name&sortOrder=asc`, { cookies: login.cookies }), [200],
-    (body) => body?.data?.services?.some((item) => item.id === serviceId && item.scopes === 'Planning, Execution'));
+    (body) => body?.data?.services?.some((item) => item.id === serviceId
+      && item.scopes === 'Planning, Execution'
+      && item.maintenanceScopes === 'Inspection, Cleaning'));
   check('GET services rejects unsupported sort field', await request('/api/v1/marketing/services?sortBy=updatedAt', { cookies: login.cookies }), [400]);
   check('GET service detail', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200]);
-  check('PATCH service', await request(`/api/v1/marketing/services/${serviceId}`, { method: 'PATCH', cookies: login.cookies, json: { name: 'Campaign Management Updated' } }), [200]);
+  check('PATCH service', await request(`/api/v1/marketing/services/${serviceId}`, {
+    method: 'PATCH', cookies: login.cookies,
+    json: { name: 'Campaign Management Updated', maintenanceScopes: ['Inspection', 'Repair'] },
+  }), [200], (body) => body?.data?.maintenanceScopes?.map((scope) => scope.scope).sort().join(',') === 'Inspection,Repair');
   const serviceScope = check('POST single service scope', await request(`/api/v1/marketing/services/${serviceId}/scopes`, {
     method: 'POST', cookies: login.cookies, json: { scope: `Single Service Scope ${runId}` },
   }), [201], (body) => body?.data?.serviceId === serviceId && body?.data?.revoked === false);
@@ -137,28 +146,19 @@ try {
   check('GET service excludes revoked scope', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200],
     (body) => !body?.data?.scopes?.some((scope) => scope.id === serviceScope.body.data.id));
 
-  const maintenance = check('POST maintenances', await request('/api/v1/marketing/maintenances', {
-    method: 'POST', cookies: login.cookies,
-    json: { code: maintenanceCode, name: 'Preventive Maintenance', scopes: ['Inspection', 'Cleaning'] },
-  }), [201], (body) => body?.data?.scopes?.length === 2);
-  maintenanceId = maintenance.body.data.id;
-  check('GET maintenances returns joined scopes', await request('/api/v1/marketing/maintenances?name=Preventive%20Maintenance&sortBy=name&sortOrder=asc', { cookies: login.cookies }), [200],
-    (body) => body?.data?.maintenances?.some((item) => item.id === maintenanceId && item.scopes === 'Inspection, Cleaning'));
-  check('GET maintenances rejects unsupported search filter', await request('/api/v1/marketing/maintenances?search=Maintenance', { cookies: login.cookies }), [400]);
-  check('GET maintenance detail', await request(`/api/v1/marketing/maintenances/${maintenanceId}`, { cookies: login.cookies }), [200], (body) => body?.data?.id === maintenanceId);
-  const maintenanceScope = check('POST single maintenance scope', await request(`/api/v1/marketing/maintenances/${maintenanceId}/scopes`, {
+  const maintenanceScope = check('POST single maintenance scope', await request(`/api/v1/marketing/services/${serviceId}/maintenance/scopes`, {
     method: 'POST', cookies: login.cookies, json: { scope: `Single Maintenance Scope ${runId}` },
-  }), [201], (body) => body?.data?.maintenanceId === maintenanceId && body?.data?.revoked === false);
-  check('POST duplicate active maintenance scope', await request(`/api/v1/marketing/maintenances/${maintenanceId}/scopes`, {
+  }), [201], (body) => body?.data?.serviceId === serviceId && body?.data?.revoked === false);
+  check('POST duplicate active maintenance scope', await request(`/api/v1/marketing/services/${serviceId}/maintenance/scopes`, {
     method: 'POST', cookies: login.cookies, json: { scope: `Single Maintenance Scope ${runId}` },
   }), [409]);
-  check('DELETE maintenance scope performs soft delete', await request(`/api/v1/marketing/maintenances/${maintenanceId}/scopes/${maintenanceScope.body.data.id}`, {
+  check('DELETE maintenance scope performs soft delete', await request(`/api/v1/marketing/services/${serviceId}/maintenance/scopes/${maintenanceScope.body.data.id}`, {
     method: 'DELETE', cookies: login.cookies,
   }), [200], (body) => body?.data?.revoked === true);
   const revokedMaintenanceScope = await marketingPrisma.maintenanceScope.findUnique({ where: { id: maintenanceScope.body.data.id } });
   if (!revokedMaintenanceScope?.revoked) throw new Error('DELETE maintenance scope did not persist revoked=true');
-  check('GET maintenance excludes revoked scope', await request(`/api/v1/marketing/maintenances/${maintenanceId}`, { cookies: login.cookies }), [200],
-    (body) => !body?.data?.scopes?.some((scope) => scope.id === maintenanceScope.body.data.id));
+  check('GET service excludes revoked maintenance scope', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200],
+    (body) => !body?.data?.maintenanceScopes?.some((scope) => scope.id === maintenanceScope.body.data.id));
   check('DELETE service', await request(`/api/v1/marketing/services/${serviceId}`, { method: 'DELETE', cookies: login.cookies }), [200]);
   serviceId = undefined;
   check('DELETE company staff', await request(`/api/v1/marketing/company-staffs/${companyStaffId}`, { method: 'DELETE', cookies: login.cookies }), [200],
@@ -172,7 +172,6 @@ try {
   process.exitCode = 1;
 } finally {
   if (serviceId) await marketingPrisma.service.deleteMany({ where: { id: serviceId } }).catch(() => undefined);
-  if (maintenanceId) await marketingPrisma.maintenance.deleteMany({ where: { id: maintenanceId } }).catch(() => undefined);
   await marketingPrisma.company.deleteMany({ where: { normalizeName: { in: companyNormalizeNames } } }).catch(() => undefined);
   await authPrisma.user.deleteMany({ where: { normalizeUsername: username.toLowerCase() } }).catch(() => undefined);
   await Promise.all([marketingPrisma.$disconnect(), authPrisma.$disconnect()]);

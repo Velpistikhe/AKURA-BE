@@ -9,11 +9,10 @@ export const itemService = {
   async validateServiceAndPrices(data: CreateItemInput | UpdateItemInput) {
     const service = await prisma.service.findUnique({
       where: { id: data.serviceId },
-      include: { maintenance: true },
     });
 
     if (!service || !service.isActive) throw new HttpError('Service is inactive or not found', 409);
-    if (service.hasService && data.sizes.some((size) => size.priceMaintenancePrimary == null)) {
+    if (service.hasMaintenance && data.sizes.some((size) => size.priceMaintenancePrimary == null)) {
       throw new HttpError('Maintenance primary price is required', 400);
     }
   },

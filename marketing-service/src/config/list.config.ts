@@ -38,15 +38,6 @@ export const ITEM_LIST_CONFIG = {
   pagination,
 } as const;
 
-export const MAINTENANCE_LIST_CONFIG = {
-  sortFields: ['name', 'isActive'],
-  filterFields: {
-    name: z.string().trim().min(1).max(200).optional(),
-    isActive: booleanFilter,
-  },
-  pagination,
-} as const;
-
 export const COMPANY_STAFF_LIST_CONFIG = {
   sortFields: ['companyId', 'name', 'title', 'version', 'updatedAt'],
   filterFields: {

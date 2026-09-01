@@ -16,10 +16,6 @@ export const serviceController = {
     const { serviceId } = res.locals.params as { serviceId: string };
     send(req, res, 201, 'Maintenance scope created successfully', await serviceService.createMaintenanceScope(serviceId, res.locals.body as CreateServiceScopeInput));
   },
-  async createMaintenance(req: Request, res: Response) {
-    const { serviceId } = res.locals.params as { serviceId: string };
-    send(req, res, 201, 'Maintenance created successfully', await serviceService.createMaintenance(serviceId, res.locals.body));
-  },
   async deleteMaintenanceScope(req: Request, res: Response) {
     const params = res.locals.params as { serviceId: string; scopeId: string };
     send(req, res, 200, 'Maintenance scope deleted successfully', await serviceService.deleteMaintenanceScope(params.serviceId, params.scopeId));
