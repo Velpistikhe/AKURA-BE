@@ -3,6 +3,7 @@ const { openApiDocument } = require('../dist/docs/openapi.js');
 const expectedOperations = [
   'GET /health',
   'GET /services',
+  'GET /api-docs',
   'GET /api-docs.json',
   'POST /api/v1/auth/register',
   'GET /api/v1/auth/.well-known/jwks.json',
@@ -83,8 +84,72 @@ const brokenReferences = [...references].filter((reference) => {
   return parts.reduce((value, part) => value?.[part], openApiDocument) === undefined;
 });
 
-if (missing.length || extra.length || brokenReferences.length) {
-  console.error(JSON.stringify({ missing, extra, brokenReferences }, null, 2));
+const expectedListContracts = {
+  '/api/v1/auth/users': {
+    filters: ['search', 'role', 'section', 'isActive'],
+    sorts: ['username', 'firstName', 'lastName', 'role', 'section', 'isActive', 'updatedAt'],
+    defaultLimit: 20,
+  },
+  '/api/v1/app-manager/menus': {
+    filters: ['search', 'hasItem', 'isActive'],
+    sorts: ['key', 'label', 'hasItem', 'order', 'isActive', 'updatedAt'],
+    defaultLimit: 20,
+  },
+  '/api/v1/app-manager/menu-items': {
+    filters: ['menuId', 'isActive', 'search'],
+    sorts: ['menuId', 'key', 'label', 'order', 'isActive', 'updatedAt'],
+    defaultLimit: 50,
+  },
+  '/api/v1/app-manager/menu-accesses': {
+    filters: ['menuItemId', 'role', 'section'],
+    sorts: ['menuItemId', 'role', 'section', 'updatedAt'],
+    defaultLimit: 20,
+  },
+  '/api/v1/marketing/companies': {
+    filters: ['search', 'hasContract'],
+    sorts: ['name', 'type', 'address', 'hasContract', 'version', 'updatedAt'],
+    defaultLimit: 20,
+  },
+  '/api/v1/marketing/company-staffs': {
+    filters: ['companyId', 'search', 'title'],
+    sorts: ['companyId', 'name', 'title', 'version', 'updatedAt'],
+    defaultLimit: 20,
+  },
+  '/api/v1/marketing/services': {
+    filters: ['name', 'isActive'],
+    sorts: ['name', 'isActive'],
+    defaultLimit: 20,
+  },
+  '/api/v1/marketing/items': {
+    filters: ['serviceName', 'itemName', 'size'],
+    sorts: ['serviceName', 'itemName', 'size'],
+    defaultLimit: 20,
+  },
+};
+
+const listContractErrors = [];
+for (const [path, contract] of Object.entries(expectedListContracts)) {
+  const parameters = openApiDocument.paths[path]?.get?.parameters || [];
+  const queryParameters = parameters.filter((parameter) => parameter.in === 'query');
+  const actualNames = queryParameters.map((parameter) => parameter.name).sort();
+  const expectedNames = ['page', 'limit', ...contract.filters, 'sortBy', 'sortOrder'].sort();
+  if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
+    listContractErrors.push({ path, field: 'queryParameters', expected: expectedNames, actual: actualNames });
+  }
+  const sortBy = queryParameters.find((parameter) => parameter.name === 'sortBy');
+  if (JSON.stringify(sortBy?.schema?.enum) !== JSON.stringify(contract.sorts)) {
+    listContractErrors.push({ path, field: 'sortBy', expected: contract.sorts, actual: sortBy?.schema?.enum });
+  }
+  const limit = queryParameters.find((parameter) => parameter.name === 'limit');
+  if (limit?.schema?.default !== contract.defaultLimit || limit?.schema?.maximum !== 100) {
+    listContractErrors.push({
+      path, field: 'limit', expected: { default: contract.defaultLimit, maximum: 100 }, actual: limit?.schema,
+    });
+  }
+}
+
+if (missing.length || extra.length || brokenReferences.length || listContractErrors.length) {
+  console.error(JSON.stringify({ missing, extra, brokenReferences, listContractErrors }, null, 2));
   process.exit(1);
 }
 

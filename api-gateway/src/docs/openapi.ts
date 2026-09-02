@@ -34,16 +34,32 @@ const clearedTokenCookieHeaders = {
 
 const userResponse = (description: string) => response(description, schemaRef('UserResponse'));
 
-const listSortParameters = (fields: string[]) => [
+const listSortParameters = (
+  fields: string[],
+  defaultSort = 'createdAt descending; createdAt cannot be requested explicitly.',
+) => [
   {
     in: 'query', name: 'sortBy',
-    description: 'Allowlisted field used for sorting. When omitted, results are sorted by createdAt descending; createdAt cannot be requested explicitly.',
+    description: `Allowlisted field used for sorting. When omitted, results are sorted by ${defaultSort}`,
     schema: { type: 'string', enum: fields },
   },
   {
     in: 'query', name: 'sortOrder',
     description: 'Sort direction.',
     schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
+  },
+];
+
+const refreshTokenParameters = [
+  {
+    in: 'cookie', name: 'refreshToken', required: false,
+    description: 'HTTP-only refresh token cookie set by login or token rotation.',
+    schema: { type: 'string' },
+  },
+  {
+    in: 'header', name: 'x-refresh-token', required: false,
+    description: 'Alternative refresh-token transport. The refreshToken cookie takes precedence when both are supplied.',
+    schema: { type: 'string' },
   },
 ];
 
@@ -94,6 +110,12 @@ export const openApiDocument = {
         enum: ['ACCOUNTING', 'FINANCE', 'HRD_MANAGEMENT', 'MARKETING', 'FIELD_SERVICE'],
         description: 'The department or division of the user. Null when not assigned.',
       },
+      NullableMenuAccessSection: {
+        type: 'string',
+        nullable: true,
+        enum: ['ACCOUNTING', 'FINANCE', 'HRD_MANAGEMENT', 'MARKETING', 'FIELD_SERVICE'],
+        description: 'Section granted access to a menu item. Null grants access to every section.',
+      },
       UserRole: {
         type: 'string',
         enum: ['USER', 'ADMIN', 'APP_MANAGER'],
@@ -130,21 +152,21 @@ export const openApiDocument = {
       MenuItem: {
         type: 'object',
         description: 'An active navigation item visible to the authenticated user after role and section filtering.',
-        required: ['key', 'label', 'path', 'order'],
+        required: ['key', 'label', 'order'],
         properties: {
           key: { type: 'string', example: 'users_list', description: 'Unique slug identifier.' },
           label: { type: 'string', example: 'Daftar Pengguna' },
-          path: { type: 'string', example: '/app-manager/users', description: 'Frontend route path.' },
           order: { type: 'integer', example: 1 },
         },
       },
       Menu: {
         type: 'object',
         description: 'An active navigation menu group containing items accessible to the authenticated user.',
-        required: ['key', 'label', 'order', 'items'],
+        required: ['key', 'label', 'hasItem', 'order', 'items'],
         properties: {
           key: { type: 'string', example: 'app_manager', description: 'Unique slug identifier.' },
           label: { type: 'string', example: 'App Manager' },
+          hasItem: { type: 'boolean', example: true },
           order: { type: 'integer', example: 1 },
           items: { type: 'array', items: schemaRef('MenuItem'), description: 'Sub-menu items within this group.' },
         },
@@ -171,12 +193,12 @@ export const openApiDocument = {
             {
               key: 'app_manager',
               label: 'App Manager',
+              hasItem: true,
               order: 1,
               items: [
                 {
                   key: 'users_list',
                   label: 'Daftar Pengguna',
-                  path: '/app-manager/users',
                   order: 1,
                 },
               ],
@@ -251,6 +273,46 @@ export const openApiDocument = {
           requestId: { type: 'string', format: 'uuid' },
         },
       },
+      GatewayHealthResponse: {
+        type: 'object',
+        required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', enum: [200] },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string', example: 'API Gateway is healthy' },
+          data: {
+            type: 'object', required: ['service', 'timestamp', 'uptime'],
+            properties: {
+              service: { type: 'string', enum: ['api-gateway'] },
+              timestamp: { type: 'string', format: 'date-time' },
+              uptime: { type: 'number', minimum: 0 },
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
+      ServiceRegistryResponse: {
+        type: 'object',
+        required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', enum: [200] },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string', example: 'Services list retrieved successfully' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object', required: ['prefix', 'target', 'authRequired', 'description'],
+              properties: {
+                prefix: { type: 'string', example: '/api/v1/auth' },
+                target: { type: 'string', description: 'Configured downstream service target.' },
+                authRequired: { type: 'boolean' },
+                description: { type: 'string' },
+              },
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       RegisterResponse: {
         type: 'object',
         description: 'Registration confirmation. Registration does not create a token session or set authentication cookies.',
@@ -287,17 +349,8 @@ export const openApiDocument = {
         type: 'object',
         required: ['username', 'password'],
         properties: {
-          username: { type: 'string', example: 'johndoe' },
+          username: { type: 'string', minLength: 1, example: 'johndoe' },
           password: { type: 'string', format: 'password', minLength: 1, example: 'securePassword123' },
-        },
-      },
-      RefreshRequest: {
-        type: 'object',
-        properties: {
-          refreshToken: {
-            type: 'string',
-            description: 'JWT containing a random id, user id in sub, and type=refresh.',
-          },
         },
       },
       UpdateProfileRequest: {
@@ -371,25 +424,17 @@ export const openApiDocument = {
       ManagedMenu: {
         type: 'object',
         description: 'A menu record managed by an app manager.',
-        required: ['id', 'key', 'label', 'order', 'isActive', 'createdAt', 'updatedAt'],
+        required: ['id', 'key', 'label', 'hasItem', 'order', 'isActive', 'createdAt', 'updatedAt'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           key: { type: 'string', example: 'app_manager' },
           label: { type: 'string', example: 'App Manager' },
+          hasItem: { type: 'boolean', example: true },
           order: { type: 'integer', example: 1 },
           isActive: { type: 'boolean', example: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
         },
-      },
-      MenuAccess: {
-        type: 'object', required: ['role', 'section'],
-        properties: {
-          id: { type: 'string', format: 'uuid', readOnly: true },
-          role: schemaRef('NullableMenuAccessRole'),
-          section: schemaRef('NullableUserSection'),
-        },
-        description: 'Grants access to a menu item. A null role applies to every role and a null section applies to every section.',
       },
       ManagedMenuAccess: {
         type: 'object',
@@ -398,7 +443,7 @@ export const openApiDocument = {
           id: { type: 'string', format: 'uuid' },
           menuItemId: { type: 'string', format: 'uuid' },
           role: schemaRef('NullableMenuAccessRole'),
-          section: schemaRef('NullableUserSection'),
+          section: schemaRef('NullableMenuAccessSection'),
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
           menuItem: {
@@ -443,7 +488,7 @@ export const openApiDocument = {
         properties: {
           menuItemId: { type: 'string', format: 'uuid' },
           role: schemaRef('NullableMenuAccessRole'),
-          section: schemaRef('NullableUserSection'),
+          section: schemaRef('NullableMenuAccessSection'),
         },
       },
       UpdateMenuAccessRequest: {
@@ -451,7 +496,7 @@ export const openApiDocument = {
         properties: {
           menuItemId: { type: 'string', format: 'uuid' },
           role: schemaRef('NullableMenuAccessRole'),
-          section: schemaRef('NullableUserSection'),
+          section: schemaRef('NullableMenuAccessSection'),
         },
       },
       MenuResponse: {
@@ -484,21 +529,47 @@ export const openApiDocument = {
         },
       },
       CreateMenuRequest: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['key', 'label'],
-        properties: {
-          key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'app_manager', description: 'Unique slug key.' },
-          label: { type: 'string', minLength: 1, maxLength: 200, example: 'App Manager' },
-          order: { type: 'integer', minimum: 0, default: 0 },
-        },
+        oneOf: [
+          {
+            type: 'object', additionalProperties: false, required: ['key', 'label', 'hasItem', 'items'],
+            properties: {
+              key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'app_manager' },
+              label: { type: 'string', minLength: 1, maxLength: 200, example: 'App Manager' },
+              hasItem: { type: 'boolean', enum: [true] },
+              order: { type: 'integer', minimum: 0, default: 0 },
+              items: {
+                type: 'array', minItems: 1, maxItems: 100,
+                description: 'Item keys must be unique within this request and globally across menu items.',
+                items: {
+                  type: 'object', additionalProperties: false, required: ['key', 'label'],
+                  properties: {
+                    key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$' },
+                    label: { type: 'string', minLength: 1, maxLength: 200 },
+                    order: { type: 'integer', minimum: 0, default: 0 },
+                  },
+                },
+              },
+            },
+          },
+          {
+            type: 'object', additionalProperties: false, required: ['key', 'label', 'hasItem'],
+            properties: {
+              key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'dashboard' },
+              label: { type: 'string', minLength: 1, maxLength: 200, example: 'Dashboard' },
+              hasItem: { type: 'boolean', enum: [false] },
+              order: { type: 'integer', minimum: 0, default: 0 },
+            },
+          },
+        ],
       },
       UpdateMenuRequest: {
         type: 'object',
+        description: 'Setting hasItem=false is rejected while any menu item still belongs to the menu. Setting it to true enables subsequent item creation but does not create items.',
         additionalProperties: false,
         properties: {
           key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'app_manager' },
           label: { type: 'string', minLength: 1, maxLength: 200, example: 'App Manager' },
+          hasItem: { type: 'boolean' },
           order: { type: 'integer', minimum: 0 },
           isActive: { type: 'boolean' },
         },
@@ -506,13 +577,12 @@ export const openApiDocument = {
       ManagedMenuItem: {
         type: 'object',
         description: 'A menu item record managed by an app manager.',
-        required: ['id', 'menuId', 'key', 'label', 'path', 'order', 'isActive', 'createdAt', 'updatedAt'],
+        required: ['id', 'menuId', 'key', 'label', 'order', 'isActive', 'createdAt', 'updatedAt'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           menuId: { type: 'string', format: 'uuid' },
           key: { type: 'string', example: 'users_list' },
           label: { type: 'string', example: 'Daftar Pengguna' },
-          path: { type: 'string', example: '/app-manager/users' },
           order: { type: 'integer', example: 1 },
           isActive: { type: 'boolean', example: true },
           createdAt: { type: 'string', format: 'date-time' },
@@ -551,12 +621,11 @@ export const openApiDocument = {
       CreateMenuItemRequest: {
         type: 'object',
         additionalProperties: false,
-        required: ['menuId', 'key', 'label', 'path'],
+        required: ['menuId', 'key', 'label'],
         properties: {
           menuId: { type: 'string', format: 'uuid', description: 'ID of the parent menu.' },
           key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'users_list', description: 'Unique slug key.' },
           label: { type: 'string', minLength: 1, maxLength: 200, example: 'Daftar Pengguna' },
-          path: { type: 'string', minLength: 1, maxLength: 500, example: '/app-manager/users', description: 'Frontend route path.' },
           order: { type: 'integer', minimum: 0, default: 0 },
         },
       },
@@ -567,14 +636,13 @@ export const openApiDocument = {
           menuId: { type: 'string', format: 'uuid' },
           key: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z0-9_-]+$', example: 'users_list' },
           label: { type: 'string', minLength: 1, maxLength: 200, example: 'Daftar Pengguna' },
-          path: { type: 'string', minLength: 1, maxLength: 500, example: '/app-manager/users' },
           order: { type: 'integer', minimum: 0 },
           isActive: { type: 'boolean' },
         },
       },
       Company: {
         type: 'object',
-        required: ['id', 'name', 'normalizeName', 'type', 'address', 'hasContract', 'revoked', 'version', 'createdAt', 'updatedAt'],
+        required: ['id', 'name', 'normalizeName', 'type', 'address', 'hasContract', 'revoked', 'version', 'createdAt', 'updatedAt', '_count'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           name: { type: 'string', example: 'PT Akura Indonesia' },
@@ -586,12 +654,12 @@ export const openApiDocument = {
           version: { type: 'integer', minimum: 0, example: 0 },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
-          _count: { type: 'object', properties: { staffs: { type: 'integer' } } },
+          _count: { type: 'object', required: ['staffs'], properties: { staffs: { type: 'integer', minimum: 0 } } },
         },
       },
       StaffTitle: { type: 'string', enum: ['mr', 'mrs'], example: 'mr' },
       CompanyStaff: {
-        type: 'object', required: ['id', 'companyId', 'name', 'normalizeName', 'title', 'revoked', 'version', 'createdAt', 'updatedAt'],
+        type: 'object', required: ['id', 'companyId', 'name', 'normalizeName', 'title', 'telp', 'email', 'revoked', 'version', 'createdAt', 'updatedAt', 'company'],
         properties: {
           id: { type: 'string', format: 'uuid' }, companyId: { type: 'string', format: 'uuid' },
           name: { type: 'string', example: 'John Doe' },
@@ -602,7 +670,13 @@ export const openApiDocument = {
           revoked: { type: 'boolean', example: false },
           version: { type: 'integer', minimum: 0, example: 0 },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
-          company: { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } } },
+          company: {
+            type: 'object', required: ['id', 'name', 'type', 'version'],
+            properties: {
+              id: { type: 'string', format: 'uuid' }, name: { type: 'string' },
+              type: { type: 'string' }, version: { type: 'integer', minimum: 0 },
+            },
+          },
         },
       },
       ServiceScope: {
@@ -650,6 +724,14 @@ export const openApiDocument = {
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
           sizes: { type: 'array', items: schemaRef('ItemSize') },
+          service: {
+            type: 'object',
+            description: 'Included by the item-detail endpoint; omitted by create, update, and deactivate responses.',
+            required: ['id', 'name', 'hasMaintenance'],
+            properties: {
+              id: { type: 'string', format: 'uuid' }, name: { type: 'string' }, hasMaintenance: { type: 'boolean' },
+            },
+          },
         },
       },
       ItemSize: {
@@ -669,6 +751,7 @@ export const openApiDocument = {
       },
       ItemListRow: {
         allOf: [schemaRef('ItemSize')],
+        required: ['item'],
         properties: {
           item: {
             type: 'object', required: ['id', 'serviceId', 'name', 'service'],
@@ -686,19 +769,6 @@ export const openApiDocument = {
           scope: { type: 'string' }, revoked: { type: 'boolean', example: false },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
         },
-      },
-      ItemPriceVersion: {
-        type: 'object',
-        required: ['itemId', 'price', 'quantity', 'satuan', 'isActive', 'version', 'createdAt'],
-        properties: {
-          itemId: { type: 'string', format: 'uuid' },
-          serviceId: { type: 'string', format: 'uuid' },
-          price: { type: 'string', format: 'decimal' },
-          quantity: { type: 'string', format: 'decimal' },
-          satuan: { type: 'string' }, isActive: { type: 'boolean' },
-          version: { type: 'integer', minimum: 1 }, createdAt: { type: 'string', format: 'date-time' },
-        },
-        description: 'Versioned item relation. An edit inserts a new row with the next version instead of replacing the previous row.',
       },
       Pagination: {
         type: 'object',
@@ -885,10 +955,10 @@ export const openApiDocument = {
         type: 'object', minProperties: 1, additionalProperties: false,
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 200 },
-          hasMaintenance: { type: 'boolean', description: 'Enabling maintenance requires at least one maintenanceScopes item; disabling it revokes active maintenance scopes.' },
+          hasMaintenance: { type: 'boolean', description: 'Whenever true is supplied, at least one maintenanceScopes item is required. Supplying false revokes active maintenance scopes.' },
           isActive: { type: 'boolean' },
-          scopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
-          maintenanceScopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 } },
+          scopes: { type: 'array', maxItems: 100, uniqueItems: true, description: 'When supplied, replaces all active service scopes; an empty array revokes all of them.', items: { type: 'string', minLength: 1, maxLength: 500 } },
+          maintenanceScopes: { type: 'array', maxItems: 100, uniqueItems: true, description: 'When supplied while maintenance is enabled, replaces all active maintenance scopes and cannot be empty.', items: { type: 'string', minLength: 1, maxLength: 500 } },
         },
       },
       CreateScopeRequest: {
@@ -915,6 +985,7 @@ export const openApiDocument = {
       },
       ItemSizeInput: {
         type: 'object', additionalProperties: false,
+        description: 'For services with hasMaintenance=true, priceMaintenancePrimary is required by business validation.',
         required: ['size', 'priceServicePrimary', 'priceServiceSisterCompany'],
         properties: {
           size: { type: 'string', minLength: 1, maxLength: 100 },
@@ -932,10 +1003,7 @@ export const openApiDocument = {
         tags: ['Gateway'],
         summary: 'Check gateway health',
         responses: {
-          200: response('Gateway is healthy', {
-            type: 'object',
-            additionalProperties: true,
-          }),
+          200: response('Gateway is healthy', schemaRef('GatewayHealthResponse')),
           429: errorResponse('Rate limit exceeded'),
         },
       },
@@ -945,10 +1013,20 @@ export const openApiDocument = {
         tags: ['Gateway'],
         summary: 'List registered downstream services',
         responses: {
-          200: response('Registered services', {
-            type: 'object',
-            additionalProperties: true,
-          }),
+          200: response('Registered services', schemaRef('ServiceRegistryResponse')),
+          429: errorResponse('Rate limit exceeded'),
+        },
+      },
+    },
+    '/api-docs': {
+      get: {
+        tags: ['Gateway'],
+        summary: 'Open the interactive Swagger UI',
+        responses: {
+          200: {
+            description: 'Swagger UI HTML',
+            content: { 'text/html': { schema: { type: 'string' } } },
+          },
           429: errorResponse('Rate limit exceeded'),
         },
       },
@@ -1021,12 +1099,13 @@ export const openApiDocument = {
       post: {
         tags: ['Authentication'],
         summary: 'Rotate a refresh token and issue a new token pair',
-        description: 'The refresh token can be supplied through the refreshToken cookie or request body. Rotation is rejected when the token is invalid, expired, revoked, reused, or exceeds the configured idle timeout (60 minutes by default). Every rejected token clears both accessToken and refreshToken cookies. A successful rotation records the latest activity time.',
-        requestBody: { required: false, ...jsonContent(schemaRef('RefreshRequest')) },
+        description: 'The refresh token is read only from the refreshToken cookie or x-refresh-token header. Rotation is rejected when the token is invalid, expired, revoked, reused, or exceeds the configured idle timeout (60 minutes by default). Every rejected token clears both accessToken and refreshToken cookies. A successful rotation records the latest activity time.',
+        parameters: refreshTokenParameters,
         responses: {
           200: { ...response('Token refreshed', schemaRef('MessageResponse')), headers: tokenCookieHeaders },
           400: errorResponse('Refresh token is missing'),
           401: { ...errorResponse('Refresh token is invalid, expired, revoked, reused, or idle beyond the configured limit'), headers: clearedTokenCookieHeaders },
+          403: { ...errorResponse('Account is inactive'), headers: clearedTokenCookieHeaders },
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1036,7 +1115,8 @@ export const openApiDocument = {
       post: {
         tags: ['Authentication'],
         summary: 'Revoke the supplied refresh token and clear token cookies',
-        requestBody: { required: false, ...jsonContent(schemaRef('RefreshRequest')) },
+        description: 'The optional refresh token is read only from the refreshToken cookie or x-refresh-token header. Logout remains successful when no token is supplied.',
+        parameters: refreshTokenParameters,
         responses: {
           200: { ...response('Logout successful', schemaRef('MessageResponse')), headers: clearedTokenCookieHeaders },
           429: errorResponse('Rate limit exceeded'),
@@ -1052,6 +1132,7 @@ export const openApiDocument = {
         responses: {
           200: userResponse('Profile retrieved'),
           401: errorResponse('Missing, invalid, expired, or non-access token'),
+          403: errorResponse('Account is inactive'),
           404: errorResponse('User not found'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
@@ -1062,14 +1143,15 @@ export const openApiDocument = {
       put: {
         tags: ['Authentication'],
         summary: 'Update the authenticated user profile',
+        description: 'Authentication is read from the accessToken cookie or Authorization header. The request body contains only firstName and lastName.',
         security: protectedSecurity,
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateProfileRequest')) },
         responses: {
           200: userResponse('Profile updated'),
           400: errorResponse('Validation failed'),
           401: errorResponse('Missing, invalid, expired, or non-access token'),
+          403: errorResponse('Account is inactive'),
           404: errorResponse('User not found'),
-          409: errorResponse('Concurrent update conflict'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1086,8 +1168,8 @@ export const openApiDocument = {
           200: userResponse('Password changed'),
           400: errorResponse('Validation failed, password confirmation differs, or current password is incorrect'),
           401: errorResponse('Missing, invalid, expired, or non-access token'),
+          403: errorResponse('Account is inactive'),
           404: errorResponse('User not found'),
-          409: errorResponse('Concurrent update conflict'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1102,7 +1184,7 @@ export const openApiDocument = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'search', description: 'Case-insensitive search in username, firstName, and lastName.', schema: { type: 'string', maxLength: 100 } },
+          { in: 'query', name: 'search', description: 'Case-insensitive search in username, firstName, and lastName.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
           { in: 'query', name: 'role', schema: schemaRef('UserRole') },
           { in: 'query', name: 'section', schema: schemaRef('UserSection') },
           { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
@@ -1141,7 +1223,7 @@ export const openApiDocument = {
       patch: {
         tags: ['User Management'],
         summary: 'Set a user role',
-        description: 'App managers cannot change their own role or demote the last active app manager.',
+        description: 'The target user must exist, have the supplied current version, and be active. App managers cannot change their own role or demote the last active app manager.',
         security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'userId', required: true, schema: { type: 'string', format: 'uuid' } },
@@ -1153,7 +1235,7 @@ export const openApiDocument = {
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('User not found'),
-          409: errorResponse('Self-update, last-app-manager, or concurrent update conflict'),
+          409: errorResponse('Inactive user, self-update, last-app-manager, or concurrent update conflict'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1163,6 +1245,7 @@ export const openApiDocument = {
       patch: {
         tags: ['User Management'],
         summary: 'Set or clear a user section',
+        description: 'The target user must exist, have the supplied current version, and be active.',
         security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'userId', required: true, schema: { type: 'string', format: 'uuid' } },
@@ -1174,7 +1257,7 @@ export const openApiDocument = {
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('User not found'),
-          409: errorResponse('Concurrent update conflict'),
+          409: errorResponse('Inactive user or concurrent update conflict'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1183,8 +1266,8 @@ export const openApiDocument = {
     '/api/v1/auth/users/{userId}/status': {
       patch: {
         tags: ['User Management'],
-        summary: 'Activate or deactivate a user',
-        description: 'Deactivation revokes active refresh tokens. App managers cannot deactivate themselves or the last active app manager.',
+        summary: 'Set an active user status',
+        description: 'The target user must exist, have the supplied current version, and currently be active. Deactivation revokes active refresh tokens. An inactive user cannot be reactivated through this endpoint. App managers cannot deactivate themselves or the last active app manager.',
         security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'userId', required: true, schema: { type: 'string', format: 'uuid' } },
@@ -1196,7 +1279,7 @@ export const openApiDocument = {
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('User not found'),
-          409: errorResponse('Self-update, last-app-manager, or concurrent update conflict'),
+          409: errorResponse('Inactive user, self-update, last-app-manager, or concurrent update conflict'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1210,8 +1293,7 @@ export const openApiDocument = {
         security: protectedSecurity,
         responses: {
           200: response('Menus retrieved successfully', schemaRef('MyMenusResponse')),
-          401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Account is inactive'),
+          401: errorResponse('Missing/invalid token or account cannot be resolved as active'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1225,9 +1307,10 @@ export const openApiDocument = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+          { in: 'query', name: 'hasItem', schema: { type: 'string', enum: ['true', 'false'] } },
           { in: 'query', name: 'isActive', schema: { type: 'string', enum: ['true', 'false'] } },
-          { in: 'query', name: 'search', description: 'Case-insensitive search in key and label.', schema: { type: 'string', maxLength: 100 } },
-          ...listSortParameters(['key', 'label', 'order', 'isActive', 'updatedAt']),
+          { in: 'query', name: 'search', description: 'Case-insensitive search in key and label.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
+          ...listSortParameters(['key', 'label', 'hasItem', 'order', 'isActive', 'updatedAt']),
         ],
         responses: {
           200: response('Menus retrieved', schemaRef('MenuListResponse')),
@@ -1248,7 +1331,7 @@ export const openApiDocument = {
           400: errorResponse('Validation failed'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
-          409: errorResponse('Menu key already exists'),
+          409: errorResponse('Menu or nested menu item key already exists'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1273,6 +1356,7 @@ export const openApiDocument = {
       patch: {
         tags: ['App Manager'],
         summary: 'Update a menu',
+        description: 'Setting hasItem=false is rejected while any item, active or inactive, still belongs to the menu. Setting hasItem=true only enables subsequent item creation.',
         security: protectedSecurity,
         parameters: [{ in: 'path', name: 'menuId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateMenuRequest')) },
@@ -1282,7 +1366,7 @@ export const openApiDocument = {
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('Menu not found'),
-          409: errorResponse('Menu key already exists'),
+          409: errorResponse('Menu key already exists or hasItem conflicts with existing items'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1378,8 +1462,8 @@ export const openApiDocument = {
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
           { in: 'query', name: 'menuId', schema: { type: 'string', format: 'uuid' } },
           { in: 'query', name: 'isActive', schema: { type: 'string', enum: ['true', 'false'] } },
-          { in: 'query', name: 'search', description: 'Case-insensitive search in key, label, and path.', schema: { type: 'string', maxLength: 100 } },
-          ...listSortParameters(['menuId', 'key', 'label', 'path', 'order', 'isActive', 'updatedAt']),
+          { in: 'query', name: 'search', description: 'Case-insensitive search in key and label.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
+          ...listSortParameters(['menuId', 'key', 'label', 'order', 'isActive', 'updatedAt']),
         ],
         responses: {
           200: response('Menu items retrieved', schemaRef('MenuItemListResponse')),
@@ -1401,7 +1485,7 @@ export const openApiDocument = {
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('Parent menu not found'),
-          409: errorResponse('Menu item key already exists'),
+          409: errorResponse('Menu item key already exists or parent menu does not allow items'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1434,8 +1518,8 @@ export const openApiDocument = {
           400: errorResponse('Validation failed'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
-          404: errorResponse('Menu item not found'),
-          409: errorResponse('Menu item key already exists'),
+          404: errorResponse('Menu item or target menu not found'),
+          409: errorResponse('Menu item key already exists or target menu does not allow items'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
@@ -1462,10 +1546,10 @@ export const openApiDocument = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'serviceName', description: 'Case-insensitive partial match on service name.', schema: { type: 'string', maxLength: 200 } },
-          { in: 'query', name: 'itemName', description: 'Case-insensitive partial match on item name.', schema: { type: 'string', maxLength: 200 } },
-          { in: 'query', name: 'size', description: 'Case-insensitive partial match on size.', schema: { type: 'string', maxLength: 100 } },
-          ...listSortParameters(['serviceName', 'itemName', 'size']),
+          { in: 'query', name: 'serviceName', description: 'Case-insensitive partial match on service name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
+          { in: 'query', name: 'itemName', description: 'Case-insensitive partial match on item name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
+          { in: 'query', name: 'size', description: 'Case-insensitive partial match on size.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
+          ...listSortParameters(['serviceName', 'itemName', 'size'], 'serviceName ascending.'),
         ],
         responses: {
           200: { description: 'Items retrieved', ...jsonContent(schemaRef('ItemListResponse')) },
@@ -1523,7 +1607,7 @@ export const openApiDocument = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'search', description: 'Case-insensitive search in name, type, and address.', schema: { type: 'string', maxLength: 100 } },
+          { in: 'query', name: 'search', description: 'Case-insensitive search in name, type, and address.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
           { in: 'query', name: 'hasContract', schema: { type: 'boolean' } },
           ...listSortParameters(['name', 'type', 'address', 'hasContract', 'version', 'updatedAt']),
         ],
@@ -1569,10 +1653,10 @@ export const openApiDocument = {
         },
       },
       delete: {
-        tags: ['Marketing'], summary: 'Delete a company', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Revoke a company', description: 'Soft deletes the company by setting revoked=true, increments its version, and revokes its active staff records.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'companyId', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: {
-          200: { description: 'Company deleted', ...jsonContent(schemaRef('CompanyResponse')) },
+          200: { description: 'Company revoked', ...jsonContent(schemaRef('CompanyResponse')) },
           400: errorResponse('Invalid company ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Company not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
@@ -1586,7 +1670,7 @@ export const openApiDocument = {
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
           { in: 'query', name: 'companyId', schema: { type: 'string', format: 'uuid' } },
-          { in: 'query', name: 'search', description: 'Case-insensitive search in staff name, telephone, and email.', schema: { type: 'string', maxLength: 100 } },
+          { in: 'query', name: 'search', description: 'Case-insensitive search in staff name, telephone, and email.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
           { in: 'query', name: 'title', schema: schemaRef('StaffTitle') },
           ...listSortParameters(['companyId', 'name', 'title', 'version', 'updatedAt']),
         ],
@@ -1648,7 +1732,7 @@ export const openApiDocument = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'name', description: 'Case-insensitive partial match on name.', schema: { type: 'string', maxLength: 200 } },
+          { in: 'query', name: 'name', description: 'Case-insensitive partial match on name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
           { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
           ...listSortParameters(['name', 'isActive']),
         ],
@@ -1694,10 +1778,10 @@ export const openApiDocument = {
         },
       },
       delete: {
-        tags: ['Marketing'], summary: 'Delete a service', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Deactivate a service', description: 'Sets isActive=false; the service and its scopes remain stored.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: {
-          200: { description: 'Service deleted', ...jsonContent(schemaRef('ServiceResponse')) },
+          200: { description: 'Service deactivated', ...jsonContent(schemaRef('ServiceResponse')) },
           400: errorResponse('Invalid service ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
@@ -1713,7 +1797,7 @@ export const openApiDocument = {
           201: { description: 'Service scope created', ...jsonContent(schemaRef('ServiceScopeResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
-          409: errorResponse('Service scope already exists'), 429: errorResponse('Rate limit exceeded'),
+          409: errorResponse('Service is inactive or the active scope already exists'), 429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },
       },
@@ -1728,7 +1812,8 @@ export const openApiDocument = {
         responses: {
           200: { description: 'Service scope soft deleted', ...jsonContent(schemaRef('ServiceScopeResponse')) },
           400: errorResponse('Invalid ID'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Service scope not found'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Service or service scope not found'),
+          409: errorResponse('Service is inactive'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
@@ -1742,7 +1827,7 @@ export const openApiDocument = {
           201: { description: 'Maintenance scope created', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
-          409: errorResponse('Service is inactive or does not provide maintenance'),
+          409: errorResponse('Service is inactive, does not provide maintenance, or the active maintenance scope already exists'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { PrismaClient as MarketingPrismaClient } from '@prisma/client';
 
 const requireFromAuth = createRequire(new URL('../../auth-service/package.json', import.meta.url));
@@ -265,6 +266,9 @@ try {
     method: 'DELETE', cookies: login.cookies,
   }), [200], (body) => body?.data?.isActive === false);
   itemId = undefined;
+  check('DELETE missing item returns not found', await request(`/api/v1/marketing/items/${randomUUID()}`, {
+    method: 'DELETE', cookies: login.cookies,
+  }), [404]);
 
   await runLoad('Concurrent service detail stress test', stressTotal, stressConcurrency,
     () => request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }));

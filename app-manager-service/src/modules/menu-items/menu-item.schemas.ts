@@ -18,7 +18,6 @@ export const createMenuItemSchema = z.object({
     'Key can only contain lowercase alphanumeric characters, underscores, and hyphens'
   ),
   label: z.string().trim().min(1).max(200),
-  path: z.string().trim().min(1).max(500),
   order: z.number().int().min(0).optional().default(0),
 }).strict();
 
@@ -26,7 +25,6 @@ export const updateMenuItemSchema = z.object({
   menuId: z.string().uuid().optional(),
   key: z.string().trim().min(1).max(100).regex(/^[a-z0-9_-]+$/).optional(),
   label: z.string().trim().min(1).max(200).optional(),
-  path: z.string().trim().min(1).max(500).optional(),
   order: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
 }).strict();

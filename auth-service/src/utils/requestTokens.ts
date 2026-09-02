@@ -9,6 +9,6 @@ export const getAccessToken = (req: Request): string | undefined => {
 };
 
 export const getRefreshToken = (req: Request): string | undefined => {
-  const token = req.cookies?.refreshToken || req.body?.refreshToken || req.headers['x-refresh-token'];
+  const token = req.cookies?.refreshToken || req.headers['x-refresh-token'];
   return typeof token === 'string' ? token : undefined;
 };

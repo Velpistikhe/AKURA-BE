@@ -27,6 +27,7 @@ const createdUsernames = [];
 const checks = [];
 let managerCookies = '';
 let menuId;
+let noItemMenuId;
 let menuAccessId;
 let menuItemId;
 let inaccessibleMenuItemId;
@@ -81,8 +82,10 @@ const register = async (label) => {
       lastName: 'Endpoint Test',
     },
   });
-  check(`POST /api/v1/auth/register (${label})`, result, [201], (body) => Boolean(body?.data?.user?.id));
-  return { username, password, cookies: result.cookies, user: result.body.data.user };
+  check(`POST /api/v1/auth/register (${label})`, result, [201], (body) => body?.data === undefined);
+  const user = await authPrisma.user.findUnique({ where: { normalizeUsername: username.toLowerCase() } });
+  if (!user) throw new Error(`Registered test user ${username} was not persisted`);
+  return { username, password, cookies: result.cookies, user };
 };
 
 try {
@@ -97,7 +100,7 @@ try {
     () => Object.values(openApi.body.paths).reduce(
       (total, path) => total + Object.keys(path).filter((key) => ['get', 'post', 'put', 'patch', 'delete'].includes(key)).length,
       0,
-    ) === 56,
+    ) === 57,
   );
   check('GET /api/v1/auth/.well-known/jwks.json', await request('/api/v1/auth/.well-known/jwks.json'), [200], (body) => body?.keys?.length > 0);
 
@@ -114,6 +117,12 @@ try {
     json: { username: manager.username, password: manager.password },
   }), [200]);
   managerCookies = managerLogin.cookies;
+
+  const targetInitialLogin = check('POST /api/v1/auth/login (target)', await request('/api/v1/auth/login', {
+    method: 'POST',
+    json: { username: target.username, password: target.password },
+  }), [200]);
+  target.cookies = targetInitialLogin.cookies;
 
   check('GET /api/v1/auth/me', await request('/api/v1/auth/me', { cookies: target.cookies }), [200]);
   const profile = check('PUT /api/v1/auth/profile', await request('/api/v1/auth/profile', {
@@ -165,18 +174,26 @@ try {
   detail = check('PATCH /api/v1/auth/users/{userId}/status (deactivate)', await request(`/api/v1/auth/users/${target.user.id}/status`, {
     method: 'PATCH', cookies: managerCookies, json: { isActive: false, version: detail.body.data.version },
   }), [200]);
-  detail = check('PATCH /api/v1/auth/users/{userId}/status (reactivate)', await request(`/api/v1/auth/users/${target.user.id}/status`, {
+  check('PATCH /api/v1/auth/users/{userId}/status rejects inactive target', await request(`/api/v1/auth/users/${target.user.id}/status`, {
     method: 'PATCH', cookies: managerCookies, json: { isActive: true, version: detail.body.data.version },
-  }), [200]);
+  }), [409], (body) => body?.message === 'Inactive users cannot be updated');
 
   const menuKey = `endpoint_test_${slug}`;
+  const inaccessibleItemKey = `hidden_endpoint_item_${slug}`;
   let menu = check('POST /api/v1/app-manager/menus', await request('/api/v1/app-manager/menus', {
     method: 'POST',
     cookies: managerCookies,
-    json: { key: menuKey, label: 'Endpoint Test Menu', order: 9999 },
-  }), [201]);
+    json: {
+      key: menuKey,
+      label: 'Endpoint Test Menu',
+      hasItem: true,
+      order: 9999,
+      items: [{ key: inaccessibleItemKey, label: 'Hidden Endpoint Test Item', order: 2 }],
+    },
+  }), [201], (body) => body?.data?.hasItem === true);
   menuId = menu.body.data.id;
-  check('GET /api/v1/app-manager/menus', await request(`/api/v1/app-manager/menus?search=${menuKey}`, {
+  inaccessibleMenuItemId = (await managerPrisma.menuItem.findUnique({ where: { key: inaccessibleItemKey } })).id;
+  check('GET /api/v1/app-manager/menus', await request(`/api/v1/app-manager/menus?search=${menuKey}&hasItem=true&sortBy=hasItem&sortOrder=desc`, {
     cookies: managerCookies,
   }), [200], (body) => body?.data?.menus?.some((item) => item.id === menuId));
   check('GET /api/v1/app-manager/menus/{menuId}', await request(`/api/v1/app-manager/menus/${menuId}`, {
@@ -185,8 +202,15 @@ try {
   menu = check('PATCH /api/v1/app-manager/menus/{menuId}', await request(`/api/v1/app-manager/menus/${menuId}`, {
     method: 'PATCH', cookies: managerCookies, json: { label: 'Updated Endpoint Test Menu' },
   }), [200]);
+  check('PATCH /api/v1/app-manager/menus/{menuId} rejects hasItem=false while items exist', await request(`/api/v1/app-manager/menus/${menuId}`, {
+    method: 'PATCH', cookies: managerCookies, json: { hasItem: false },
+  }), [409]);
 
   const itemKey = `endpoint_item_${slug}`;
+  check('POST /api/v1/app-manager/menu-items rejects removed path field', await request('/api/v1/app-manager/menu-items', {
+    method: 'POST', cookies: managerCookies,
+    json: { menuId, key: `path_${slug}`, label: 'Invalid Path Item', path: '/removed' },
+  }), [400]);
   let item = check('POST /api/v1/app-manager/menu-items', await request('/api/v1/app-manager/menu-items', {
     method: 'POST',
     cookies: managerCookies,
@@ -194,7 +218,6 @@ try {
       menuId,
       key: itemKey,
       label: 'Endpoint Test Item',
-      path: `/endpoint-test/${slug}`,
       order: 1,
     },
   }), [201]);
@@ -214,12 +237,6 @@ try {
     method: 'PATCH', cookies: managerCookies, json: { role: null },
   }), [200], (body) => body?.data?.role === null && body?.data?.section === 'MARKETING');
 
-  const inaccessibleItemKey = `hidden_endpoint_item_${slug}`;
-  const inaccessibleItem = check('POST /api/v1/app-manager/menu-items (without access)', await request('/api/v1/app-manager/menu-items', {
-    method: 'POST', cookies: managerCookies,
-    json: { menuId, key: inaccessibleItemKey, label: 'Hidden Endpoint Test Item', path: `/hidden-endpoint-test/${slug}`, order: 2 },
-  }), [201]);
-  inaccessibleMenuItemId = inaccessibleItem.body.data.id;
   check('GET /api/v1/app-manager/menu-items', await request(`/api/v1/app-manager/menu-items?menuId=${menuId}`, {
     cookies: managerCookies,
   }), [200], (body) => body?.data?.items?.some((entry) => entry.id === menuItemId));
@@ -237,6 +254,29 @@ try {
   }), [200], (body) => body?.data?.some((entry) => entry.key === menuKey
     && entry.items?.some((entryItem) => entryItem.key === itemKey)
     && !entry.items?.some((entryItem) => entryItem.key === inaccessibleItemKey)));
+
+  const noItemMenuKey = `no_item_menu_${slug}`;
+  check('POST /api/v1/app-manager/menus requires items when hasItem=true', await request('/api/v1/app-manager/menus', {
+    method: 'POST', cookies: managerCookies,
+    json: { key: `missing_items_${slug}`, label: 'Missing Items Menu', hasItem: true },
+  }), [400]);
+  check('POST /api/v1/app-manager/menus rejects items when hasItem=false', await request('/api/v1/app-manager/menus', {
+    method: 'POST', cookies: managerCookies,
+    json: { key: noItemMenuKey, label: 'No Item Menu', hasItem: false, items: [{ key: `invalid_${slug}`, label: 'Invalid' }] },
+  }), [400]);
+  const noItemMenu = check('POST /api/v1/app-manager/menus without items', await request('/api/v1/app-manager/menus', {
+    method: 'POST', cookies: managerCookies,
+    json: { key: noItemMenuKey, label: 'No Item Menu', hasItem: false },
+  }), [201], (body) => body?.data?.hasItem === false);
+  noItemMenuId = noItemMenu.body.data.id;
+  check('POST /api/v1/app-manager/menu-items rejects parent with hasItem=false', await request('/api/v1/app-manager/menu-items', {
+    method: 'POST', cookies: managerCookies,
+    json: { menuId: noItemMenuId, key: `blocked_${slug}`, label: 'Blocked Item' },
+  }), [409]);
+  check('DELETE /api/v1/app-manager/menus/{menuId} (without items)', await request(`/api/v1/app-manager/menus/${noItemMenuId}`, {
+    method: 'DELETE', cookies: managerCookies,
+  }), [200]);
+  noItemMenuId = undefined;
 
   check('DELETE /api/v1/app-manager/menu-accesses/{menuAccessId}', await request(`/api/v1/app-manager/menu-accesses/${menuAccessId}`, {
     method: 'DELETE', cookies: managerCookies,
@@ -264,6 +304,7 @@ try {
   if (inaccessibleMenuItemId) await managerPrisma.menuItem.deleteMany({ where: { id: inaccessibleMenuItemId } }).catch(() => undefined);
   if (menuAccessId) await managerPrisma.menuAccess.deleteMany({ where: { id: menuAccessId } }).catch(() => undefined);
   if (menuId) await managerPrisma.menu.deleteMany({ where: { id: menuId } }).catch(() => undefined);
+  if (noItemMenuId) await managerPrisma.menu.deleteMany({ where: { id: noItemMenuId } }).catch(() => undefined);
   if (createdUsernames.length) {
     await authPrisma.user.deleteMany({ where: { normalizeUsername: { in: createdUsernames } } }).catch(() => undefined);
   }

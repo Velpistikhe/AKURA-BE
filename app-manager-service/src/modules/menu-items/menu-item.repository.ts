@@ -7,7 +7,7 @@ import { ManagedMenuItem, MenuItemCreate, MenuItemUpdate, PaginatedMenuItems } f
 
 const menuItemSelect = {
   id: true, menuId: true, key: true, label: true,
-  path: true, order: true,
+  order: true,
   isActive: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.MenuItemSelect;
 
@@ -20,13 +20,12 @@ class MenuItemRepository {
         search: (search) => ({ OR: [
           { key: { contains: search, mode: 'insensitive' } },
           { label: { contains: search, mode: 'insensitive' } },
-          { path: { contains: search, mode: 'insensitive' } },
         ] }),
       },
       defaultSort: { createdAt: 'desc' },
       sorts: defineSortRules<NonNullable<ListMenuItemsInput['sortBy']>, Prisma.MenuItemOrderByWithRelationInput | Prisma.MenuItemOrderByWithRelationInput[]>({
         menuId: (direction) => ({ menuId: direction }), key: (direction) => ({ key: direction }),
-        label: (direction) => ({ label: direction }), path: (direction) => ({ path: direction }),
+        label: (direction) => ({ label: direction }),
         order: (direction) => [{ menu: { order: direction } }, { order: direction }],
         isActive: (direction) => ({ isActive: direction }),
         updatedAt: (direction) => ({ updatedAt: direction }),
@@ -53,7 +52,6 @@ class MenuItemRepository {
         menuId: data.menuId,
         key: data.key,
         label: data.label,
-        path: data.path,
         order: data.order,
       },
       select: menuItemSelect,

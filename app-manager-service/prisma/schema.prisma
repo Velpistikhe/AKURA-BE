@@ -29,6 +29,7 @@ model Menu {
   id        String     @id @default(uuid()) @db.Uuid
   key       String     @unique
   label     String
+  hasItem   Boolean    @default(false) @map("has_item")
   order     Int        @default(0)
   isActive  Boolean    @default(true) @map("is_active")
   createdAt DateTime   @default(now()) @map("created_at")
@@ -44,7 +45,6 @@ model MenuItem {
   menu      Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
   key       String       @unique
   label     String
-  path      String
   order     Int          @default(0)
   isActive  Boolean      @default(true) @map("is_active")
   createdAt DateTime     @default(now()) @map("created_at")

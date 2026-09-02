@@ -33,5 +33,9 @@ export const itemService = {
     await this.validateServiceAndPrices(data);
     return itemRepository.update(id, data);
   },
-  remove: (id: string) => itemRepository.remove(id),
+  async remove(id: string) {
+    const item = await itemRepository.find(id);
+    if (!item) throw new HttpError('Item not found', 404);
+    return itemRepository.remove(id);
+  },
 };

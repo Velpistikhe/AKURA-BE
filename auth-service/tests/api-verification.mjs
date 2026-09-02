@@ -267,6 +267,26 @@ try {
   check('Login accepts correct password', goodLogin.status === 200 && Boolean(goodLogin.cookies), { status: goodLogin.status });
 
   const idleRefreshToken = cookieValue(goodLogin.cookies, 'refreshToken');
+  const bodyOnlyRefresh = idleRefreshToken
+    ? await request(gatewayUrl, '/api/v1/auth/refresh-token', {
+      method: 'POST', json: { refreshToken: idleRefreshToken },
+    })
+    : { status: 0 };
+  check('Refresh token body transport is rejected', bodyOnlyRefresh.status === 400, {
+    status: bodyOnlyRefresh.status,
+    message: bodyOnlyRefresh.body?.message,
+  });
+  const bodyOnlyLogout = idleRefreshToken
+    ? await request(gatewayUrl, '/api/v1/auth/logout', {
+      method: 'POST', json: { refreshToken: idleRefreshToken },
+    })
+    : { status: 0 };
+  const tokenAfterBodyOnlyLogout = idleRefreshToken
+    ? await prisma.refreshToken.findUnique({ where: { token: idleRefreshToken } })
+    : null;
+  check('Logout ignores refresh token in request body',
+    bodyOnlyLogout.status === 200 && tokenAfterBodyOnlyLogout?.isRevoked === false,
+    { status: bodyOnlyLogout.status, isRevoked: tokenAfterBodyOnlyLogout?.isRevoked });
   const idleMinutes = Number(localEnv.JWT_REFRESH_IDLE_TIMEOUT_MINUTES || 60);
   if (idleRefreshToken) {
     await prisma.refreshToken.update({
@@ -276,7 +296,7 @@ try {
   }
   const idleRefresh = idleRefreshToken
     ? await request(gatewayUrl, '/api/v1/auth/refresh-token', {
-      method: 'POST', json: { refreshToken: idleRefreshToken },
+      method: 'POST', headers: { 'x-refresh-token': idleRefreshToken },
     })
     : { status: 0 };
   check(
@@ -299,7 +319,7 @@ try {
   }
   const expiredRefresh = expiredRefreshToken
     ? await request(gatewayUrl, '/api/v1/auth/refresh-token', {
-      method: 'POST', json: { refreshToken: expiredRefreshToken },
+      method: 'POST', headers: { 'x-refresh-token': expiredRefreshToken },
     })
     : { status: 0, cookies: '' };
   const expiredTokenRow = expiredRefreshToken
@@ -329,7 +349,7 @@ try {
     },
   });
   const jwtExpiredRefresh = await request(gatewayUrl, '/api/v1/auth/refresh-token', {
-    method: 'POST', json: { refreshToken: jwtExpiredRefreshToken },
+    method: 'POST', headers: { 'x-refresh-token': jwtExpiredRefreshToken },
   });
   const jwtExpiredTokenRow = await prisma.refreshToken.findUnique({
     where: { token: jwtExpiredRefreshToken },
@@ -408,7 +428,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 1100));
   const familyRevocationProbe = winnerRefreshToken
     ? await request(authUrl, '/refresh-token', {
-      method: 'POST', headers: internalHeaders, json: { refreshToken: winnerRefreshToken },
+      method: 'POST', headers: { ...internalHeaders, 'x-refresh-token': winnerRefreshToken },
     })
     : { status: 0 };
   check('Refresh-token reuse revokes the entire token family and clears cookies',

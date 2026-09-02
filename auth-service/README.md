@@ -88,13 +88,7 @@ Token dapat dikirim melalui HTTP-only cookie. Access token juga dapat dikirim me
 Authorization: Bearer <access-token>
 ```
 
-Refresh token untuk endpoint refresh dan logout dapat dikirim melalui cookie `refreshToken` atau body:
-
-```json
-{
-  "refreshToken": "<refresh-token>"
-}
-```
+Refresh token untuk endpoint refresh dan logout hanya dibaca dari cookie `refreshToken` atau header `x-refresh-token`. Request body tidak digunakan sebagai sumber token.
 
 Token tidak dikembalikan di response JSON. Endpoint register, login, dan refresh mengirim token melalui header `Set-Cookie`.
 

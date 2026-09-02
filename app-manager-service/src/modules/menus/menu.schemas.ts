@@ -11,7 +11,16 @@ export const listMenusSchema = z.object({
   ...MENU_LIST_CONFIG.filterFields,
 }).strict();
 
-export const createMenuSchema = z.object({
+const menuFields = {
+  key: z.string().trim().min(1).max(100).regex(
+    /^[a-z0-9_-]+$/,
+    'Key can only contain lowercase alphanumeric characters, underscores, and hyphens'
+  ),
+  label: z.string().trim().min(1).max(200),
+  order: z.number().int().min(0).optional().default(0),
+};
+
+const nestedMenuItemSchema = z.object({
   key: z.string().trim().min(1).max(100).regex(
     /^[a-z0-9_-]+$/,
     'Key can only contain lowercase alphanumeric characters, underscores, and hyphens'
@@ -20,9 +29,23 @@ export const createMenuSchema = z.object({
   order: z.number().int().min(0).optional().default(0),
 }).strict();
 
+export const createMenuSchema = z.discriminatedUnion('hasItem', [
+  z.object({
+    ...menuFields,
+    hasItem: z.literal(true),
+    items: z.array(nestedMenuItemSchema).min(1).max(100)
+      .refine((items) => new Set(items.map(({ key }) => key)).size === items.length, 'Menu item keys must be unique'),
+  }).strict(),
+  z.object({
+    ...menuFields,
+    hasItem: z.literal(false),
+  }).strict(),
+]);
+
 export const updateMenuSchema = z.object({
   key: z.string().trim().min(1).max(100).regex(/^[a-z0-9_-]+$/).optional(),
   label: z.string().trim().min(1).max(200).optional(),
+  hasItem: z.boolean().optional(),
   order: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
 }).strict();

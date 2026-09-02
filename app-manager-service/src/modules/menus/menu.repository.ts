@@ -7,13 +7,14 @@ import { ManagedMenu, MenuUpdate, MenusForUserResult, PaginatedMenus } from './m
 
 const menuSelect = {
   id: true, key: true, label: true,
-  order: true, isActive: true, createdAt: true, updatedAt: true,
+  hasItem: true, order: true, isActive: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.MenuSelect;
 
 class MenuRepository {
   async list(input: ListMenusInput): Promise<PaginatedMenus> {
     const query = buildListQuery(input, {
       filters: {
+        hasItem: (hasItem) => ({ hasItem }),
         isActive: (isActive) => ({ isActive }),
         search: (search) => ({ OR: [
           { key: { contains: search, mode: 'insensitive' } },
@@ -23,7 +24,8 @@ class MenuRepository {
       defaultSort: { createdAt: 'desc' },
       sorts: defineSortRules<NonNullable<ListMenusInput['sortBy']>, Prisma.MenuOrderByWithRelationInput>({
         key: (direction) => ({ key: direction }), label: (direction) => ({ label: direction }),
-        order: (direction) => ({ order: direction }), isActive: (direction) => ({ isActive: direction }),
+        hasItem: (direction) => ({ hasItem: direction }), order: (direction) => ({ order: direction }),
+        isActive: (direction) => ({ isActive: direction }),
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
@@ -42,12 +44,14 @@ class MenuRepository {
     return prisma.menu.findUnique({ where: { key }, select: menuSelect });
   }
 
-  create(data: { key: string; label: string; order: number }): Promise<ManagedMenu> {
+  create(data: { key: string; label: string; hasItem: boolean; order: number; items?: { key: string; label: string; order: number }[] }): Promise<ManagedMenu> {
     return prisma.menu.create({
       data: {
         key: data.key,
         label: data.label,
+        hasItem: data.hasItem,
         order: data.order,
+        items: data.items ? { create: data.items } : undefined,
       },
       select: menuSelect,
     });
@@ -86,8 +90,8 @@ class MenuRepository {
         },
       },
       select: {
-        key: true, label: true, path: true, order: true,
-        menu: { select: { id: true, key: true, label: true, order: true } },
+        key: true, label: true, order: true,
+        menu: { select: { id: true, key: true, label: true, hasItem: true, order: true } },
       },
       orderBy: [{ menu: { order: 'asc' } }, { order: 'asc' }],
     });
@@ -96,10 +100,10 @@ class MenuRepository {
     for (const item of items) {
       let menu = menus.get(item.menu.id);
       if (!menu) {
-        menu = { key: item.menu.key, label: item.menu.label, order: item.menu.order, items: [] };
+        menu = { key: item.menu.key, label: item.menu.label, hasItem: item.menu.hasItem, order: item.menu.order, items: [] };
         menus.set(item.menu.id, menu);
       }
-      menu.items.push({ key: item.key, label: item.label, path: item.path, order: item.order });
+      menu.items.push({ key: item.key, label: item.label, order: item.order });
     }
     return [...menus.values()];
   }

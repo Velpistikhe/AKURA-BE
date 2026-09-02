@@ -11,9 +11,10 @@ const booleanFilter = z.enum(['true', 'false']).transform((value) => value === '
 const searchFilter = z.string().trim().min(1).max(100).optional();
 
 export const MENU_LIST_CONFIG = {
-  sortFields: ['key', 'label', 'order', 'isActive', 'updatedAt'],
+  sortFields: ['key', 'label', 'hasItem', 'order', 'isActive', 'updatedAt'],
   filterFields: {
     search: searchFilter,
+    hasItem: booleanFilter,
     isActive: booleanFilter,
   },
   pagination: pagination(),
@@ -30,7 +31,7 @@ export const MENU_ACCESS_LIST_CONFIG = {
 } as const;
 
 export const MENU_ITEM_LIST_CONFIG = {
-  sortFields: ['menuId', 'key', 'label', 'path', 'order', 'isActive', 'updatedAt'],
+  sortFields: ['menuId', 'key', 'label', 'order', 'isActive', 'updatedAt'],
   filterFields: {
     menuId: z.string().uuid('Invalid menu ID').optional(),
     isActive: booleanFilter,

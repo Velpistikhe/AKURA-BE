@@ -65,9 +65,9 @@ Dokumen mentah tersedia di `http://localhost:5000/api-docs.json`.
 
 Dokumentasi mencakup endpoint gateway, Auth Service, App Manager Service, dan Marketing Service; request schema; response aktual; autentikasi Bearer/cookie; status error; rotasi refresh token; serta perilaku HTTP-only cookie.
 
-Endpoint daftar mendokumentasikan filter yang diizinkan, field pencarian, pagination `page`/`limit`, serta allowlist `sortBy` dan arah `sortOrder`. Tanpa `sortBy`, seluruh endpoint memakai urutan internal `createdAt desc`; field `createdAt` tidak tersedia dalam allowlist user. Nilai `sortBy` di luar enum Swagger dan query yang tidak dikenal ditolak oleh service dengan response `400`.
+Endpoint daftar mendokumentasikan filter yang diizinkan, field pencarian, pagination `page`/`limit`, serta allowlist `sortBy` dan arah `sortOrder`. Tanpa `sortBy`, endpoint umumnya memakai `createdAt desc`; daftar item Marketing memakai `serviceName asc`. Field default internal tersebut tidak otomatis tersedia dalam allowlist. Nilai `sortBy` di luar enum Swagger dan query yang tidak dikenal ditolak oleh service dengan response `400`.
 
-Kontrak App Manager mengikuti schema menu terbaru. `Menu` berisi `key`, `label`, `order`, dan daftar `items`. Setiap item berisi `key`, `label`, `path`, dan `order`. Field `icon` tidak lagi diterima atau dikembalikan oleh endpoint menu dan menu item.
+Kontrak App Manager mengikuti schema menu terbaru. `Menu` berisi `key`, `label`, `hasItem`, `order`, dan daftar `items`. Setiap item berisi `key`, `label`, dan `order`; field `path` tidak lagi diterima atau dikembalikan.
 
 ## Konfigurasi
 

@@ -1,6 +1,6 @@
 import { Menu } from '@prisma/client';
 
-export type ManagedMenu = Pick<Menu, 'id' | 'key' | 'label' | 'order' | 'isActive' | 'createdAt' | 'updatedAt'>;
+export type ManagedMenu = Pick<Menu, 'id' | 'key' | 'label' | 'hasItem' | 'order' | 'isActive' | 'createdAt' | 'updatedAt'>;
 
 export interface PaginatedMenus {
   menus: ManagedMenu[];
@@ -10,6 +10,7 @@ export interface PaginatedMenus {
 export type MenuUpdate = {
   key?: string;
   label?: string;
+  hasItem?: boolean;
   order?: number;
   isActive?: boolean;
 };
@@ -17,13 +18,13 @@ export type MenuUpdate = {
 export interface UserMenuItemResponse {
   key: string;
   label: string;
-  path: string;
   order: number;
 }
 
 export interface UserMenuResponse {
   key: string;
   label: string;
+  hasItem: boolean;
   order: number;
   items: UserMenuItemResponse[];
 }

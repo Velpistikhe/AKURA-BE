@@ -44,7 +44,7 @@ export const authController = {
   async refreshToken(req: Request, res: Response): Promise<void> {
     const refreshToken = getRefreshToken(req);
     if (!refreshToken) {
-      throw new HttpError('Refresh token is required in cookie or body', 400);
+      throw new HttpError('Refresh token is required in cookie or x-refresh-token header', 400);
     }
     try {
       const tokens = await authService.refreshToken(refreshToken);

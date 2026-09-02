@@ -30,15 +30,15 @@ Semua endpoint daftar menerima `page` (default `1`), `limit` (`1`–`100`), `sor
 
 | Endpoint | Filter | Field pencarian `search` | Field `sortBy` | Default sort |
 |---|---|---|---|---|
-| `GET /menus` | `isActive` | `key`, `label` | `key`, `label`, `order`, `isActive`, `updatedAt` | `createdAt desc` |
+| `GET /menus` | `hasItem`, `isActive` | `key`, `label` | `key`, `label`, `hasItem`, `order`, `isActive`, `updatedAt` | `createdAt desc` |
 | `GET /menu-accesses` | `menuItemId`, `role`, `section` | - | `menuItemId`, `role`, `section`, `updatedAt` | `createdAt desc` |
-| `GET /menu-items` | `menuId`, `isActive` | `key`, `label`, `path` | `menuId`, `key`, `label`, `path`, `order`, `isActive`, `updatedAt` | `createdAt desc` |
+| `GET /menu-items` | `menuId`, `isActive` | `key`, `label` | `menuId`, `key`, `label`, `order`, `isActive`, `updatedAt` | `createdAt desc` |
 
 Default `limit` adalah `20` untuk menu dan `50` untuk menu item. Jika `sortBy` tidak dikirim, hasil selalu memakai `createdAt desc`; `createdAt` tidak dapat dipilih secara eksplisit oleh user. Contoh: `/api/v1/app-manager/menu-items?isActive=true&sortBy=label&sortOrder=asc&page=1&limit=25`.
 
 ## Struktur data menu
 
-Struktur API mengikuti model Prisma terbaru. Field `icon` sudah tidak menjadi bagian dari tabel `menus`, tabel `menu_items`, request CRUD, maupun response API.
+Struktur API mengikuti model Prisma terbaru. Field `icon` dan `MenuItem.path` sudah tidak menjadi bagian dari request CRUD maupun response API.
 
 ### Menu
 
@@ -47,12 +47,13 @@ Struktur API mengikuti model Prisma terbaru. Field `icon` sudah tidak menjadi ba
 | `id` | UUID | ID menu |
 | `key` | string | Key unik menu |
 | `label` | string | Nama menu yang ditampilkan |
+| `hasItem` | boolean | Menentukan apakah menu mempunyai menu item |
 | `order` | integer | Urutan menu, default `0` |
 | `isActive` | boolean | Status menu, default `true` |
 | `createdAt` | datetime | Waktu pembuatan |
 | `updatedAt` | datetime | Waktu perubahan terakhir |
 
-Create dan update menu hanya menerima data menu. Aturan akses dikelola terpisah melalui endpoint `menu-accesses`.
+Jika `hasItem=true`, create menu wajib menerima minimal satu `items` dan membuat menu beserta item secara atomik. Jika `hasItem=false`, field `items` tidak diterima. Aturan akses dikelola terpisah melalui endpoint `menu-accesses`.
 
 Payload untuk membuat menu:
 
@@ -60,7 +61,15 @@ Payload untuk membuat menu:
 {
   "key": "app_manager",
   "label": "App Manager",
-  "order": 1
+  "hasItem": true,
+  "order": 1,
+  "items": [
+    {
+      "key": "users_list",
+      "label": "Daftar Pengguna",
+      "order": 1
+    }
+  ]
 }
 ```
 
@@ -88,7 +97,6 @@ Kombinasi `menuItemId`, `role`, dan `section` harus unik. Nilai `role` dan `sect
 | `menuId` | UUID | ID menu induk |
 | `key` | string | Key unik menu item |
 | `label` | string | Nama menu item yang ditampilkan |
-| `path` | string | Path halaman frontend |
 | `order` | integer | Urutan dalam menu, default `0` |
 | `isActive` | boolean | Status menu item, default `true` |
 | `createdAt` | datetime | Waktu pembuatan |
@@ -101,7 +109,6 @@ Payload untuk membuat menu item:
   "menuId": "44c3fffd-1987-4935-bff4-07fd3cc72f1d",
   "key": "users_list",
   "label": "Daftar Pengguna",
-  "path": "/app-manager/users",
   "order": 1
 }
 ```
@@ -124,7 +131,6 @@ Endpoint ini mengambil menu item aktif yang mempunyai `MenuAccess` sesuai dengan
         {
           "key": "users_list",
           "label": "Daftar Pengguna",
-          "path": "/app-manager/users",
           "order": 1
         }
       ]
@@ -146,6 +152,12 @@ Auth Service menjadi satu-satunya pemilik sekaligus penyedia endpoint pengelolaa
 
 ```powershell
 npm run db:migrate-menu-item-accesses
+```
+
+Untuk menambahkan `menus.has_item`, menandai menu lama yang sudah mempunyai item, dan menghapus `menu_items.path`, jalankan:
+
+```powershell
+npm run db:migrate-menu-has-item
 ```
 
 Migrasi menyalin setiap aturan akses menu lama ke seluruh menu item di bawah menu tersebut, lalu mengganti relasi menjadi `menuItemId`. Constraint unik juga dibuat untuk kombinasi `menuItemId`, `role`, dan `section`, termasuk kombinasi yang memiliki nilai `null`.

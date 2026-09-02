@@ -69,7 +69,10 @@ const register = async (label) => {
       lastName: 'Test',
     },
   });
-  return { ...result, username, user: result.body?.data?.user };
+  const user = result.status === 201
+    ? await prisma.user.findUnique({ where: { normalizeUsername: username.toLowerCase() } })
+    : undefined;
+  return { ...result, username, user };
 };
 
 try {
@@ -104,6 +107,13 @@ try {
     admin: admin.status,
     target: target.status,
   });
+
+  const targetLogin = await request(gatewayUrl, '/api/v1/auth/login', {
+    method: 'POST',
+    json: { username: target.username, password: 'ManagerTest-123!' },
+  });
+  check('Target can log in after registration', targetLogin.status === 200, { status: targetLogin.status });
+  target.cookies = targetLogin.cookies;
 
   const refreshAsAccess = await request(gatewayUrl, '/api/v1/auth/users', {
     headers: { cookie: `accessToken=${cookieValue(target.cookies, 'refreshToken') || ''}` },
@@ -141,6 +151,31 @@ try {
   check('Non-admin user is rejected', regularAccess.status === 403, { status: regularAccess.status });
 
   const adminHeaders = { cookie: managerLogin.cookies };
+  const missingUserId = '00000000-0000-4000-8000-000000000000';
+  const missingDetail = await request(gatewayUrl, `/api/v1/auth/users/${missingUserId}`, {
+    headers: adminHeaders,
+  });
+  check('User detail checks existence first', missingDetail.status === 404 && missingDetail.body?.message === 'User not found', {
+    status: missingDetail.status,
+    message: missingDetail.body?.message,
+  });
+
+  for (const [endpoint, json] of [
+    ['role', { role: 'USER', version: 1 }],
+    ['section', { section: 'MARKETING', version: 1 }],
+    ['status', { isActive: false, version: 1 }],
+  ]) {
+    const missingPatch = await request(gatewayUrl, `/api/v1/auth/users/${missingUserId}/${endpoint}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      json,
+    });
+    check(`PATCH ${endpoint} checks existence first`, missingPatch.status === 404 && missingPatch.body?.message === 'User not found', {
+      status: missingPatch.status,
+      message: missingPatch.body?.message,
+    });
+  }
+
   const list = await request(gatewayUrl, `/api/v1/auth/users?search=${encodeURIComponent(target.username)}`, {
     headers: adminHeaders,
   });
@@ -247,17 +282,29 @@ try {
     headers: adminHeaders,
     json: { isActive: true, version: deactivate.body.data.version },
   });
-  check('Admin can reactivate user', reactivate.status === 200 && reactivate.body?.data?.isActive === true, {
+  check('Inactive user cannot be reactivated', reactivate.status === 409 && reactivate.body?.message === 'Inactive users cannot be updated', {
     status: reactivate.status,
+    message: reactivate.body?.message,
   });
 
-  await new Promise((resolve) => setTimeout(resolve, 1100));
-  const loginAfterReactivation = await request(gatewayUrl, '/api/v1/auth/login', {
-    method: 'POST',
-    json: { username: target.username, password: 'ManagerTest-123!' },
+  const inactiveRoleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/role`, {
+    method: 'PATCH',
+    headers: adminHeaders,
+    json: { role: 'USER', version: deactivate.body.data.version },
   });
-  check('Reactivated user can log in again', loginAfterReactivation.status === 200, {
-    status: loginAfterReactivation.status,
+  check('Inactive user role cannot be updated', inactiveRoleUpdate.status === 409 && inactiveRoleUpdate.body?.message === 'Inactive users cannot be updated', {
+    status: inactiveRoleUpdate.status,
+    message: inactiveRoleUpdate.body?.message,
+  });
+
+  const inactiveSectionUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/section`, {
+    method: 'PATCH',
+    headers: adminHeaders,
+    json: { section: 'MARKETING', version: deactivate.body.data.version },
+  });
+  check('Inactive user section cannot be updated', inactiveSectionUpdate.status === 409 && inactiveSectionUpdate.body?.message === 'Inactive users cannot be updated', {
+    status: inactiveSectionUpdate.status,
+    message: inactiveSectionUpdate.body?.message,
   });
 
   console.log(JSON.stringify({ runId, checks }, null, 2));
