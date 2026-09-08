@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { AuthUser } from '../../middlewares/authorize.middleware.js';
+import { AuthUser } from '../../../middlewares/authorize.middleware.js';
 import { CreateMenuInput, ListMenusInput, UpdateMenuInput } from './menu.schemas.js';
 import { menuService } from './menu.service.js';
 

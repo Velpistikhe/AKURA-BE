@@ -1,5 +1,5 @@
-import { prisma } from '../../config/db.js';
-import { HttpError } from '../../utils/httpError.js';
+import { prisma } from '../../../config/db.js';
+import { HttpError } from '../../../utils/httpError.js';
 import { CreateMenuAccessInput, ListMenuAccessesInput, UpdateMenuAccessInput } from './menu-access.schemas.js';
 import { menuAccessRepository } from './menu-access.repository.js';
 import { ManagedMenuAccess, PaginatedMenuAccesses } from './menu-access.types.js';
@@ -10,7 +10,7 @@ class MenuAccessService {
   }
 
   async get(id: string): Promise<ManagedMenuAccess> {
-    const access = await menuAccessRepository.findById(id);
+    const access = await menuAccessRepository.findActiveById(id);
     if (!access) throw new HttpError('Menu access not found', 404);
     return access;
   }

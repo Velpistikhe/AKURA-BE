@@ -39,3 +39,12 @@ export const MENU_ITEM_LIST_CONFIG = {
   },
   pagination: pagination(50),
 } as const;
+
+export const OFFICE_BRANCH_LIST_CONFIG = {
+  sortFields: ['name', 'address', 'telp', 'email', 'isHead', 'updatedAt'],
+  filterFields: {
+    search: searchFilter,
+    isHead: booleanFilter,
+  },
+  pagination: pagination(),
+} as const;

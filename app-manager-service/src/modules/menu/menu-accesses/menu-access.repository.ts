@@ -1,7 +1,7 @@
 import { Prisma, UserRole, UserSection } from '@prisma/client';
-import { prisma } from '../../config/db.js';
-import { HttpError } from '../../utils/httpError.js';
-import { buildListQuery, buildPagination, defineSortRules } from '../../utils/listQuery.js';
+import { prisma } from '../../../config/db.js';
+import { HttpError } from '../../../utils/httpError.js';
+import { buildListQuery, buildPagination, defineSortRules } from '../../../utils/listQuery.js';
 import { ListMenuAccessesInput } from './menu-access.schemas.js';
 import { ManagedMenuAccess, MenuAccessCreate, MenuAccessUpdate, PaginatedMenuAccesses } from './menu-access.types.js';
 
@@ -38,15 +38,29 @@ class MenuAccessRepository {
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
+    const where = {
+      AND: [
+        { menuItem: { isActive: true } },
+        { menuItem: { menu: { isActive: true } } },
+        query.where,
+      ],
+    } satisfies Prisma.MenuAccessWhereInput;
     const [menuAccesses, total] = await Promise.all([
-      prisma.menuAccess.findMany({ ...query, select: menuAccessSelect }),
-      prisma.menuAccess.count({ where: query.where }),
+      prisma.menuAccess.findMany({ ...query, where, select: menuAccessSelect }),
+      prisma.menuAccess.count({ where }),
     ]);
     return { menuAccesses, pagination: buildPagination(input.page, input.limit, total) };
   }
 
   findById(id: string): Promise<ManagedMenuAccess | null> {
     return prisma.menuAccess.findUnique({ where: { id }, select: menuAccessSelect });
+  }
+
+  findActiveById(id: string): Promise<ManagedMenuAccess | null> {
+    return prisma.menuAccess.findFirst({
+      where: { id, menuItem: { isActive: true, menu: { isActive: true } } },
+      select: menuAccessSelect,
+    });
   }
 
   findByRule(menuItemId: string, role: UserRole | null, section: UserSection | null, excludeId?: string): Promise<ManagedMenuAccess | null> {

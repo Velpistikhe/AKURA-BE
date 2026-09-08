@@ -8,7 +8,8 @@ API Gateway Akura berbasis Express dan TypeScript. Gateway menyediakan reverse p
 - Validasi JWT access token RS256 menggunakan public key JWKS untuk route service protected.
 - Dukungan access token melalui Bearer header atau HTTP-only cookie.
 - Penghapusan header identitas dari request klien sebelum proxy.
-- Injeksi internal gateway secret dan metadata pengguna yang sudah diverifikasi.
+- Injeksi secret target-spesifik dan metadata pengguna yang sudah diverifikasi.
+- Validasi identitas service pemanggil melalui `X-Service-Name` dan `X-Service-Secret`; header tersebut dihapus sebelum request diteruskan.
 - Global rate limiter, CORS, Helmet, dan request ID.
 - Structured logging dan graceful shutdown.
 - Swagger UI yang disusun dari spesifikasi OpenAPI statis.
@@ -39,6 +40,7 @@ Access token yang diterima harus:
 - Belum kedaluwarsa.
 - Memiliki claim `sub`.
 - Memiliki claim `type` dengan nilai `access`.
+- Memiliki claim `officeBranchId` berupa UUID atau `null`.
 - Memiliki issuer dan audience yang sesuai konfigurasi.
 
 Token dapat dikirim melalui:
@@ -49,9 +51,9 @@ Authorization: Bearer <access-token>
 
 atau cookie `accessToken`.
 
-Gateway menghapus `X-User-ID`, `X-User-Role`, `X-User-Email` (legacy), dan `X-User-Username` yang berasal dari klien. Untuk route protected, nilai yang masih digunakan dibuat ulang dari access token yang telah diverifikasi.
+Gateway menghapus `X-User-ID`, `X-User-Role`, `X-User-Email` (legacy), `X-User-Username`, dan `X-Office-Branch-ID` yang berasal dari klien. Untuk route protected, nilai yang masih digunakan dibuat ulang dari access token yang telah diverifikasi.
 
-Gateway mengambil public key dari `AUTH_JWKS_URL` dan menyimpannya dalam cache. Gateway tidak memiliki private signing key dan tidak melakukan transaksi validasi ke Auth Service pada setiap request. Ketika token membawa `kid` baru, verifier memperbarui JWKS dari Auth Service.
+Gateway mengambil public key dari `AUTH_JWKS_URL` memakai `AUTH_SERVICE_GATEWAY_SECRET` dan menyimpannya dalam cache. Gateway tidak memiliki private signing key dan tidak melakukan transaksi validasi ke Auth Service pada setiap request. Ketika token membawa `kid` baru, verifier memperbarui JWKS dari Auth Service. Downstream service mengambil JWKS melalui route Gateway, bukan dari URL Auth langsung.
 
 ## Dokumentasi OpenAPI
 
@@ -77,7 +79,9 @@ Salin `.env.example` menjadi `.env` dan ganti seluruh nilai secret.
 | ------------------------- | --------------------------------------------- | -------------------------------------------------- |
 | `PORT`                    | `5000`                                        | Port gateway                                       |
 | `NODE_ENV`                | `development`                                 | Environment runtime                                |
-| `GATEWAY_SECRET`          | Tidak ada                                     | Secret internal yang dibagikan dengan microservice |
+| `AUTH_SERVICE_GATEWAY_SECRET` | Tidak ada | Secret yang hanya dibagikan dengan Auth Service |
+| `APP_MANAGER_SERVICE_GATEWAY_SECRET` | Tidak ada | Secret yang hanya dibagikan dengan App Manager Service |
+| `MARKETING_SERVICE_GATEWAY_SECRET` | Tidak ada | Secret yang hanya dibagikan dengan Marketing Service |
 | `CORS_ORIGIN`             | `*`                                           | Origin yang diizinkan                              |
 | `AUTH_SERVICE_URL`        | Tidak ada                                     | Target Auth Service                                |
 | `AUTH_JWKS_URL`           | Tidak ada                                     | Endpoint public key Auth Service                   |
@@ -88,7 +92,7 @@ Salin `.env.example` menjadi `.env` dan ganti seluruh nilai secret.
 | `RATE_LIMIT_WINDOW_MS`    | `900000`                                      | Durasi window rate limiter                         |
 | `RATE_LIMIT_MAX_REQUESTS` | `100`                                         | Maksimum request per IP per window                 |
 
-Gateway tidak membutuhkan access-token secret atau private key. Nilai `JWT_ISSUER` dan `JWT_AUDIENCE` harus sama dengan Auth Service. `GATEWAY_SECRET` harus identik pada gateway dan seluruh downstream service.
+Gateway tidak membutuhkan access-token secret atau private key. Nilai `JWT_ISSUER` dan `JWT_AUDIENCE` harus sama dengan Auth Service. Setiap `*_SERVICE_GATEWAY_SECRET` harus sama hanya dengan `GATEWAY_SECRET` milik target terkait dan wajib berbeda satu sama lain. Dengan demikian sebuah service tidak memiliki kredensial untuk mengakses service lain secara langsung.
 
 ## Instalasi dan penggunaan
 
@@ -110,14 +114,21 @@ Pemeriksaan TypeScript:
 npm run typecheck
 ```
 
+Verifikasi isolasi komunikasi antar-service:
+
+```powershell
+npm run verify:service-boundaries
+```
+
 ## Menambah service
 
-Tambahkan konfigurasi ke `src/config/services.config.ts` dengan prefix unik, target URL, aturan rewrite, deskripsi, dan nilai `authRequired`.
+Tambahkan konfigurasi ke `src/config/services.config.ts` dengan prefix unik, target URL, secret target-spesifik, aturan rewrite, deskripsi, dan nilai `authRequired`. Service baru harus mempunyai secret sendiri dan tidak boleh menggunakan secret service yang sudah ada.
 
 ```ts
 {
   prefix: '/api/v1/payments',
   target: 'http://localhost:5005',
+  gatewaySecret: env.PAYMENT_SERVICE_GATEWAY_SECRET,
   authRequired: true,
   pathRewrite: { '^/api/v1/payments': '' },
   description: 'Payment Service'

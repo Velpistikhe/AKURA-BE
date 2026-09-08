@@ -34,6 +34,7 @@ model User {
   lastName          String         @map("last_name")
   role              UserRole       @default(USER)
   section           UserSection?
+  officeBranchId    String?        @map("office_branch_id") @db.Uuid
   isActive          Boolean        @default(true) @map("is_active")
   version           Int            @default(1)
   createdAt         DateTime       @default(now()) @map("created_at")
@@ -41,6 +42,7 @@ model User {
   password          UserPassword?
   refreshTokens     RefreshToken[]
 
+  @@index([officeBranchId])
   @@map("users")
 }
 

@@ -1,6 +1,6 @@
 import { Prisma, PrismaClient, RefreshToken, User, UserPassword } from '@prisma/client';
-import { prisma } from '../config/db.js';
-import { HttpError } from '../utils/httpError.js';
+import { prisma } from '../../config/db.js';
+import { HttpError } from '../../utils/httpError.js';
 
 type TxClient = Prisma.TransactionClient | PrismaClient;
 
@@ -58,6 +58,7 @@ class AuthRepository {
         last_name as "lastName",
         role,
         section,
+        office_branch_id as "officeBranchId",
         is_active as "isActive",
         version,
         created_at as "createdAt",

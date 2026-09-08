@@ -4,11 +4,11 @@ import {
   loginSchema,
   registerSchema,
   updateProfileSchema,
-} from '../config/auth.schemas.js';
-import { authController } from '../controllers/auth.controller.js';
-import { authenticate } from '../middlewares/auth.middleware.js';
-import { validateBody } from '../middlewares/validate.middleware.js';
-import { asyncHandler } from '../utils/asyncHandler.js';
+} from './auth.schemas.js';
+import { authController } from './auth.controller.js';
+import { authenticate } from './auth.middleware.js';
+import { validateBody } from '../../middlewares/validate.middleware.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
 
 const router = Router();
 

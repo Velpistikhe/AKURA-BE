@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../config/db.js';
-import { HttpError } from '../../utils/httpError.js';
-import { buildListQuery, buildPagination, defineSortRules } from '../../utils/listQuery.js';
+import { prisma } from '../../../config/db.js';
+import { HttpError } from '../../../utils/httpError.js';
+import { buildListQuery, buildPagination, defineSortRules } from '../../../utils/listQuery.js';
 import { ListMenuItemsInput } from './menu-item.schemas.js';
 import { ManagedMenuItem, MenuItemCreate, MenuItemUpdate, PaginatedMenuItems } from './menu-item.types.js';
 
@@ -31,15 +31,25 @@ class MenuItemRepository {
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
+    const where = {
+      AND: [{ isActive: true }, { menu: { isActive: true } }, query.where],
+    } satisfies Prisma.MenuItemWhereInput;
     const [items, total] = await Promise.all([
-      prisma.menuItem.findMany({ ...query, select: menuItemSelect }),
-      prisma.menuItem.count({ where: query.where }),
+      prisma.menuItem.findMany({ ...query, where, select: menuItemSelect }),
+      prisma.menuItem.count({ where }),
     ]);
     return { items, pagination: buildPagination(input.page, input.limit, total) };
   }
 
   findById(id: string): Promise<ManagedMenuItem | null> {
     return prisma.menuItem.findUnique({ where: { id }, select: menuItemSelect });
+  }
+
+  findActiveById(id: string): Promise<ManagedMenuItem | null> {
+    return prisma.menuItem.findFirst({
+      where: { id, isActive: true, menu: { isActive: true } },
+      select: menuItemSelect,
+    });
   }
 
   findByKey(key: string): Promise<ManagedMenuItem | null> {

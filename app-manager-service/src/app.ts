@@ -16,6 +16,7 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(verifyGatewaySecret);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
@@ -31,7 +32,6 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
-app.use(verifyGatewaySecret);
 app.use(authenticate);
 app.use(routes);
 

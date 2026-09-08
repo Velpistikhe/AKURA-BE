@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "rimraf dist && tsc",
     "verify:openapi": "npm run build && node scripts/verify-openapi.cjs",
+    "verify:service-boundaries": "npm run build && node scripts/verify-service-boundaries.cjs",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit"
   },

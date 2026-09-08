@@ -1,7 +1,7 @@
 import { UserRole, UserSection } from '@prisma/client';
 import { z } from 'zod';
-import { MENU_ACCESS_LIST_CONFIG } from '../../config/list.config.js';
-import { createListQueryFields } from '../../utils/listQuery.js';
+import { MENU_ACCESS_LIST_CONFIG } from '../../../config/list.config.js';
+import { createListQueryFields } from '../../../utils/listQuery.js';
 
 export const menuAccessIdSchema = z.object({
   menuAccessId: z.string().uuid('Invalid menu access ID'),

@@ -67,8 +67,8 @@ export const openApiDocument = {
   openapi: '3.0.3',
   info: {
     title: 'Akura API Gateway',
-    version: '2.0.0',
-    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services.',
+    version: '2.1.0',
+    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway; direct service access is rejected with a target-specific internal secret.',
   },
   servers: [
     {
@@ -81,6 +81,7 @@ export const openApiDocument = {
     { name: 'Authentication', description: 'Registration, sessions, profile, and password management.' },
     { name: 'User Management', description: 'User administration owned and served directly by Auth Service.' },
     { name: 'App Manager', description: 'Administrative menu and application management.' },
+    { name: 'Reference', description: 'Reference data managed by App Manager Service.' },
     { name: 'Marketing', description: 'Company and marketing service management.' },
   ],
   components: {
@@ -136,12 +137,13 @@ export const openApiDocument = {
       AccessTokenClaims: {
         type: 'object',
         description: 'Claims embedded in the RS256 access token stored in the accessToken cookie or sent as a Bearer token.',
-        required: ['sub', 'name', 'username', 'role', 'type', 'iss', 'aud', 'iat', 'exp'],
+        required: ['sub', 'name', 'username', 'role', 'officeBranchId', 'type', 'iss', 'aud', 'iat', 'exp'],
         properties: {
           sub: { type: 'string', format: 'uuid', description: 'User ID.' },
           name: { type: 'string', example: 'John Doe', description: 'Full name composed from firstName and lastName.' },
           username: { type: 'string', example: 'johndoe' },
           role: schemaRef('UserRole'),
+          officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Office branch assigned to the authenticated user.' },
           type: { type: 'string', enum: ['access'] },
           iss: { type: 'string', example: 'akura-auth' },
           aud: { type: 'string', example: 'akura-api' },
@@ -207,10 +209,89 @@ export const openApiDocument = {
           requestId: '9539c2ec-d85b-4fa1-94a1-ca7627f1fe6a',
         },
       },
+      OfficeBranch: {
+        type: 'object',
+        description: 'An office branch. At most one record can have isHead=true.',
+        required: ['id', 'name', 'address', 'telp', 'email', 'isHead', 'createdAt', 'updatedAt'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string', example: 'Kantor Pusat' },
+          address: { type: 'string', example: 'Jl. Merdeka No. 10, Jakarta' },
+          telp: { type: 'string', pattern: '^[0-9+().\\-\\s]+$', example: '+62 21 555 0100' },
+          email: { type: 'string', format: 'email', example: 'jakarta@example.com' },
+          isHead: { type: 'boolean', example: true, description: 'True only for the single head office branch.' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      CreateOfficeBranchRequest: {
+        type: 'object', additionalProperties: false,
+        required: ['name', 'address', 'telp', 'email'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          address: { type: 'string', minLength: 1, maxLength: 500 },
+          telp: { type: 'string', minLength: 3, maxLength: 30, pattern: '^[0-9+().\\-\\s]+$' },
+          email: { type: 'string', format: 'email', maxLength: 254 },
+          isHead: { type: 'boolean', default: false, description: 'Only one office branch may be marked as head.' },
+        },
+      },
+      UpdateOfficeBranchRequest: {
+        type: 'object', additionalProperties: false, minProperties: 1,
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          address: { type: 'string', minLength: 1, maxLength: 500 },
+          telp: { type: 'string', minLength: 3, maxLength: 30, pattern: '^[0-9+().\\-\\s]+$' },
+          email: { type: 'string', format: 'email', maxLength: 254 },
+          isHead: { type: 'boolean', description: 'Setting true fails with 409 when another head office branch exists.' },
+        },
+      },
+      OfficeBranchResponse: {
+        type: 'object', required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer' },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string' },
+          data: schemaRef('OfficeBranch'),
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
+      OfficeBranchListResponse: {
+        type: 'object', required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string' },
+          data: {
+            type: 'object', required: ['officeBranches', 'pagination'],
+            properties: {
+              officeBranches: { type: 'array', items: schemaRef('OfficeBranch') },
+              pagination: { type: 'object', required: ['page', 'limit', 'total', 'totalPages'], properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' } } },
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
+      OfficeBranchOption: {
+        type: 'object', required: ['id', 'name'], additionalProperties: false,
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string', example: 'Kantor Pusat' },
+        },
+      },
+      OfficeBranchOptionsResponse: {
+        type: 'object', required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string' },
+          data: { type: 'array', items: schemaRef('OfficeBranchOption') },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       UserProfile: {
         type: 'object',
         required: [
-          'id', 'username', 'firstName', 'lastName', 'role', 'section', 'isActive',
+          'id', 'username', 'firstName', 'lastName', 'role', 'section', 'officeBranchId', 'isActive',
           'version', 'createdAt', 'updatedAt',
         ],
         properties: {
@@ -220,6 +301,7 @@ export const openApiDocument = {
           lastName: { type: 'string', example: 'Doe' },
           role: schemaRef('UserRole'),
           section: schemaRef('NullableUserSection'),
+          officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Office branch ID stored by Auth Service without a cross-database foreign key.' },
           isActive: { type: 'boolean', example: true },
           version: { type: 'integer', minimum: 1, example: 1 },
           createdAt: { type: 'string', format: 'date-time' },
@@ -284,6 +366,24 @@ export const openApiDocument = {
             type: 'object', required: ['service', 'timestamp', 'uptime'],
             properties: {
               service: { type: 'string', enum: ['api-gateway'] },
+              timestamp: { type: 'string', format: 'date-time' },
+              uptime: { type: 'number', minimum: 0 },
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
+      DownstreamHealthResponse: {
+        type: 'object',
+        required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', enum: [200] },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string', example: 'Auth Service is healthy' },
+          data: {
+            type: 'object', required: ['service', 'timestamp', 'uptime'],
+            properties: {
+              service: { type: 'string', enum: ['auth-service', 'app-manager-service', 'marketing-service'] },
               timestamp: { type: 'string', format: 'date-time' },
               uptime: { type: 'number', minimum: 0 },
             },
@@ -370,26 +470,13 @@ export const openApiDocument = {
           newPasswordConfirmation: { type: 'string', format: 'password', minLength: 1 },
         },
       },
-      SetUserRoleRequest: {
-        type: 'object',
-        required: ['role', 'version'],
+      UpdateUserRequest: {
+        type: 'object', additionalProperties: false, minProperties: 2,
+        required: ['version'],
         properties: {
           role: schemaRef('UserRole'),
-          version: { type: 'integer', minimum: 1 },
-        },
-      },
-      SetUserSectionRequest: {
-        type: 'object',
-        required: ['section', 'version'],
-        properties: {
           section: schemaRef('NullableUserSection'),
-          version: { type: 'integer', minimum: 1 },
-        },
-      },
-      SetUserStatusRequest: {
-        type: 'object',
-        required: ['isActive', 'version'],
-        properties: {
+          officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Sets or clears the user office branch assignment.' },
           isActive: { type: 'boolean' },
           version: { type: 'integer', minimum: 1 },
         },
@@ -642,9 +729,10 @@ export const openApiDocument = {
       },
       Company: {
         type: 'object',
-        required: ['id', 'name', 'normalizeName', 'type', 'address', 'hasContract', 'revoked', 'version', 'createdAt', 'updatedAt', '_count'],
+        required: ['id', 'officeBranchId', 'name', 'normalizeName', 'type', 'address', 'hasContract', 'revoked', 'version', 'createdAt', 'updatedAt', '_count'],
         properties: {
           id: { type: 'string', format: 'uuid' },
+          officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'PT Akura Indonesia' },
           normalizeName: { type: 'string', readOnly: true, example: 'ptakuraindonesia' },
           type: { type: 'string', example: 'CUSTOMER' },
@@ -689,9 +777,10 @@ export const openApiDocument = {
       },
       Service: {
         type: 'object',
-        required: ['id', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'officeBranchId', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
+          officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'Social Media Management' },
           hasMaintenance: { type: 'boolean' },
           isActive: { type: 'boolean' },
@@ -703,9 +792,10 @@ export const openApiDocument = {
       },
       ServiceListItem: {
         type: 'object',
-        required: ['id', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'officeBranchId', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
+          officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'Social Media Management' },
           hasMaintenance: { type: 'boolean' },
           isActive: { type: 'boolean' },
@@ -716,9 +806,10 @@ export const openApiDocument = {
         },
       },
       Item: {
-        type: 'object', required: ['id', 'serviceId', 'name', 'isActive', 'createdAt', 'updatedAt', 'sizes'],
+        type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'isActive', 'createdAt', 'updatedAt', 'sizes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
+          officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
           isActive: { type: 'boolean' },
@@ -754,9 +845,9 @@ export const openApiDocument = {
         required: ['item'],
         properties: {
           item: {
-            type: 'object', required: ['id', 'serviceId', 'name', 'service'],
+            type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'service'],
             properties: {
-              id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid' }, name: { type: 'string' },
+              id: { type: 'string', format: 'uuid' }, officeBranchId: { type: 'string', format: 'uuid', readOnly: true }, serviceId: { type: 'string', format: 'uuid' }, name: { type: 'string' },
               service: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } } },
             },
           },
@@ -1031,6 +1122,46 @@ export const openApiDocument = {
         },
       },
     },
+    '/api/v1/auth/health': {
+      get: {
+        tags: ['Authentication'],
+        summary: 'Check Auth Service health through Gateway',
+        description: 'Gateway injects the Auth-specific internal secret. Calling the Auth Service health endpoint directly is rejected.',
+        responses: {
+          200: response('Auth Service is healthy', schemaRef('DownstreamHealthResponse')),
+          429: errorResponse('Rate limit exceeded'),
+          503: errorResponse('Auth Service is unavailable'),
+        },
+      },
+    },
+    '/api/v1/app-manager/health': {
+      get: {
+        tags: ['App Manager'],
+        summary: 'Check App Manager Service health through Gateway',
+        description: 'Requires a valid access token at the Gateway. The Gateway injects the App Manager-specific internal secret.',
+        security: protectedSecurity,
+        responses: {
+          200: response('App Manager Service is healthy', schemaRef('DownstreamHealthResponse')),
+          401: errorResponse('Missing or invalid access token'),
+          429: errorResponse('Rate limit exceeded'),
+          503: errorResponse('App Manager Service is unavailable'),
+        },
+      },
+    },
+    '/api/v1/marketing/health': {
+      get: {
+        tags: ['Marketing'],
+        summary: 'Check Marketing Service health through Gateway',
+        description: 'Requires a valid access token at the Gateway. The Gateway injects the Marketing-specific internal secret.',
+        security: protectedSecurity,
+        responses: {
+          200: response('Marketing Service is healthy', schemaRef('DownstreamHealthResponse')),
+          401: errorResponse('Missing or invalid access token'),
+          429: errorResponse('Rate limit exceeded'),
+          503: errorResponse('Marketing Service is unavailable'),
+        },
+      },
+    },
     '/api-docs.json': {
       get: {
         tags: ['Gateway'],
@@ -1063,7 +1194,7 @@ export const openApiDocument = {
       get: {
         tags: ['Authentication'],
         summary: 'Get public access-token signing keys',
-        description: 'Returns the public RSA signing key set. Private signing keys are never exposed.',
+        description: 'Returns the public RSA signing key set through the Gateway. Direct access to the Auth Service JWKS endpoint is rejected. Private signing keys are never exposed.',
         responses: {
           200: response('JSON Web Key Set', {
             type: 'object',
@@ -1187,8 +1318,9 @@ export const openApiDocument = {
           { in: 'query', name: 'search', description: 'Case-insensitive search in username, firstName, and lastName.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
           { in: 'query', name: 'role', schema: schemaRef('UserRole') },
           { in: 'query', name: 'section', schema: schemaRef('UserSection') },
+          { in: 'query', name: 'officeBranchId', schema: { type: 'string', format: 'uuid' } },
           { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
-          ...listSortParameters(['username', 'firstName', 'lastName', 'role', 'section', 'isActive', 'updatedAt']),
+          ...listSortParameters(['username', 'firstName', 'lastName', 'role', 'section', 'officeBranchId', 'isActive', 'updatedAt']),
         ],
         responses: {
           200: response('Users retrieved', schemaRef('UserListResponse')),
@@ -1218,63 +1350,17 @@ export const openApiDocument = {
           500: errorResponse('Internal server error'),
         },
       },
-    },
-    '/api/v1/auth/users/{userId}/role': {
       patch: {
         tags: ['User Management'],
-        summary: 'Set a user role',
-        description: 'The target user must exist, have the supplied current version, and be active. App managers cannot change their own role or demote the last active app manager.',
+        summary: 'Update a user',
+        description: 'Atomically updates role, section, office branch, and/or active status. The target must exist, match the supplied version, and be active. Self-role/status changes and removal of the last active app manager are rejected. Deactivation revokes active refresh tokens.',
         security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'userId', required: true, schema: { type: 'string', format: 'uuid' } },
         ],
-        requestBody: { required: true, ...jsonContent(schemaRef('SetUserRoleRequest')) },
+        requestBody: { required: true, ...jsonContent(schemaRef('UpdateUserRequest')) },
         responses: {
-          200: userResponse('User role updated'),
-          400: errorResponse('Validation failed'),
-          401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Active app manager role is required'),
-          404: errorResponse('User not found'),
-          409: errorResponse('Inactive user, self-update, last-app-manager, or concurrent update conflict'),
-          429: errorResponse('Rate limit exceeded'),
-          500: errorResponse('Internal server error'),
-        },
-      },
-    },
-    '/api/v1/auth/users/{userId}/section': {
-      patch: {
-        tags: ['User Management'],
-        summary: 'Set or clear a user section',
-        description: 'The target user must exist, have the supplied current version, and be active.',
-        security: protectedSecurity,
-        parameters: [
-          { in: 'path', name: 'userId', required: true, schema: { type: 'string', format: 'uuid' } },
-        ],
-        requestBody: { required: true, ...jsonContent(schemaRef('SetUserSectionRequest')) },
-        responses: {
-          200: userResponse('User section updated'),
-          400: errorResponse('Validation failed'),
-          401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Active app manager role is required'),
-          404: errorResponse('User not found'),
-          409: errorResponse('Inactive user or concurrent update conflict'),
-          429: errorResponse('Rate limit exceeded'),
-          500: errorResponse('Internal server error'),
-        },
-      },
-    },
-    '/api/v1/auth/users/{userId}/status': {
-      patch: {
-        tags: ['User Management'],
-        summary: 'Set an active user status',
-        description: 'The target user must exist, have the supplied current version, and currently be active. Deactivation revokes active refresh tokens. An inactive user cannot be reactivated through this endpoint. App managers cannot deactivate themselves or the last active app manager.',
-        security: protectedSecurity,
-        parameters: [
-          { in: 'path', name: 'userId', required: true, schema: { type: 'string', format: 'uuid' } },
-        ],
-        requestBody: { required: true, ...jsonContent(schemaRef('SetUserStatusRequest')) },
-        responses: {
-          200: userResponse('User status updated'),
+          200: userResponse('User updated'),
           400: errorResponse('Validation failed'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
@@ -1540,9 +1626,87 @@ export const openApiDocument = {
         },
       },
     },
+    '/api/v1/app-manager/office-branches': {
+      get: {
+        tags: ['Reference'], summary: 'List office branches', security: protectedSecurity,
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+          { in: 'query', name: 'search', description: 'Case-insensitive search in office name, address, phone number, and email.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
+          { in: 'query', name: 'isHead', schema: { type: 'string', enum: ['true', 'false'] } },
+          ...listSortParameters(['name', 'address', 'telp', 'email', 'isHead', 'updatedAt']),
+        ],
+        responses: {
+          200: response('Office branches retrieved', schemaRef('OfficeBranchListResponse')),
+          400: errorResponse('Invalid query parameters'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'), 429: errorResponse('Rate limit exceeded'),
+          500: errorResponse('Internal server error'),
+        },
+      },
+      post: {
+        tags: ['Reference'], summary: 'Create an office branch', security: protectedSecurity,
+        requestBody: { required: true, ...jsonContent(schemaRef('CreateOfficeBranchRequest')) },
+        responses: {
+          201: response('Office branch created', schemaRef('OfficeBranchResponse')),
+          400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'), 429: errorResponse('Rate limit exceeded'),
+          409: errorResponse('A head office branch already exists'),
+          500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/app-manager/office-branches/options': {
+      get: {
+        tags: ['Reference'],
+        summary: 'List office branch options',
+        description: 'Returns a compact list for select controls, ordered with the head office first and then by name.',
+        security: protectedSecurity,
+        responses: {
+          200: response('Office branch options retrieved', schemaRef('OfficeBranchOptionsResponse')),
+          401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'),
+          429: errorResponse('Rate limit exceeded'),
+          500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/app-manager/office-branches/{officeBranchId}': {
+      get: {
+        tags: ['Reference'], summary: 'Get an office branch', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'officeBranchId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: response('Office branch retrieved', schemaRef('OfficeBranchResponse')),
+          400: errorResponse('Invalid office branch ID'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'), 404: errorResponse('Office branch not found'),
+          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+      patch: {
+        tags: ['Reference'], summary: 'Update an office branch', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'officeBranchId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: { required: true, ...jsonContent(schemaRef('UpdateOfficeBranchRequest')) },
+        responses: {
+          200: response('Office branch updated', schemaRef('OfficeBranchResponse')),
+          400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'), 404: errorResponse('Office branch not found'),
+          409: errorResponse('A head office branch already exists'),
+          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+      delete: {
+        tags: ['Reference'], summary: 'Delete an office branch', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'officeBranchId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: response('Office branch deleted', schemaRef('OfficeBranchResponse')),
+          400: errorResponse('Invalid office branch ID'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'), 404: errorResponse('Office branch not found'),
+          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+    },
     '/api/v1/marketing/items': {
       get: {
-        tags: ['Marketing'], summary: 'List active item sizes', description: 'Each active size is returned as one row together with its item and service.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'List active item sizes', description: 'Each active size is returned as one row together with its item and service. Results are restricted to the office branch in the access token.', security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
@@ -1603,7 +1767,7 @@ export const openApiDocument = {
     },
     '/api/v1/marketing/companies': {
       get: {
-        tags: ['Marketing'], summary: 'List companies', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'List companies', description: 'Returns only companies owned by the office branch in the access token.', security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
@@ -1665,7 +1829,7 @@ export const openApiDocument = {
     },
     '/api/v1/marketing/company-staffs': {
       get: {
-        tags: ['Marketing'], summary: 'List company staff', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'List company staff', description: 'Returns staff whose company belongs to the office branch in the access token.', security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
@@ -1728,7 +1892,7 @@ export const openApiDocument = {
     },
     '/api/v1/marketing/services': {
       get: {
-        tags: ['Marketing'], summary: 'List services', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'List services', description: 'Returns only services owned by the office branch in the access token.', security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
@@ -1784,6 +1948,7 @@ export const openApiDocument = {
           200: { description: 'Service deactivated', ...jsonContent(schemaRef('ServiceResponse')) },
           400: errorResponse('Invalid service ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
+          409: errorResponse('Service is already inactive'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },

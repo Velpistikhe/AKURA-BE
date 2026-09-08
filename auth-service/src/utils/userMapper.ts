@@ -8,6 +8,7 @@ export const sanitizeUser = (user: User): UserSanitized => ({
   lastName: user.lastName,
   role: user.role,
   section: user.section,
+  officeBranchId: user.officeBranchId,
   isActive: user.isActive,
   version: user.version,
   createdAt: user.createdAt,

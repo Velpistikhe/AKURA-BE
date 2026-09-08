@@ -1,7 +1,7 @@
 import { Prisma, UserRole, UserSection } from '@prisma/client';
-import { prisma } from '../../config/db.js';
-import { HttpError } from '../../utils/httpError.js';
-import { buildListQuery, buildPagination, defineSortRules } from '../../utils/listQuery.js';
+import { prisma } from '../../../config/db.js';
+import { HttpError } from '../../../utils/httpError.js';
+import { buildListQuery, buildPagination, defineSortRules } from '../../../utils/listQuery.js';
 import { ListMenusInput } from './menu.schemas.js';
 import { ManagedMenu, MenuUpdate, MenusForUserResult, PaginatedMenus } from './menu.types.js';
 
@@ -29,15 +29,20 @@ class MenuRepository {
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
+    const where = { AND: [{ isActive: true }, query.where] } satisfies Prisma.MenuWhereInput;
     const [menus, total] = await Promise.all([
-      prisma.menu.findMany({ ...query, select: menuSelect }),
-      prisma.menu.count({ where: query.where }),
+      prisma.menu.findMany({ ...query, where, select: menuSelect }),
+      prisma.menu.count({ where }),
     ]);
     return { menus, pagination: buildPagination(input.page, input.limit, total) };
   }
 
   findById(id: string): Promise<ManagedMenu | null> {
     return prisma.menu.findUnique({ where: { id }, select: menuSelect });
+  }
+
+  findActiveById(id: string): Promise<ManagedMenu | null> {
+    return prisma.menu.findFirst({ where: { id, isActive: true }, select: menuSelect });
   }
 
   findByKey(key: string): Promise<ManagedMenu | null> {

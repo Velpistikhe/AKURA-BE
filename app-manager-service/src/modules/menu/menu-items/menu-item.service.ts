@@ -1,5 +1,5 @@
-import { prisma } from '../../config/db.js';
-import { HttpError } from '../../utils/httpError.js';
+import { prisma } from '../../../config/db.js';
+import { HttpError } from '../../../utils/httpError.js';
 import { CreateMenuItemInput, ListMenuItemsInput, UpdateMenuItemInput } from './menu-item.schemas.js';
 import { menuItemRepository } from './menu-item.repository.js';
 import { ManagedMenuItem, PaginatedMenuItems } from './menu-item.types.js';
@@ -10,7 +10,7 @@ class MenuItemService {
   }
 
   async get(id: string): Promise<ManagedMenuItem> {
-    const item = await menuItemRepository.findById(id);
+    const item = await menuItemRepository.findActiveById(id);
     if (!item) throw new HttpError('Menu item not found', 404);
     return item;
   }

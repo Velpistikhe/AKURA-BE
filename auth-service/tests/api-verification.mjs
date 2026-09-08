@@ -121,13 +121,21 @@ const internalHeaders = { 'x-gateway-secret': gatewaySecret };
 
 try {
   const gatewayHealth = await request(gatewayUrl, '/health');
-  const authHealth = await request(authUrl, '/health');
-  const jwks = await request(authUrl, '/.well-known/jwks.json');
+  const directAuthHealth = await request(authUrl, '/health');
+  const authHealth = await request(gatewayUrl, '/api/v1/auth/health');
+  const directJwks = await request(authUrl, '/.well-known/jwks.json');
+  const jwks = await request(gatewayUrl, '/api/v1/auth/.well-known/jwks.json');
   const openApi = await request(gatewayUrl, '/api-docs.json');
   check('Gateway health', gatewayHealth.status === 200, { status: gatewayHealth.status });
-  check('Auth service health', authHealth.status === 200, { status: authHealth.status });
+  check('Auth service rejects direct health access', directAuthHealth.status === 403, { status: directAuthHealth.status });
+  check('Auth service health is available through Gateway', authHealth.status === 200, { status: authHealth.status });
   check(
-    'Auth service publishes public RS256 JWKS without private key material',
+    'Auth service rejects direct JWKS access without its gateway secret',
+    directJwks.status === 403,
+    { status: directJwks.status },
+  );
+  check(
+    'Gateway publishes Auth RS256 JWKS without private key material',
     jwks.status === 200
       && jwks.body?.keys?.length === 1
       && jwks.body.keys[0].alg === 'RS256'
@@ -228,6 +236,7 @@ try {
       && accessPayload.name === 'Functional Test'
       && accessPayload.iss === (localEnv.JWT_ISSUER || 'akura-auth')
       && accessPayload.aud === (localEnv.JWT_AUDIENCE || 'akura-api')
+      && accessPayload.officeBranchId === null
       && accessPayload.type === 'access',
     { alg: accessHeader.alg, kid: accessHeader.kid, sub: accessPayload.sub },
   );
@@ -505,7 +514,7 @@ try {
     passwordStatuses[200] === 1 && passwordStatuses[400] === 1,
     passwordStatuses);
 
-  await runLoad('auth health', 1000, 50, () => request(authUrl, '/health', { timeoutMs: 10_000 }));
+  await runLoad('auth health through Gateway', 1000, 50, () => request(gatewayUrl, '/api/v1/auth/health', { timeoutMs: 10_000 }));
   await runLoad('authenticated profile read', 300, 30, () => request(authUrl, '/me', {
     headers: { ...internalHeaders, cookie: raceCookies }, timeoutMs: 10_000,
   }));

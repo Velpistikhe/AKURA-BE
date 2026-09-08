@@ -16,6 +16,7 @@ enum StaffTitle {
 
 model Company {
   id            String         @id @default(uuid()) @db.Uuid
+  officeBranchId String        @map("office_branch_id") @db.Uuid
   name          String
   normalizeName String         @map("normalize_name")
   type          String
@@ -28,6 +29,7 @@ model Company {
   staffs        CompanyStaff[]
 
   @@index([revoked])
+  @@index([officeBranchId])
   @@map("companies")
 }
 
@@ -52,6 +54,7 @@ model CompanyStaff {
 
 model Service {
   id                String             @id @default(uuid()) @db.Uuid
+  officeBranchId    String             @map("office_branch_id") @db.Uuid
   name              String
   hasMaintenance    Boolean            @default(false) @map("has_maintenance")
   isActive          Boolean            @default(true) @map("is_active")
@@ -61,6 +64,7 @@ model Service {
   maintenanceScopes MaintenanceScope[]
   itemCatalog       Item[]
 
+  @@index([officeBranchId])
   @@map("services")
 }
 
@@ -96,6 +100,7 @@ model MaintenanceScope {
 
 model Item {
   id           String            @id @default(uuid()) @db.Uuid
+  officeBranchId String          @map("office_branch_id") @db.Uuid
   name         String
   serviceId    String         @map("service_id") @db.Uuid
   service      Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
@@ -104,6 +109,7 @@ model Item {
   updatedAt    DateTime          @updatedAt @map("updated_at")
   sizes        ItemSize[]
 
+  @@index([officeBranchId])
   @@map("items")
 }
 

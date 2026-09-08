@@ -11,6 +11,8 @@ const stressConcurrency = Number.parseInt(process.env.TEST_STRESS_CONCURRENCY ||
 const runId = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
 const username = `marketing_${runId}`.slice(0, 50);
 const password = 'MarketingTest-123!';
+const officeBranchId = randomUUID();
+const foreignOfficeBranchId = randomUUID();
 const companyName = `Test Company ${runId}`;
 const updatedCompanyName = `Updated Test Company ${runId}`;
 const companyNormalizeNames = [companyName, updatedCompanyName].map((name) => name.toLowerCase().replace(/\s+/g, ''));
@@ -19,6 +21,8 @@ let companyId;
 let companyStaffId;
 let serviceId;
 let itemId;
+let foreignCompanyId;
+let foreignServiceId;
 
 const readEnv = (path) => Object.fromEntries(readFileSync(path, 'utf8').split(/\r?\n/)
   .filter((line) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(line))
@@ -91,14 +95,45 @@ try {
   }), [201]);
   await authPrisma.user.update({
     where: { normalizeUsername: username.toLowerCase() },
-    data: { section: 'MARKETING', version: { increment: 1 } },
+    data: { section: 'MARKETING', officeBranchId, version: { increment: 1 } },
   });
   const login = check('Login marketing user', await request('/api/v1/auth/login', { method: 'POST', json: { username, password } }), [200]);
+  const accessToken = login.cookies.split('; ').find((cookie) => cookie.startsWith('accessToken='))?.slice('accessToken='.length);
+  const tokenPayload = accessToken ? JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8')) : undefined;
+  if (tokenPayload?.officeBranchId !== officeBranchId) throw new Error('Access token does not contain the assigned officeBranchId');
+
+  const foreignCompany = await marketingPrisma.company.create({
+    data: {
+      officeBranchId: foreignOfficeBranchId,
+      name: `Foreign Company ${runId}`,
+      normalizeName: `foreigncompany${runId}`,
+      type: 'CUSTOMER',
+      address: 'Surabaya',
+    },
+  });
+  foreignCompanyId = foreignCompany.id;
+  const foreignService = await marketingPrisma.service.create({
+    data: { officeBranchId: foreignOfficeBranchId, name: `Foreign Service ${runId}` },
+  });
+  foreignServiceId = foreignService.id;
+  const foreignItem = await marketingPrisma.item.create({
+    data: { officeBranchId: foreignOfficeBranchId, serviceId: foreignService.id, name: `Foreign Item ${runId}` },
+  });
+  check('Company from another branch is hidden', await request(`/api/v1/marketing/companies/${foreignCompany.id}`, {
+    cookies: login.cookies,
+  }), [404]);
+  check('Service from another branch is hidden', await request(`/api/v1/marketing/services/${foreignService.id}`, {
+    cookies: login.cookies,
+  }), [404]);
+  check('Item from another branch is hidden', await request(`/api/v1/marketing/items/${foreignItem.id}`, {
+    cookies: login.cookies,
+  }), [404]);
 
   const company = check('POST companies', await request('/api/v1/marketing/companies', {
     method: 'POST', cookies: login.cookies,
     json: { name: companyName, type: 'CUSTOMER', address: 'Jakarta', hasContract: false },
-  }), [201], (body) => body?.data?.normalizeName === companyNormalizeNames[0] && body?.data?.version === 0);
+  }), [201], (body) => body?.data?.normalizeName === companyNormalizeNames[0]
+    && body?.data?.officeBranchId === officeBranchId && body?.data?.version === 0);
   companyId = company.body.data.id;
   const raceCompanyName = `Race Company ${runId}`;
   companyNormalizeNames.push(raceCompanyName.toLowerCase().replace(/\s+/g, ''));
@@ -157,7 +192,7 @@ try {
       scopes: ['Planning', 'Execution'],
       maintenanceScopes: ['Inspection', 'Cleaning'],
     },
-  }), [201], (body) => body?.data?.maintenanceScopes?.length === 2);
+  }), [201], (body) => body?.data?.officeBranchId === officeBranchId && body?.data?.maintenanceScopes?.length === 2);
   serviceId = service.body.data.id;
   if (service.body.data.scopes?.length !== 2) throw new Error('POST services did not create scopes');
   check('GET services returns joined scopes', await request('/api/v1/marketing/services?name=Campaign%20Management&sortBy=name&sortOrder=asc', { cookies: login.cookies }), [200],
@@ -241,7 +276,7 @@ try {
         priceMaintenanceSisterCompany: 40,
       }],
     },
-  }), [201], (body) => body?.data?.sizes?.length === 1);
+  }), [201], (body) => body?.data?.officeBranchId === officeBranchId && body?.data?.sizes?.length === 1);
   itemId = item.body.data.id;
   check('GET items', await request(`/api/v1/marketing/items?itemName=${encodeURIComponent(`Endpoint Item ${runId}`)}`, {
     cookies: login.cookies,
@@ -273,6 +308,9 @@ try {
   await runLoad('Concurrent service detail stress test', stressTotal, stressConcurrency,
     () => request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }));
   check('DELETE service', await request(`/api/v1/marketing/services/${serviceId}`, { method: 'DELETE', cookies: login.cookies }), [200]);
+  check('DELETE inactive service returns conflict', await request(`/api/v1/marketing/services/${serviceId}`, {
+    method: 'DELETE', cookies: login.cookies,
+  }), [409], (body) => body?.message === 'Service is already inactive');
   serviceId = undefined;
   check('DELETE company staff', await request(`/api/v1/marketing/company-staffs/${companyStaffId}`, { method: 'DELETE', cookies: login.cookies }), [200],
     (body) => body?.data?.revoked === true && body?.data?.version === 1);
@@ -286,6 +324,8 @@ try {
 } finally {
   if (itemId) await marketingPrisma.item.deleteMany({ where: { id: itemId } }).catch(() => undefined);
   if (serviceId) await marketingPrisma.service.deleteMany({ where: { id: serviceId } }).catch(() => undefined);
+  if (foreignServiceId) await marketingPrisma.service.deleteMany({ where: { id: foreignServiceId } }).catch(() => undefined);
+  if (foreignCompanyId) await marketingPrisma.company.deleteMany({ where: { id: foreignCompanyId } }).catch(() => undefined);
   await marketingPrisma.company.deleteMany({ where: { normalizeName: { in: companyNormalizeNames } } }).catch(() => undefined);
   await authPrisma.user.deleteMany({ where: { normalizeUsername: username.toLowerCase() } }).catch(() => undefined);
   await Promise.all([marketingPrisma.$disconnect(), authPrisma.$disconnect()]);

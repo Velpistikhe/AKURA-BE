@@ -1,7 +1,7 @@
-import { UserRole, UserSection } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
-import { ListUsersInput } from './user-management.schemas.js';
+import { ListUsersInput, UpdateUserInput } from './user-management.schemas.js';
 import { userManagementRepository } from './user-management.repository.js';
 
 const ensureActiveVersion = (user: { version: number; isActive: boolean }, version: number): void => {
@@ -20,42 +20,44 @@ export const userManagementService = {
     if (!user) throw new HttpError('User not found', 404);
     return user;
   },
-  setRole(actorId: string, userId: string, role: UserRole, version: number) {
+  update(actorId: string, userId: string, data: UpdateUserInput) {
     return prisma.$transaction(async (tx) => {
       const user = await userManagementRepository.lockById(tx, userId);
       if (!user) throw new HttpError('User not found', 404);
-      ensureActiveVersion(user, version);
-      if (actorId === userId) throw new HttpError('App managers cannot change their own role', 409);
-      if (user.role === role) return user;
-      await userManagementRepository.lockInvariant(tx);
-      if (user.role === UserRole.APP_MANAGER && user.isActive && await userManagementRepository.countActiveAppManagers(tx) <= 1) {
-        throw new HttpError('The last active app manager cannot be demoted', 409);
+      ensureActiveVersion(user, data.version);
+
+      const roleChanged = data.role !== undefined && data.role !== user.role;
+      const statusChanged = data.isActive !== undefined && data.isActive !== user.isActive;
+      const sectionChanged = data.section !== undefined && data.section !== user.section;
+      const officeBranchChanged = data.officeBranchId !== undefined && data.officeBranchId !== user.officeBranchId;
+
+      if (actorId === userId && roleChanged) {
+        throw new HttpError('App managers cannot change their own role', 409);
       }
-      return userManagementRepository.update(tx, userId, version, { role });
-    });
-  },
-  setSection(_actorId: string, userId: string, section: UserSection | null, version: number) {
-    return prisma.$transaction(async (tx) => {
-      const user = await userManagementRepository.lockById(tx, userId);
-      if (!user) throw new HttpError('User not found', 404);
-      ensureActiveVersion(user, version);
-      if (user.section === section) return user;
-      return userManagementRepository.update(tx, userId, version, { section });
-    });
-  },
-  setStatus(actorId: string, userId: string, isActive: boolean, version: number) {
-    return prisma.$transaction(async (tx) => {
-      const user = await userManagementRepository.lockById(tx, userId);
-      if (!user) throw new HttpError('User not found', 404);
-      ensureActiveVersion(user, version);
-      if (actorId === userId) throw new HttpError('App managers cannot change their own active status', 409);
-      if (user.isActive === isActive) return user;
-      await userManagementRepository.lockInvariant(tx);
-      if (!isActive && user.role === UserRole.APP_MANAGER && await userManagementRepository.countActiveAppManagers(tx) <= 1) {
-        throw new HttpError('The last active app manager cannot be deactivated', 409);
+      if (actorId === userId && statusChanged) {
+        throw new HttpError('App managers cannot change their own active status', 409);
       }
-      const updated = await userManagementRepository.update(tx, userId, version, { isActive });
-      if (!isActive) await userManagementRepository.revokeRefreshTokens(tx, userId);
+      if (!roleChanged && !statusChanged && !sectionChanged && !officeBranchChanged) {
+        return userManagementRepository.findById(userId);
+      }
+
+      if (roleChanged || statusChanged) await userManagementRepository.lockInvariant(tx);
+      const removesActiveAppManager = user.role === UserRole.APP_MANAGER
+        && user.isActive
+        && ((roleChanged && data.role !== UserRole.APP_MANAGER) || (statusChanged && data.isActive === false));
+      if (removesActiveAppManager && await userManagementRepository.countActiveAppManagers(tx) <= 1) {
+        throw new HttpError('The last active app manager cannot be demoted or deactivated', 409);
+      }
+
+      const updated = await userManagementRepository.update(tx, userId, data.version, {
+        ...(roleChanged && { role: data.role }),
+        ...(sectionChanged && { section: data.section }),
+        ...(officeBranchChanged && { officeBranchId: data.officeBranchId }),
+        ...(statusChanged && { isActive: data.isActive }),
+      });
+      if (statusChanged && data.isActive === false) {
+        await userManagementRepository.revokeRefreshTokens(tx, userId);
+      }
       return updated;
     });
   },

@@ -23,13 +23,16 @@ Access token ditandatangani menggunakan RSA private key yang hanya tersedia pada
   "name": "John Doe",
   "username": "johndoe",
   "role": "USER",
+  "officeBranchId": "44c3fffd-1987-4935-bff4-07fd3cc72f1d",
   "type": "access",
   "iss": "akura-auth",
   "aud": "akura-api"
 }
 ```
 
-Header access token berisi `alg: RS256` dan `kid` untuk memilih signing key yang benar. Endpoint public key tersedia melalui `/.well-known/jwks.json`. Private key tidak pernah dikirim kepada Gateway atau microservice.
+`officeBranchId` selalu ada pada access token dan bernilai `null` jika user belum ditetapkan ke sebuah office branch.
+
+Header access token berisi `alg: RS256` dan `kid` untuk memilih signing key yang benar. Endpoint public key tersedia melalui Gateway pada `/api/v1/auth/.well-known/jwks.json`; akses langsung ke `/.well-known/jwks.json` memerlukan secret khusus Gateway ke Auth. Private key tidak pernah dikirim kepada Gateway atau microservice.
 
 Refresh token ditandatangani menggunakan `JWT_REFRESH_SECRET` dan memiliki claim berikut:
 
@@ -50,7 +53,7 @@ Gateway meneruskan prefix `/api/v1/auth` ke service ini dan menghapus prefix ter
 | Gateway endpoint | Method | Akses | Fungsi |
 |---|---|---|---|
 | `/api/v1/auth/register` | POST | Publik | Membuat akun tanpa membuat token session |
-| `/api/v1/auth/.well-known/jwks.json` | GET | Publik | Mempublikasikan RSA public signing keys |
+| `/api/v1/auth/.well-known/jwks.json` | GET | Publik melalui Gateway | Mempublikasikan RSA public signing keys |
 | `/api/v1/auth/login` | POST | Publik | Membuat token session |
 | `/api/v1/auth/refresh-token` | POST | Publik | Merotasi refresh token dan mencatat aktivitas terakhir; sesi idle ditolak |
 | `/api/v1/auth/logout` | POST | Publik | Merevoke refresh token dan menghapus cookie |
@@ -59,9 +62,7 @@ Gateway meneruskan prefix `/api/v1/auth` ke service ini dan menghapus prefix ter
 | `/api/v1/auth/password` | PUT | Access token | Mengganti password |
 | `/api/v1/auth/users` | GET | APP_MANAGER | Daftar dan filter user |
 | `/api/v1/auth/users/:userId` | GET | APP_MANAGER | Detail user |
-| `/api/v1/auth/users/:userId/role` | PATCH | APP_MANAGER | Mengubah role user |
-| `/api/v1/auth/users/:userId/section` | PATCH | APP_MANAGER | Mengubah section user |
-| `/api/v1/auth/users/:userId/status` | PATCH | APP_MANAGER | Mengaktifkan atau menonaktifkan user |
+| `/api/v1/auth/users/:userId` | PATCH | APP_MANAGER | Mengubah role, section, office branch, dan/atau status user |
 
 Endpoint `/users` dilayani langsung oleh Auth Service. Request wajib melewati API Gateway dan membawa access token milik `APP_MANAGER`. Seluruh pembacaan serta perubahan user dilakukan pada database Auth Service.
 
@@ -76,11 +77,26 @@ Endpoint `/users` dilayani langsung oleh Auth Service. Request wajib melewati AP
 | `search` | Teks maksimal 100 karakter; mencari pada `username`, `firstName`, dan `lastName` | - |
 | `role` | `USER`, `ADMIN`, atau `APP_MANAGER` | - |
 | `section` | Enum `UserSection` | - |
+| `officeBranchId` | UUID office branch | - |
 | `isActive` | `true` atau `false` | - |
-| `sortBy` | `username`, `firstName`, `lastName`, `role`, `section`, `isActive`, `updatedAt` | - |
+| `sortBy` | `username`, `firstName`, `lastName`, `role`, `section`, `officeBranchId`, `isActive`, `updatedAt` | - |
 | `sortOrder` | `asc` atau `desc` | `desc` |
 
 Jika `sortBy` tidak dikirim, hasil diurutkan berdasarkan `createdAt desc`. Field `createdAt` sengaja tidak tersedia bagi user sebagai nilai `sortBy`. Field filter dan sort menggunakan allowlist di atas; nilai di luar allowlist menghasilkan response `400`. Contoh: `/api/v1/auth/users?role=USER&isActive=true&sortBy=username&sortOrder=asc&page=1&limit=20`.
+
+Update user menggunakan satu request `PATCH` atomik. `version` wajib dikirim dan minimal satu field perubahan harus disertakan:
+
+```json
+{
+  "role": "USER",
+  "section": "MARKETING",
+  "officeBranchId": "44c3fffd-1987-4935-bff4-07fd3cc72f1d",
+  "isActive": true,
+  "version": 1
+}
+```
+
+`section` dan `officeBranchId` dapat diisi `null`. Auth Service hanya menyimpan UUID office branch tanpa foreign key karena data office branch dimiliki database App Manager Service.
 
 Token dapat dikirim melalui HTTP-only cookie. Access token juga dapat dikirim melalui header:
 
@@ -101,6 +117,12 @@ npm run db:migrate-user-profile
 ```
 
 Migrasi ini memecah kolom lama `name` menjadi `first_name` dan `last_name`, lalu menghapus kolom `email` dan `bio`.
+
+Untuk menambahkan `office_branch_id` pada database Auth lama, jalankan:
+
+```powershell
+npm run db:migrate-office-branch
+```
 
 ## Validasi request
 
@@ -156,7 +178,7 @@ Salin `.env.example` menjadi `.env`, kemudian isi seluruh secret dengan nilai ya
 |---|---|---|
 | `PORT` | `5001` | Port auth service |
 | `NODE_ENV` | `development` | Environment runtime |
-| `GATEWAY_SECRET` | Tidak ada | Secret bersama dengan API Gateway |
+| `GATEWAY_SECRET` | Tidak ada | Secret khusus koneksi API Gateway ke Auth Service; jangan digunakan service lain |
 | `DATABASE_URL` | Tidak ada | PostgreSQL connection string Prisma |
 | `JWT_ACCESS_PRIVATE_KEY_PATH` | Tidak ada | Path RSA private key PKCS#8 |
 | `JWT_ACCESS_PRIVATE_KEY_BASE64` | Tidak ada | Alternatif private key base64 untuk secret manager |
@@ -168,7 +190,7 @@ Salin `.env.example` menjadi `.env`, kemudian isi seluruh secret dengan nilai ya
 | `JWT_REFRESH_EXPIRES_IN` | `7d` | Masa berlaku refresh token |
 | `JWT_REFRESH_IDLE_TIMEOUT_MINUTES` | `60` | Batas idle refresh-token session dalam menit |
 
-Gunakan salah satu `JWT_ACCESS_PRIVATE_KEY_PATH` atau `JWT_ACCESS_PRIVATE_KEY_BASE64`. Private key hanya boleh tersedia pada Auth Service. Gateway dan microservice mengambil public key melalui JWKS.
+Gunakan salah satu `JWT_ACCESS_PRIVATE_KEY_PATH` atau `JWT_ACCESS_PRIVATE_KEY_BASE64`. Private key hanya boleh tersedia pada Auth Service. Gateway mengambil JWKS menggunakan secret khusus Auth, sedangkan microservice lain mengambil JWKS melalui Gateway.
 
 ## Instalasi dan database
 
@@ -218,12 +240,11 @@ Harness tersebut menguji validasi, autentikasi, spoofed identity header, refresh
 
 ```text
 src/
-  config/         Environment dan schema validasi request
-  controllers/    HTTP request handler
-  middlewares/    Gateway, access token, validasi, dan error middleware
-  repositories/   Query Prisma dan row locking
-  routes/         Definisi endpoint
-  services/       Business logic dan transaksi
+  config/         Environment, database, key, dan konfigurasi list
+  middlewares/    Gateway, validasi, request ID, dan error middleware bersama
+  modules/
+    auth/          Routes, auth middleware, controller, service, schema, dan repository autentikasi
+    user-management/ Routes, authorization middleware, controller, service, schema, dan repository user
   types/          Shared TypeScript types
   utils/          Token, cookie, error, mapper, dan helper async
 ```

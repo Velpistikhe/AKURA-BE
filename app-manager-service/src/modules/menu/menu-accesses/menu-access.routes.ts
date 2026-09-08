@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { requireAppManager } from '../../middlewares/authorize.middleware.js';
-import { validate } from '../../middlewares/validate.middleware.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
+import { requireAppManager } from '../../../middlewares/authorize.middleware.js';
+import { validate } from '../../../middlewares/validate.middleware.js';
+import { asyncHandler } from '../../../utils/asyncHandler.js';
 import { menuAccessController } from './menu-access.controller.js';
 import { createMenuAccessSchema, listMenuAccessesSchema, menuAccessIdSchema, updateMenuAccessSchema } from './menu-access.schemas.js';
 

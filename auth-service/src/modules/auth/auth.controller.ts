@@ -4,12 +4,12 @@ import {
   LoginInput,
   RegisterInput,
   UpdateProfileInput,
-} from '../config/auth.schemas.js';
-import { authService } from '../services/auth.service.js';
-import { getAuthenticatedUserId } from '../utils/authenticatedUser.js';
-import { clearTokenCookies, setTokenCookies } from '../utils/cookies.js';
-import { HttpError, RefreshTokenRejectedError } from '../utils/httpError.js';
-import { getRefreshToken } from '../utils/requestTokens.js';
+} from './auth.schemas.js';
+import { authService } from './auth.service.js';
+import { getAuthenticatedUserId } from '../../utils/authenticatedUser.js';
+import { clearTokenCookies, setTokenCookies } from '../../utils/cookies.js';
+import { HttpError, RefreshTokenRejectedError } from '../../utils/httpError.js';
+import { getRefreshToken } from '../../utils/requestTokens.js';
 
 export const authController = {
   async register(req: Request, res: Response): Promise<void> {

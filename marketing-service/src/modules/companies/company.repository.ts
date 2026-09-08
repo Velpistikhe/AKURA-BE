@@ -5,7 +5,7 @@ import { buildListQuery, buildPagination, defineSortRules } from '../../utils/li
 import { CreateCompanyInput, ListCompaniesInput, UpdateCompanyInput } from './company.schemas.js';
 
 const select = {
-  id: true, name: true, normalizeName: true, type: true, address: true,
+  id: true, officeBranchId: true, name: true, normalizeName: true, type: true, address: true,
   hasContract: true, revoked: true, version: true, createdAt: true, updatedAt: true,
   _count: { select: { staffs: { where: { revoked: false } } } },
 } satisfies Prisma.CompanySelect;
@@ -15,7 +15,7 @@ const isUniqueError = (error: unknown): boolean => (
 );
 
 export const companyRepository = {
-  async list(input: ListCompaniesInput) {
+  async list(input: ListCompaniesInput, officeBranchId: string) {
     const query = buildListQuery(input, {
       filters: {
         hasContract: (hasContract) => ({ hasContract }),
@@ -32,7 +32,7 @@ export const companyRepository = {
         version: (direction) => ({ version: direction }), updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
-    const where = { AND: [{ revoked: false }, query.where] } satisfies Prisma.CompanyWhereInput;
+    const where = { AND: [{ officeBranchId, revoked: false }, query.where] } satisfies Prisma.CompanyWhereInput;
     const [companies, total] = await Promise.all([
       prisma.company.findMany({ ...query, where, select }),
       prisma.company.count({ where }),
@@ -40,14 +40,14 @@ export const companyRepository = {
     return { companies, pagination: buildPagination(input.page, input.limit, total) };
   },
 
-  findById: (id: string) => prisma.company.findFirst({ where: { id, revoked: false }, select }),
+  findById: (id: string, officeBranchId: string) => prisma.company.findFirst({ where: { id, officeBranchId, revoked: false }, select }),
 
-  findByNormalizeName: (normalizeName: string, excludeId?: string) => prisma.company.findFirst({
-    where: { normalizeName, revoked: false, ...(excludeId && { id: { not: excludeId } }) },
+  findByNormalizeName: (normalizeName: string, officeBranchId: string, excludeId?: string) => prisma.company.findFirst({
+    where: { normalizeName, officeBranchId, revoked: false, ...(excludeId && { id: { not: excludeId } }) },
     select: { id: true },
   }),
 
-  async create(data: CreateCompanyInput & { normalizeName: string }) {
+  async create(data: CreateCompanyInput & { normalizeName: string; officeBranchId: string }) {
     try {
       return await prisma.company.create({ data: { ...data, revoked: false, version: 0 }, select });
     } catch (error) {
@@ -56,27 +56,28 @@ export const companyRepository = {
     }
   },
 
-  createVersion(id: string, data: UpdateCompanyInput & { normalizeName: string }) {
+  createVersion(id: string, officeBranchId: string, data: UpdateCompanyInput & { normalizeName: string }) {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'company:' + id}))`;
       const current = await tx.company.findFirst({
-        where: { id, revoked: false },
+        where: { id, officeBranchId, revoked: false },
         include: { staffs: { where: { revoked: false } } },
       });
       if (!current) throw new HttpError('Company not found', 404);
 
       const conflict = await tx.company.findFirst({
-        where: { normalizeName: data.normalizeName, revoked: false, id: { not: id } },
+        where: { normalizeName: data.normalizeName, officeBranchId, revoked: false, id: { not: id } },
         select: { id: true },
       });
       if (conflict) throw new HttpError('Company name already exists', 409);
 
-      await tx.company.update({ where: { id }, data: { revoked: true } });
+      await tx.company.update({ where: { id, officeBranchId }, data: { revoked: true } });
       await tx.companyStaff.updateMany({ where: { companyId: id, revoked: false }, data: { revoked: true } });
 
       try {
         return await tx.company.create({
           data: {
+            officeBranchId,
             name: data.name ?? current.name,
             normalizeName: data.normalizeName,
             type: data.type ?? current.type,
@@ -100,12 +101,12 @@ export const companyRepository = {
     });
   },
 
-  revoke(id: string) {
+  revoke(id: string, officeBranchId: string) {
     return prisma.$transaction(async (tx) => {
-      const current = await tx.company.findFirst({ where: { id, revoked: false }, select: { id: true } });
+      const current = await tx.company.findFirst({ where: { id, officeBranchId, revoked: false }, select: { id: true } });
       if (!current) throw new HttpError('Company not found', 404);
       await tx.companyStaff.updateMany({ where: { companyId: id, revoked: false }, data: { revoked: true, version: { increment: 1 } } });
-      return tx.company.update({ where: { id }, data: { revoked: true, version: { increment: 1 } }, select });
+      return tx.company.update({ where: { id, officeBranchId }, data: { revoked: true, version: { increment: 1 } }, select });
     });
   },
 };

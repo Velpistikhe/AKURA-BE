@@ -15,12 +15,12 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(verifyGatewaySecret);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 200, success: true, message: 'Marketing Service is healthy', data: { service: 'marketing-service', timestamp: new Date().toISOString(), uptime: process.uptime() }, requestId: req.headers['x-request-id'] });
 });
 
-app.use(verifyGatewaySecret);
 app.use(authenticate);
 app.use(routes);
 app.use((req: Request, res: Response) => res.status(404).json({ status: 404, success: false, message: `Route ${req.method} ${req.originalUrl} not found on Marketing Service`, requestId: req.headers['x-request-id'] }));

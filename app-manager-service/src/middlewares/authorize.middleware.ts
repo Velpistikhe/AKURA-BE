@@ -27,10 +27,11 @@ const fetchAuthUserProfile = async (token: string, requestId?: string): Promise<
   id: string; role: UserRole; section: UserSection | null; isActive: boolean;
 } | null> => {
   try {
-    const res = await fetch(`${env.AUTH_SERVICE_URL}/me`, {
+    const res = await fetch(`${env.API_GATEWAY_URL}/api/v1/auth/me`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        'x-gateway-secret': env.GATEWAY_SECRET,
+        'x-service-name': 'app-manager-service',
+        'x-service-secret': env.GATEWAY_SECRET,
         ...(requestId ? { 'x-request-id': requestId } : {}),
       },
     });

@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
-import authRoutes from './routes/auth.routes.js';
+import authRoutes from './modules/auth/auth.routes.js';
 import { accessTokenJwks } from './config/accessKey.js';
 import userManagementRoutes from './modules/user-management/user-management.routes.js';
 
@@ -22,6 +22,7 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(verifyGatewaySecret);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
@@ -42,7 +43,6 @@ app.get('/.well-known/jwks.json', (_req: Request, res: Response) => {
   res.status(200).json(accessTokenJwks);
 });
 
-app.use(verifyGatewaySecret);
 app.use('/users', userManagementRoutes);
 app.use('/', authRoutes);
 app.use((req: Request, res: Response) => {

@@ -12,6 +12,7 @@ import { globalRateLimiter } from './middlewares/rateLimiter.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import proxyRoutes from './routes/proxy.routes.js';
 import { servicesConfig } from './config/services.config.js';
+import { authenticateServiceCaller } from './middlewares/serviceCaller.middleware.js';
 
 const app: Express = express();
 const swaggerCss = readFileSync(require.resolve('swagger-ui-dist/swagger-ui.css'), 'utf8');
@@ -34,6 +35,7 @@ app.use(requestIdMiddleware);
 app.use(loggerMiddleware);
 app.use(cookieParser());
 
+app.use(authenticateServiceCaller);
 app.use(globalRateLimiter);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customCss: swaggerCss }));
 app.get('/api-docs.json', (_req: Request, res: Response) => {

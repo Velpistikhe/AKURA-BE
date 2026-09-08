@@ -1,13 +1,13 @@
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from '../config/db.js';
-import { authRepository } from '../repositories/auth.repository.js';
-import { AuthResult, AuthTokens, RefreshTransactionResult, UserSanitized } from '../types/auth.types.js';
-import { HttpError, RefreshTokenRejectedError } from '../utils/httpError.js';
-import { createRefreshTokenExpiry } from '../utils/tokenExpiry.js';
-import { createAuthTokens, verifyRefreshToken } from '../utils/tokens.js';
-import { sanitizeUser } from '../utils/userMapper.js';
-import { env } from '../config/env.js';
+import { prisma } from '../../config/db.js';
+import { authRepository } from './auth.repository.js';
+import { AuthResult, AuthTokens, RefreshTransactionResult, UserSanitized } from '../../types/auth.types.js';
+import { HttpError, RefreshTokenRejectedError } from '../../utils/httpError.js';
+import { createRefreshTokenExpiry } from '../../utils/tokenExpiry.js';
+import { createAuthTokens, verifyRefreshToken } from '../../utils/tokens.js';
+import { sanitizeUser } from '../../utils/userMapper.js';
+import { env } from '../../config/env.js';
 
 class AuthService {
   async register(

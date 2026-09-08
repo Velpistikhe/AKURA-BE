@@ -1,7 +1,7 @@
 import { NextFunction, Response } from 'express';
 import { UserRole } from '@prisma/client';
-import { prisma } from '../config/db.js';
-import { AuthenticatedRequest } from './auth.middleware.js';
+import { prisma } from '../../config/db.js';
+import { AuthenticatedRequest } from '../auth/auth.middleware.js';
 
 export const requireAppManager = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   const actorId = req.user?.id;

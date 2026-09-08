@@ -68,3 +68,17 @@ model MenuAccess {
   @@index([role, section])
   @@map("menu_accesses")
 }
+
+model OfficeBranch {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  address     String
+  telp        String
+  email       String
+  /// A partial unique index created by migrate-office-branches enforces a single true value.
+  isHead      Boolean  @default(false) @map("is_head")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("office_branches")
+}

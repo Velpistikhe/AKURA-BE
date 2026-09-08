@@ -1,6 +1,5 @@
 import { Request, RequestHandler, Response, Router } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { env } from '../config/env.js';
 import { servicesConfig } from '../config/services.config.js';
 import { authenticateJwt } from '../middlewares/auth.middleware.js';
 import { logger } from '../utils/logger.js';
@@ -19,11 +18,14 @@ servicesConfig.forEach((service) => {
     pathRewrite: service.pathRewrite,
     on: {
       proxyReq: (proxyReq, req) => {
-        proxyReq.setHeader('x-gateway-secret', env.GATEWAY_SECRET);
+        proxyReq.setHeader('x-gateway-secret', service.gatewaySecret);
         proxyReq.removeHeader('X-User-ID');
         proxyReq.removeHeader('X-User-Role');
         proxyReq.removeHeader('X-User-Email');
         proxyReq.removeHeader('X-User-Username');
+        proxyReq.removeHeader('X-Office-Branch-ID');
+        proxyReq.removeHeader('X-Service-Name');
+        proxyReq.removeHeader('X-Service-Secret');
 
         const requestId = req.headers['x-request-id'];
         if (requestId) proxyReq.setHeader('X-Request-ID', requestId);
@@ -31,9 +33,11 @@ servicesConfig.forEach((service) => {
           const userId = req.headers['x-user-id'];
           const userRole = req.headers['x-user-role'];
           const username = req.headers['x-user-username'];
+          const officeBranchId = req.headers['x-office-branch-id'];
           if (userId) proxyReq.setHeader('X-User-ID', userId);
           if (userRole) proxyReq.setHeader('X-User-Role', userRole);
           if (username) proxyReq.setHeader('X-User-Username', username);
+          if (officeBranchId) proxyReq.setHeader('X-Office-Branch-ID', officeBranchId);
         }
       },
       error: (error, req, res) => {

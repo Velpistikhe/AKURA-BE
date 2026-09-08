@@ -2,6 +2,9 @@ const { openApiDocument } = require('../dist/docs/openapi.js');
 
 const expectedOperations = [
   'GET /health',
+  'GET /api/v1/auth/health',
+  'GET /api/v1/app-manager/health',
+  'GET /api/v1/marketing/health',
   'GET /services',
   'GET /api-docs',
   'GET /api-docs.json',
@@ -15,9 +18,7 @@ const expectedOperations = [
   'PUT /api/v1/auth/password',
   'GET /api/v1/auth/users',
   'GET /api/v1/auth/users/{userId}',
-  'PATCH /api/v1/auth/users/{userId}/role',
-  'PATCH /api/v1/auth/users/{userId}/section',
-  'PATCH /api/v1/auth/users/{userId}/status',
+  'PATCH /api/v1/auth/users/{userId}',
   'GET /api/v1/app-manager/menus/my-menus',
   'GET /api/v1/app-manager/menus',
   'POST /api/v1/app-manager/menus',
@@ -34,6 +35,12 @@ const expectedOperations = [
   'GET /api/v1/app-manager/menu-accesses/{menuAccessId}',
   'PATCH /api/v1/app-manager/menu-accesses/{menuAccessId}',
   'DELETE /api/v1/app-manager/menu-accesses/{menuAccessId}',
+  'GET /api/v1/app-manager/office-branches',
+  'POST /api/v1/app-manager/office-branches',
+  'GET /api/v1/app-manager/office-branches/options',
+  'GET /api/v1/app-manager/office-branches/{officeBranchId}',
+  'PATCH /api/v1/app-manager/office-branches/{officeBranchId}',
+  'DELETE /api/v1/app-manager/office-branches/{officeBranchId}',
   'GET /api/v1/marketing/companies',
   'POST /api/v1/marketing/companies',
   'GET /api/v1/marketing/companies/{companyId}',
@@ -86,8 +93,8 @@ const brokenReferences = [...references].filter((reference) => {
 
 const expectedListContracts = {
   '/api/v1/auth/users': {
-    filters: ['search', 'role', 'section', 'isActive'],
-    sorts: ['username', 'firstName', 'lastName', 'role', 'section', 'isActive', 'updatedAt'],
+    filters: ['search', 'role', 'section', 'officeBranchId', 'isActive'],
+    sorts: ['username', 'firstName', 'lastName', 'role', 'section', 'officeBranchId', 'isActive', 'updatedAt'],
     defaultLimit: 20,
   },
   '/api/v1/app-manager/menus': {
@@ -103,6 +110,11 @@ const expectedListContracts = {
   '/api/v1/app-manager/menu-accesses': {
     filters: ['menuItemId', 'role', 'section'],
     sorts: ['menuItemId', 'role', 'section', 'updatedAt'],
+    defaultLimit: 20,
+  },
+  '/api/v1/app-manager/office-branches': {
+    filters: ['search', 'isHead'],
+    sorts: ['name', 'address', 'telp', 'email', 'isHead', 'updatedAt'],
     defaultLimit: 20,
   },
   '/api/v1/marketing/companies': {
@@ -148,8 +160,59 @@ for (const [path, contract] of Object.entries(expectedListContracts)) {
   }
 }
 
-if (missing.length || extra.length || brokenReferences.length || listContractErrors.length) {
-  console.error(JSON.stringify({ missing, extra, brokenReferences, listContractErrors }, null, 2));
+const schemaContractErrors = [];
+const schemas = openApiDocument.components?.schemas || {};
+const mergedUserPath = openApiDocument.paths['/api/v1/auth/users/{userId}'];
+for (const legacyPath of [
+  '/api/v1/auth/users/{userId}/role',
+  '/api/v1/auth/users/{userId}/section',
+  '/api/v1/auth/users/{userId}/status',
+]) {
+  if (openApiDocument.paths[legacyPath]) schemaContractErrors.push({ path: legacyPath, error: 'Legacy user PATCH path still exists' });
+}
+if (!mergedUserPath?.patch) schemaContractErrors.push({ path: '/api/v1/auth/users/{userId}', error: 'Merged PATCH operation is missing' });
+if (mergedUserPath?.put) schemaContractErrors.push({ path: '/api/v1/auth/users/{userId}', error: 'User update must use PATCH, not PUT' });
+if (mergedUserPath?.patch?.requestBody?.content?.['application/json']?.schema?.$ref !== '#/components/schemas/UpdateUserRequest') {
+  schemaContractErrors.push({ schema: 'UpdateUserRequest', error: 'Merged PATCH does not reference UpdateUserRequest' });
+}
+
+const updateUserProperties = Object.keys(schemas.UpdateUserRequest?.properties || {}).sort();
+const expectedUpdateUserProperties = ['role', 'section', 'officeBranchId', 'isActive', 'version'].sort();
+if (JSON.stringify(updateUserProperties) !== JSON.stringify(expectedUpdateUserProperties)) {
+  schemaContractErrors.push({ schema: 'UpdateUserRequest', expected: expectedUpdateUserProperties, actual: updateUserProperties });
+}
+if (!schemas.UpdateUserRequest?.required?.includes('version') || schemas.UpdateUserRequest?.minProperties !== 2) {
+  schemaContractErrors.push({ schema: 'UpdateUserRequest', error: 'version and at least one editable field must be required' });
+}
+if (!schemas.UserProfile?.required?.includes('officeBranchId') || !schemas.UserProfile?.properties?.officeBranchId?.nullable) {
+  schemaContractErrors.push({ schema: 'UserProfile', error: 'Nullable officeBranchId is missing' });
+}
+if (!schemas.AccessTokenClaims?.required?.includes('officeBranchId') || !schemas.AccessTokenClaims?.properties?.officeBranchId?.nullable) {
+  schemaContractErrors.push({ schema: 'AccessTokenClaims', error: 'Nullable officeBranchId claim is missing' });
+}
+for (const schemaName of ['Company', 'Service', 'ServiceListItem', 'Item']) {
+  if (!schemas[schemaName]?.required?.includes('officeBranchId') || schemas[schemaName]?.properties?.officeBranchId?.format !== 'uuid') {
+    schemaContractErrors.push({ schema: schemaName, error: 'Required officeBranchId ownership field is missing' });
+  }
+}
+if (!schemas.OfficeBranch?.required?.includes('isHead') || schemas.OfficeBranch?.properties?.isHead?.type !== 'boolean') {
+  schemaContractErrors.push({ schema: 'OfficeBranch', error: 'Boolean isHead is missing' });
+}
+if (!schemas.OfficeBranchListResponse?.properties?.data?.properties?.officeBranches) {
+  schemaContractErrors.push({ schema: 'OfficeBranchListResponse', error: 'officeBranches collection is missing' });
+}
+const optionSchema = schemas.OfficeBranchOption;
+if (JSON.stringify(Object.keys(optionSchema?.properties || {}).sort()) !== JSON.stringify(['id', 'name'])) {
+  schemaContractErrors.push({ schema: 'OfficeBranchOption', error: 'Option response must contain only id and name' });
+}
+const optionResponseRef = openApiDocument.paths['/api/v1/app-manager/office-branches/options']
+  ?.get?.responses?.[200]?.content?.['application/json']?.schema?.$ref;
+if (optionResponseRef !== '#/components/schemas/OfficeBranchOptionsResponse') {
+  schemaContractErrors.push({ path: '/api/v1/app-manager/office-branches/options', error: 'Invalid options response schema' });
+}
+
+if (missing.length || extra.length || brokenReferences.length || listContractErrors.length || schemaContractErrors.length) {
+  console.error(JSON.stringify({ missing, extra, brokenReferences, listContractErrors, schemaContractErrors }, null, 2));
   process.exit(1);
 }
 

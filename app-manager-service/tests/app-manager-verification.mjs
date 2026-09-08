@@ -77,15 +77,12 @@ const register = async (label) => {
 
 try {
   const health = await request(managerUrl, '/health');
-  check('App Manager health', health.status === 200, { status: health.status });
+  check('App Manager rejects direct health access', health.status === 403, { status: health.status });
 
   const openApi = await request(gatewayUrl, '/api-docs.json');
   const managerPaths = [
     '/api/v1/auth/users',
     '/api/v1/auth/users/{userId}',
-    '/api/v1/auth/users/{userId}/role',
-    '/api/v1/auth/users/{userId}/section',
-    '/api/v1/auth/users/{userId}/status',
   ];
   check(
     'OpenAPI exposes Auth user-management endpoints',
@@ -160,19 +157,19 @@ try {
     message: missingDetail.body?.message,
   });
 
-  for (const [endpoint, json] of [
+  for (const [field, json] of [
     ['role', { role: 'USER', version: 1 }],
     ['section', { section: 'MARKETING', version: 1 }],
     ['status', { isActive: false, version: 1 }],
   ]) {
-    const missingPatch = await request(gatewayUrl, `/api/v1/auth/users/${missingUserId}/${endpoint}`, {
+    const missingUpdate = await request(gatewayUrl, `/api/v1/auth/users/${missingUserId}`, {
       method: 'PATCH',
       headers: adminHeaders,
       json,
     });
-    check(`PATCH ${endpoint} checks existence first`, missingPatch.status === 404 && missingPatch.body?.message === 'User not found', {
-      status: missingPatch.status,
-      message: missingPatch.body?.message,
+    check(`PATCH ${field} checks existence first`, missingUpdate.status === 404 && missingUpdate.body?.message === 'User not found', {
+      status: missingUpdate.status,
+      message: missingUpdate.body?.message,
     });
   }
 
@@ -191,17 +188,20 @@ try {
     throw new Error(`User detail request failed: ${detail.status} ${JSON.stringify(detail.body)}`);
   }
 
-  const roleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/role`, {
+  const assignedOfficeBranchId = '00000000-0000-4000-8000-000000000001';
+  const roleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
-    json: { role: 'APP_MANAGER', version: detail.body.data.version },
+    json: { role: 'APP_MANAGER', officeBranchId: assignedOfficeBranchId, version: detail.body.data.version },
   });
-  check('Admin can set user role', roleUpdate.status === 200 && roleUpdate.body?.data?.role === 'APP_MANAGER', {
+  check('Admin can update user role and office branch', roleUpdate.status === 200
+    && roleUpdate.body?.data?.role === 'APP_MANAGER'
+    && roleUpdate.body?.data?.officeBranchId === assignedOfficeBranchId, {
     status: roleUpdate.status,
     role: roleUpdate.body?.data?.role,
   });
 
-  const invalidSection = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/section`, {
+  const invalidSection = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { section: 'INVALID_SECTION', version: roleUpdate.body.data.version },
@@ -210,12 +210,12 @@ try {
 
   const sectionVersion = roleUpdate.body.data.version;
   const sectionRace = await Promise.all([
-    request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/section`, {
+    request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
       method: 'PATCH',
       headers: adminHeaders,
       json: { section: 'MARKETING', version: sectionVersion },
     }),
-    request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/section`, {
+    request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
       method: 'PATCH',
       headers: adminHeaders,
       json: { section: 'ACCOUNTING', version: sectionVersion },
@@ -232,7 +232,7 @@ try {
   detail = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     headers: adminHeaders,
   });
-  const deactivate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/status`, {
+  const deactivate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { isActive: false, version: detail.body.data.version },
@@ -259,7 +259,7 @@ try {
   const selfRole = await request(gatewayUrl, `/api/v1/auth/users/${admin.user.id}`, {
     headers: adminHeaders,
   });
-  const selfRoleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${admin.user.id}/role`, {
+  const selfRoleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${admin.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { role: 'USER', version: selfRole.body.data.version },
@@ -268,7 +268,7 @@ try {
     status: selfRoleUpdate.status,
   });
 
-  const selfDeactivate = await request(gatewayUrl, `/api/v1/auth/users/${admin.user.id}/status`, {
+  const selfDeactivate = await request(gatewayUrl, `/api/v1/auth/users/${admin.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { isActive: false, version: selfRole.body.data.version },
@@ -277,7 +277,7 @@ try {
     status: selfDeactivate.status,
   });
 
-  const reactivate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/status`, {
+  const reactivate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { isActive: true, version: deactivate.body.data.version },
@@ -287,7 +287,7 @@ try {
     message: reactivate.body?.message,
   });
 
-  const inactiveRoleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/role`, {
+  const inactiveRoleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { role: 'USER', version: deactivate.body.data.version },
@@ -297,7 +297,7 @@ try {
     message: inactiveRoleUpdate.body?.message,
   });
 
-  const inactiveSectionUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}/section`, {
+  const inactiveSectionUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
     json: { section: 'MARKETING', version: deactivate.body.data.version },

@@ -7,7 +7,8 @@ let jwks: RemoteJwkSet | undefined;
 
 export const verifyAccessToken = async (token: string): Promise<AccessTokenPayload> => {
   const { createRemoteJWKSet, jwtVerify } = await import('jose');
-  jwks ??= createRemoteJWKSet(new URL(env.AUTH_JWKS_URL), {
+  jwks ??= createRemoteJWKSet(new URL(`${env.API_GATEWAY_URL}/api/v1/auth/.well-known/jwks.json`), {
+    headers: { 'x-service-name': 'marketing-service', 'x-service-secret': env.GATEWAY_SECRET },
     timeoutDuration: 5_000,
     cooldownDuration: 30_000,
     cacheMaxAge: 10 * 60 * 1_000,
@@ -18,6 +19,10 @@ export const verifyAccessToken = async (token: string): Promise<AccessTokenPaylo
     issuer: env.JWT_ISSUER,
     audience: env.JWT_AUDIENCE,
   });
-  if (!payload.sub || payload.type !== 'access') throw new Error('Invalid access token');
+  if (
+    !payload.sub
+    || payload.type !== 'access'
+    || (payload.officeBranchId !== null && typeof payload.officeBranchId !== 'string')
+  ) throw new Error('Invalid access token');
   return payload as AccessTokenPayload;
 };

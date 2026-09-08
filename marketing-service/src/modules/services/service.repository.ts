@@ -12,14 +12,14 @@ const maintenanceScopeSelect = {
 } satisfies Prisma.MaintenanceScopeSelect;
 
 const detailSelect = {
-  id: true, name: true, hasMaintenance: true,
+  id: true, officeBranchId: true, name: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: { where: { revoked: false }, select: scopeSelect },
   maintenanceScopes: { where: { revoked: false }, select: maintenanceScopeSelect },
 } satisfies Prisma.ServiceSelect;
 
 const listSelect = {
-  id: true, name: true, hasMaintenance: true,
+  id: true, officeBranchId: true, name: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: {
     where: { revoked: false },
@@ -33,11 +33,14 @@ const listSelect = {
   },
 } satisfies Prisma.ServiceSelect;
 
+type ServiceListRow = Prisma.ServiceGetPayload<{ select: typeof listSelect }>;
+
 export const serviceRepository = {
-  async list(input: ListServicesInput) {
-    const result = await findAll(
+  async list(input: ListServicesInput, officeBranchId: string) {
+    const result = await findAll<ServiceListRow, NonNullable<ListServicesInput['sortBy']>, ListServicesInput, Prisma.ServiceWhereInput, Prisma.ServiceOrderByWithRelationInput>(
       input,
       {
+      baseWhere: { officeBranchId, isActive: true } as Prisma.ServiceWhereInput,
       filters: {
         isActive: (isActive) => ({ isActive }),
         name: (name) => ({ name: { contains: name, mode: 'insensitive' } }),
@@ -60,13 +63,17 @@ export const serviceRepository = {
       pagination: result.pagination,
     };
   },
-  async findById(id: string) {
-    const service = await prisma.service.findUnique({ where: { id }, select: detailSelect });
+  async findById(id: string, officeBranchId: string) {
+    const service = await prisma.service.findFirst({ where: { id, officeBranchId }, select: detailSelect });
     if (!service) return null;
     return service;
   },
-  create: (data: CreateServiceInput) => prisma.service.create({
+  async findActiveById(id: string, officeBranchId: string) {
+    return prisma.service.findFirst({ where: { id, officeBranchId, isActive: true }, select: detailSelect });
+  },
+  create: (data: CreateServiceInput, officeBranchId: string) => prisma.service.create({
     data: {
+      officeBranchId,
       name: data.name,
       hasMaintenance: data.hasMaintenance,
       isActive: true,
@@ -77,9 +84,9 @@ export const serviceRepository = {
     },
     select: detailSelect,
   }),
-  update: (id: string, data: UpdateServiceInput) => prisma.$transaction(async (tx) => {
+  update: (id: string, officeBranchId: string, data: UpdateServiceInput) => prisma.$transaction(async (tx) => {
     const { scopes, maintenanceScopes, ...serviceData } = data;
-    await tx.service.update({ where: { id }, data: serviceData });
+    await tx.service.update({ where: { id, officeBranchId }, data: serviceData });
 
     if (scopes !== undefined) {
       await tx.serviceScope.updateMany({ where: { serviceId: id, revoked: false }, data: { revoked: true } });
@@ -105,21 +112,21 @@ export const serviceRepository = {
       }
     }
 
-    return tx.service.findUniqueOrThrow({ where: { id }, select: detailSelect });
+    return tx.service.findFirstOrThrow({ where: { id, officeBranchId }, select: detailSelect });
   }),
-  async deactivate(id: string) {
-    return prisma.service.update({ where: { id }, data: { isActive: false }, select: detailSelect });
+  async deactivate(id: string, officeBranchId: string) {
+    return prisma.service.update({ where: { id, officeBranchId }, data: { isActive: false }, select: detailSelect });
   },
-  findScopeByName: (serviceId: string, scope: string) => prisma.serviceScope.findUnique({
-    where: { serviceId_scope: { serviceId, scope } },
+  findScopeByName: (serviceId: string, scope: string, officeBranchId: string) => prisma.serviceScope.findFirst({
+    where: { serviceId, scope, service: { officeBranchId } },
     select: scopeSelect,
   }),
-  findMaintenanceScopeByName: (serviceId: string, scope: string) => prisma.maintenanceScope.findUnique({
-    where: { serviceId_scope: { serviceId, scope } },
+  findMaintenanceScopeByName: (serviceId: string, scope: string, officeBranchId: string) => prisma.maintenanceScope.findFirst({
+    where: { serviceId, scope, service: { officeBranchId } },
     select: maintenanceScopeSelect,
   }),
-  async createMaintenanceScope(serviceId: string, scope: string) {
-    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { hasMaintenance: true, isActive: true } });
+  async createMaintenanceScope(serviceId: string, scope: string, officeBranchId: string) {
+    const service = await prisma.service.findFirst({ where: { id: serviceId, officeBranchId }, select: { hasMaintenance: true, isActive: true } });
     if (!service?.isActive || !service.hasMaintenance) return null;
     return prisma.maintenanceScope.upsert({
       where: { serviceId_scope: { serviceId, scope } },
@@ -128,8 +135,8 @@ export const serviceRepository = {
       select: maintenanceScopeSelect,
     });
   },
-  async revokeMaintenanceScope(serviceId: string, scopeId: string) {
-    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { hasMaintenance: true, isActive: true } });
+  async revokeMaintenanceScope(serviceId: string, scopeId: string, officeBranchId: string) {
+    const service = await prisma.service.findFirst({ where: { id: serviceId, officeBranchId }, select: { hasMaintenance: true, isActive: true } });
     if (!service?.isActive || !service.hasMaintenance) return null;
     return prisma.maintenanceScope.updateMany({
       where: { id: scopeId, serviceId, revoked: false },
@@ -138,8 +145,8 @@ export const serviceRepository = {
       ? prisma.maintenanceScope.findUnique({ where: { id: scopeId }, select: maintenanceScopeSelect })
       : null);
   },
-  async createScope(serviceId: string, scope: string) {
-    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { isActive: true } });
+  async createScope(serviceId: string, scope: string, officeBranchId: string) {
+    const service = await prisma.service.findFirst({ where: { id: serviceId, officeBranchId }, select: { isActive: true } });
     if (!service?.isActive) return null;
     return prisma.serviceScope.upsert({
       where: { serviceId_scope: { serviceId, scope } },
@@ -148,13 +155,13 @@ export const serviceRepository = {
       select: scopeSelect,
     });
   },
-  async revokeScope(serviceId: string, scopeId: string) {
+  async revokeScope(serviceId: string, scopeId: string, officeBranchId: string) {
     return prisma.$transaction(async (tx) => {
       const current = await tx.serviceScope.findFirst({
         where: { id: scopeId, serviceId, revoked: false },
         select: { id: true },
       });
-      const service = await tx.service.findUnique({ where: { id: serviceId }, select: { isActive: true } });
+      const service = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: { isActive: true } });
       if (!service?.isActive) return null;
       if (!current) return null;
       return tx.serviceScope.update({

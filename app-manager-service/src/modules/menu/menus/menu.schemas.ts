@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { MENU_LIST_CONFIG } from '../../config/list.config.js';
-import { createListQueryFields } from '../../utils/listQuery.js';
+import { MENU_LIST_CONFIG } from '../../../config/list.config.js';
+import { createListQueryFields } from '../../../utils/listQuery.js';
 
 export const menuIdSchema = z.object({
   menuId: z.string().uuid('Invalid menu ID'),

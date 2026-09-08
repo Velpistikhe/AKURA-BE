@@ -12,16 +12,13 @@ const permissions = [
   ['admin:global:GET:/permissions/endpoints', 'ADMIN', null, 'GET', '/permissions/endpoints', 'List endpoint permissions'],
   ['admin:global:GET:/users', 'ADMIN', null, 'GET', '/users', 'List users'],
   ['admin:global:GET:/users/:userId', 'ADMIN', null, 'GET', '/users/:userId', 'Read user detail'],
-  ['admin:global:PATCH:/users/:userId/role', 'ADMIN', null, 'PATCH', '/users/:userId/role', 'Update user role'],
-  ['admin:global:PATCH:/users/:userId/section', 'ADMIN', null, 'PATCH', '/users/:userId/section', 'Update user section'],
-  ['admin:global:PATCH:/users/:userId/status', 'ADMIN', null, 'PATCH', '/users/:userId/status', 'Update user status'],
+  ['admin:global:PATCH:/users/:userId', 'ADMIN', null, 'PATCH', '/users/:userId', 'Update user'],
   ['app_manager:global:GET:/api/v1/auth/me', 'APP_MANAGER', null, 'GET', '/api/v1/auth/me', 'Read own profile'],
   ['app_manager:global:PUT:/api/v1/auth/profile', 'APP_MANAGER', null, 'PUT', '/api/v1/auth/profile', 'Update own profile'],
   ['app_manager:global:PUT:/api/v1/auth/password', 'APP_MANAGER', null, 'PUT', '/api/v1/auth/password', 'Change own password'],
   ['app_manager:HRD_MANAGEMENT:GET:/users', 'APP_MANAGER', 'HRD_MANAGEMENT', 'GET', '/users', 'List users'],
   ['app_manager:HRD_MANAGEMENT:GET:/users/:userId', 'APP_MANAGER', 'HRD_MANAGEMENT', 'GET', '/users/:userId', 'Read user detail'],
-  ['app_manager:HRD_MANAGEMENT:PATCH:/users/:userId/section', 'APP_MANAGER', 'HRD_MANAGEMENT', 'PATCH', '/users/:userId/section', 'Update user section'],
-  ['app_manager:HRD_MANAGEMENT:PATCH:/users/:userId/status', 'APP_MANAGER', 'HRD_MANAGEMENT', 'PATCH', '/users/:userId/status', 'Update user status'],
+  ['app_manager:HRD_MANAGEMENT:PATCH:/users/:userId', 'APP_MANAGER', 'HRD_MANAGEMENT', 'PATCH', '/users/:userId', 'Update user'],
 ];
 
 const migrate = async () => {

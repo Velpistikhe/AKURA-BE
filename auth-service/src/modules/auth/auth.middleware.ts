@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma } from '../config/db.js';
-import { getAccessToken } from '../utils/requestTokens.js';
-import { verifyAccessToken } from '../utils/tokens.js';
+import { prisma } from '../../config/db.js';
+import { getAccessToken } from '../../utils/requestTokens.js';
+import { verifyAccessToken } from '../../utils/tokens.js';
 
 export interface AuthenticatedRequest extends Request {
   user?: {

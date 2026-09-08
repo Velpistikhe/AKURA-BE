@@ -5,5 +5,6 @@ export interface AccessTokenPayload extends JWTPayload {
   name?: string;
   username?: string;
   role?: string;
+  officeBranchId: string | null;
   type: 'access';
 }

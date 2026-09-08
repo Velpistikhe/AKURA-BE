@@ -1,6 +1,6 @@
 import { UserRole, UserSection } from '@prisma/client';
-import { prisma } from '../../config/db.js';
-import { HttpError } from '../../utils/httpError.js';
+import { prisma } from '../../../config/db.js';
+import { HttpError } from '../../../utils/httpError.js';
 import { CreateMenuInput, ListMenusInput, UpdateMenuInput } from './menu.schemas.js';
 import { menuRepository } from './menu.repository.js';
 import { ManagedMenu, MenusForUserResult, PaginatedMenus } from './menu.types.js';
@@ -11,7 +11,7 @@ class MenuService {
   }
 
   async get(id: string): Promise<ManagedMenu> {
-    const menu = await menuRepository.findById(id);
+    const menu = await menuRepository.findActiveById(id);
     if (!menu) throw new HttpError('Menu not found', 404);
     return menu;
   }

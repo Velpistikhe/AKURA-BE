@@ -12,6 +12,7 @@ interface AccessTokenPayload extends JwtPayload {
   name: string;
   username: string;
   role: string;
+  officeBranchId: string | null;
   type: 'access';
 }
 
@@ -20,6 +21,7 @@ const generateAccessToken = (user: User): string => jwt.sign(
     name: `${user.firstName} ${user.lastName}`.trim(),
     username: user.username,
     role: user.role,
+    officeBranchId: user.officeBranchId,
     type: 'access',
   },
   accessTokenPrivateKey,
@@ -55,7 +57,11 @@ export const verifyAccessToken = (token: string): AccessTokenPayload => {
     issuer: env.JWT_ISSUER,
     audience: env.JWT_AUDIENCE,
   }) as AccessTokenPayload;
-  if (!decoded.sub || decoded.type !== 'access') {
+  if (
+    !decoded.sub
+    || decoded.type !== 'access'
+    || (decoded.officeBranchId !== null && typeof decoded.officeBranchId !== 'string')
+  ) {
     throw new HttpError('Unauthorized: Access token is invalid or expired', 401);
   }
   return decoded;

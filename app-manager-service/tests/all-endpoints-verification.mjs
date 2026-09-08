@@ -31,6 +31,7 @@ let noItemMenuId;
 let menuAccessId;
 let menuItemId;
 let inaccessibleMenuItemId;
+let officeBranchId;
 
 const cookieJarFrom = (response) => {
   const values = typeof response.headers.getSetCookie === 'function'
@@ -100,7 +101,7 @@ try {
     () => Object.values(openApi.body.paths).reduce(
       (total, path) => total + Object.keys(path).filter((key) => ['get', 'post', 'put', 'patch', 'delete'].includes(key)).length,
       0,
-    ) === 57,
+    ) === 64,
   );
   check('GET /api/v1/auth/.well-known/jwks.json', await request('/api/v1/auth/.well-known/jwks.json'), [200], (body) => body?.keys?.length > 0);
 
@@ -165,16 +166,17 @@ try {
     cookies: managerCookies,
   }), [200]);
 
-  detail = check('PATCH /api/v1/auth/users/{userId}/role', await request(`/api/v1/auth/users/${target.user.id}/role`, {
-    method: 'PATCH', cookies: managerCookies, json: { role: 'USER', version: detail.body.data.version },
-  }), [200]);
-  detail = check('PATCH /api/v1/auth/users/{userId}/section', await request(`/api/v1/auth/users/${target.user.id}/section`, {
-    method: 'PATCH', cookies: managerCookies, json: { section: 'MARKETING', version: detail.body.data.version },
-  }), [200]);
-  detail = check('PATCH /api/v1/auth/users/{userId}/status (deactivate)', await request(`/api/v1/auth/users/${target.user.id}/status`, {
-    method: 'PATCH', cookies: managerCookies, json: { isActive: false, version: detail.body.data.version },
-  }), [200]);
-  check('PATCH /api/v1/auth/users/{userId}/status rejects inactive target', await request(`/api/v1/auth/users/${target.user.id}/status`, {
+  const assignedOfficeBranchId = '00000000-0000-4000-8000-000000000001';
+  detail = check('PATCH /api/v1/auth/users/{userId}', await request(`/api/v1/auth/users/${target.user.id}`, {
+    method: 'PATCH', cookies: managerCookies,
+    json: {
+      role: 'USER', section: 'MARKETING', officeBranchId: assignedOfficeBranchId,
+      isActive: false, version: detail.body.data.version,
+    },
+  }), [200], (body) => body?.data?.section === 'MARKETING'
+    && body?.data?.officeBranchId === assignedOfficeBranchId
+    && body?.data?.isActive === false);
+  check('PATCH /api/v1/auth/users/{userId} rejects inactive target', await request(`/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH', cookies: managerCookies, json: { isActive: true, version: detail.body.data.version },
   }), [409], (body) => body?.message === 'Inactive users cannot be updated');
 
@@ -278,6 +280,35 @@ try {
   }), [200]);
   noItemMenuId = undefined;
 
+  const officeName = `Kantor Endpoint ${slug}`;
+  const officeBranch = check('POST /api/v1/app-manager/office-branches', await request('/api/v1/app-manager/office-branches', {
+    method: 'POST', cookies: managerCookies,
+    json: {
+      name: officeName,
+      address: 'Jl. Endpoint No. 1, Jakarta',
+      telp: '+62 21 555 0100',
+      email: `office-${slug}@example.com`,
+      isHead: false,
+    },
+  }), [201], (body) => body?.data?.name === officeName);
+  officeBranchId = officeBranch.body.data.id;
+  check('GET /api/v1/app-manager/office-branches/options', await request('/api/v1/app-manager/office-branches/options', {
+    cookies: managerCookies,
+  }), [200], (body) => body?.data?.some((entry) => entry.id === officeBranchId && entry.name === officeName));
+  check('GET /api/v1/app-manager/office-branches', await request(`/api/v1/app-manager/office-branches?search=${encodeURIComponent(officeName)}&isHead=false&sortBy=name&sortOrder=asc`, {
+    cookies: managerCookies,
+  }), [200], (body) => body?.data?.officeBranches?.some((entry) => entry.id === officeBranchId));
+  check('GET /api/v1/app-manager/office-branches/{officeBranchId}', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
+    cookies: managerCookies,
+  }), [200]);
+  check('PATCH /api/v1/app-manager/office-branches/{officeBranchId}', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
+    method: 'PATCH', cookies: managerCookies, json: { telp: '+62 21 555 0101' },
+  }), [200], (body) => body?.data?.telp === '+62 21 555 0101');
+  check('DELETE /api/v1/app-manager/office-branches/{officeBranchId}', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
+    method: 'DELETE', cookies: managerCookies,
+  }), [200]);
+  officeBranchId = undefined;
+
   check('DELETE /api/v1/app-manager/menu-accesses/{menuAccessId}', await request(`/api/v1/app-manager/menu-accesses/${menuAccessId}`, {
     method: 'DELETE', cookies: managerCookies,
   }), [200]);
@@ -305,6 +336,7 @@ try {
   if (menuAccessId) await managerPrisma.menuAccess.deleteMany({ where: { id: menuAccessId } }).catch(() => undefined);
   if (menuId) await managerPrisma.menu.deleteMany({ where: { id: menuId } }).catch(() => undefined);
   if (noItemMenuId) await managerPrisma.menu.deleteMany({ where: { id: noItemMenuId } }).catch(() => undefined);
+  if (officeBranchId) await managerPrisma.officeBranch.deleteMany({ where: { id: officeBranchId } }).catch(() => undefined);
   if (createdUsernames.length) {
     await authPrisma.user.deleteMany({ where: { normalizeUsername: { in: createdUsernames } } }).catch(() => undefined);
   }

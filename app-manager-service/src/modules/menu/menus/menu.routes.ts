@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { requireAppManager, requireAuthenticated } from '../../middlewares/authorize.middleware.js';
-import { validate } from '../../middlewares/validate.middleware.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
+import { requireAppManager, requireAuthenticated } from '../../../middlewares/authorize.middleware.js';
+import { validate } from '../../../middlewares/validate.middleware.js';
+import { asyncHandler } from '../../../utils/asyncHandler.js';
 import { menuController } from './menu.controller.js';
 import { createMenuSchema, listMenusSchema, menuIdSchema, updateMenuSchema } from './menu.schemas.js';
 
@@ -20,4 +20,3 @@ router.patch('/:menuId', validate('params', menuIdSchema), validate('body', upda
 router.delete('/:menuId', validate('params', menuIdSchema), asyncHandler(menuController.delete));
 
 export default router;
-

@@ -22,6 +22,7 @@ export const authenticateJwt = async (req: Request, res: Response, next: NextFun
     req.headers['x-user-id'] = decoded.sub;
     if (decoded.role) req.headers['x-user-role'] = decoded.role;
     if (decoded.username) req.headers['x-user-username'] = decoded.username;
+    if (decoded.officeBranchId) req.headers['x-office-branch-id'] = decoded.officeBranchId;
     next();
   } catch (error: unknown) {
     logger.warn(`JWT verification failed: ${getErrorMessage(error)}`, { requestId });

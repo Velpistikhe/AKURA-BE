@@ -16,6 +16,7 @@
     "db:migrate-service-has-maintenance": "node scripts/migrate-service-has-maintenance.mjs && prisma generate",
     "db:migrate-remove-item-code": "node scripts/migrate-remove-item-code.mjs && prisma generate",
     "db:migrate-remove-service-code": "node scripts/migrate-remove-service-code.mjs && prisma generate",
+    "db:migrate-office-branch-ownership": "node scripts/migrate-office-branch-ownership.mjs && prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "test:api": "node tests/api-verification.mjs"

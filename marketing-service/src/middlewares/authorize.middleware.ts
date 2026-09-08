@@ -14,7 +14,12 @@ export const requireMarketingAccess = async (req: Request, res: Response, next: 
 
   const gatewayUserId = req.headers['x-user-id'];
   const gatewayUserRole = req.headers['x-user-role'];
-  if (gatewayUserId !== tokenPayload.sub || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)) {
+  const gatewayOfficeBranchId = req.headers['x-office-branch-id'];
+  if (
+    gatewayUserId !== tokenPayload.sub
+    || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)
+    || (tokenPayload.officeBranchId && gatewayOfficeBranchId !== tokenPayload.officeBranchId)
+  ) {
     res.status(401).json({
       status: 401,
       success: false,
@@ -25,10 +30,11 @@ export const requireMarketingAccess = async (req: Request, res: Response, next: 
   }
 
   try {
-    const response = await fetch(`${env.AUTH_SERVICE_URL}/me`, {
+    const response = await fetch(`${env.API_GATEWAY_URL}/api/v1/auth/me`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        'x-gateway-secret': env.GATEWAY_SECRET,
+        'x-service-name': 'marketing-service',
+        'x-service-secret': env.GATEWAY_SECRET,
         ...(requestId ? { 'x-request-id': requestId } : {}),
       },
     });
@@ -48,6 +54,14 @@ export const requireMarketingAccess = async (req: Request, res: Response, next: 
     }
     if (!['ADMIN', 'APP_MANAGER'].includes(user.role) && user.section !== 'MARKETING') {
       res.status(403).json({ status: 403, success: false, message: 'Marketing section, admin, or app_manager access is required', requestId });
+      return;
+    }
+    if (!user.officeBranchId) {
+      res.status(403).json({ status: 403, success: false, message: 'Office branch assignment is required', requestId });
+      return;
+    }
+    if (tokenPayload.officeBranchId !== user.officeBranchId) {
+      res.status(401).json({ status: 401, success: false, message: 'Unauthorized: office branch assignment has changed; please sign in again', requestId });
       return;
     }
     res.locals.authUser = user;

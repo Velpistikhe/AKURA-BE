@@ -6,7 +6,9 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.string().default('5000').transform((value) => Number.parseInt(value, 10)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  GATEWAY_SECRET: z.string().min(1, 'GATEWAY_SECRET is required'),
+  AUTH_SERVICE_GATEWAY_SECRET: z.string().min(1, 'AUTH_SERVICE_GATEWAY_SECRET is required'),
+  APP_MANAGER_SERVICE_GATEWAY_SECRET: z.string().min(1, 'APP_MANAGER_SERVICE_GATEWAY_SECRET is required'),
+  MARKETING_SERVICE_GATEWAY_SECRET: z.string().min(1, 'MARKETING_SERVICE_GATEWAY_SECRET is required'),
   CORS_ORIGIN: z.string().default('*'),
   AUTH_SERVICE_URL: z.string({ required_error: 'AUTH_SERVICE_URL is required' })
     .url('AUTH_SERVICE_URL must be a valid URL'),
@@ -20,6 +22,19 @@ const envSchema = z.object({
     .url('MARKETING_SERVICE_URL must be a valid URL'),
   RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform((value) => Number.parseInt(value, 10)),
   RATE_LIMIT_MAX_REQUESTS: z.string().default('100').transform((value) => Number.parseInt(value, 10)),
+}).superRefine((value, context) => {
+  const secrets = [
+    value.AUTH_SERVICE_GATEWAY_SECRET,
+    value.APP_MANAGER_SERVICE_GATEWAY_SECRET,
+    value.MARKETING_SERVICE_GATEWAY_SECRET,
+  ];
+  if (new Set(secrets).size !== secrets.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['AUTH_SERVICE_GATEWAY_SECRET'],
+      message: 'Every downstream service must use a different gateway secret',
+    });
+  }
 });
 
 const result = envSchema.safeParse(process.env);

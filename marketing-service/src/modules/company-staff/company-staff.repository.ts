@@ -15,7 +15,7 @@ const isUniqueError = (error: unknown): boolean => (
 );
 
 export const companyStaffRepository = {
-  async list(input: ListCompanyStaffInput) {
+  async list(input: ListCompanyStaffInput, officeBranchId: string) {
     const query = buildListQuery(input, {
       filters: {
         companyId: (companyId) => ({ companyId }), title: (title) => ({ title }),
@@ -32,7 +32,7 @@ export const companyStaffRepository = {
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
-    const where = { AND: [{ revoked: false }, { company: { revoked: false } }, query.where] } satisfies Prisma.CompanyStaffWhereInput;
+    const where = { AND: [{ revoked: false }, { company: { officeBranchId, revoked: false } }, query.where] } satisfies Prisma.CompanyStaffWhereInput;
     const [staffs, total] = await Promise.all([
       prisma.companyStaff.findMany({ ...query, where, select }),
       prisma.companyStaff.count({ where }),
@@ -40,12 +40,12 @@ export const companyStaffRepository = {
     return { staffs, pagination: buildPagination(input.page, input.limit, total) };
   },
 
-  findById: (id: string) => prisma.companyStaff.findFirst({
-    where: { id, revoked: false, company: { revoked: false } }, select,
+  findById: (id: string, officeBranchId: string) => prisma.companyStaff.findFirst({
+    where: { id, revoked: false, company: { officeBranchId, revoked: false } }, select,
   }),
 
-  findByNormalizeName: (normalizeName: string, excludeId?: string) => prisma.companyStaff.findFirst({
-    where: { normalizeName, revoked: false, ...(excludeId && { id: { not: excludeId } }) },
+  findByNormalizeName: (normalizeName: string, officeBranchId: string, excludeId?: string) => prisma.companyStaff.findFirst({
+    where: { normalizeName, revoked: false, company: { officeBranchId, revoked: false }, ...(excludeId && { id: { not: excludeId } }) },
     select: { id: true },
   }),
 
@@ -58,18 +58,18 @@ export const companyStaffRepository = {
     }
   },
 
-  async update(id: string, data: UpdateCompanyStaffInput & { normalizeName?: string }) {
+  async update(id: string, officeBranchId: string, data: UpdateCompanyStaffInput & { normalizeName?: string }) {
     try {
-      return await prisma.companyStaff.update({ where: { id }, data, select });
+      return await prisma.companyStaff.update({ where: { id, company: { officeBranchId } }, data, select });
     } catch (error) {
       if (isUniqueError(error)) throw new HttpError('Company staff name already exists', 409);
       throw error;
     }
   },
 
-  revoke(id: string) {
+  revoke(id: string, officeBranchId: string) {
     return prisma.companyStaff.update({
-      where: { id }, data: { revoked: true, version: { increment: 1 } }, select,
+      where: { id, company: { officeBranchId } }, data: { revoked: true, version: { increment: 1 } }, select,
     });
   },
 };

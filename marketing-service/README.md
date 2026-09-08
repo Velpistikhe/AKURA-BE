@@ -10,7 +10,9 @@ Microservice untuk pengelolaan perusahaan serta katalog service, scope, dan item
 - CRUD `/services`
 - Maintenance scope dikelola langsung sebagai bagian dari service melalui `maintenanceScopes` atau endpoint scope di bawah `/services/:serviceId/maintenance/scopes`.
 
-`Company` menyimpan `name`, `normalizeName`, `type`, `address`, `hasContract`, `revoked`, dan `version`. Company staff menyimpan `name`, `normalizeName`, enum `title` (`mr` atau `mrs`), `telp`, `email`, `revoked`, serta `version`. Service tidak lagi dimiliki oleh company.
+`Company`, `Service`, dan `Item` menyimpan `officeBranchId` sebagai penanda branch pemilik data. Nilai tersebut berasal dari access token dan tidak dapat ditentukan melalui request body. Company staff dan scope mengikuti branch dari parent-nya. Seluruh operasi baca dan tulis otomatis dibatasi ke branch user yang sedang login; user tanpa office branch mendapat response `403`.
+
+`Company` juga menyimpan `name`, `normalizeName`, `type`, `address`, `hasContract`, `revoked`, dan `version`. Company staff menyimpan `name`, `normalizeName`, enum `title` (`mr` atau `mrs`), `telp`, `email`, `revoked`, serta `version`. Service tidak lagi dimiliki oleh company.
 
 Nama dinormalisasi menjadi huruf kecil tanpa spasi sebelum insert atau pemeriksaan duplikasi. Hanya satu company dan satu company staff aktif (`revoked = false`) yang boleh memiliki nilai `normalizeName` yang sama.
 
@@ -32,7 +34,7 @@ Relasi induk-anak dan tabel penghubung menggunakan `onDelete: Cascade`, sehingga
 
 Field `description` tidak digunakan pada service, service scope, maintenance scope, maupun item. Service dengan `hasMaintenance=true` wajib mempunyai minimal satu maintenance scope saat dibuat atau ketika maintenance diaktifkan melalui update.
 
-Semua endpoint CRUD hanya menerima request dari API Gateway dan memerlukan user aktif dengan role `ADMIN`/`APP_MANAGER` atau section `MARKETING`.
+Semua endpoint CRUD hanya menerima request dari API Gateway dan memerlukan user aktif dengan role `ADMIN`/`APP_MANAGER` atau section `MARKETING`. JWKS dan profil user Auth Service diakses melalui `API_GATEWAY_URL`; Marketing tidak menyimpan URL maupun secret Auth Service. `GATEWAY_SECRET` Marketing hanya berlaku untuk koneksi inbound Gateway ke Marketing dan harus berbeda dari secret service lain.
 
 ## Filter, sort, dan pagination
 
@@ -96,6 +98,12 @@ Untuk menambahkan field normalisasi, kontak, revoked, version, dan unique index 
 
 ```powershell
 npm run db:migrate-company-versioning
+```
+
+Untuk memastikan constraint dan index ownership branch sudah terpasang setelah data lama selesai dimigrasikan, jalankan:
+
+```powershell
+npm run db:migrate-office-branch-ownership
 ```
 
 ## Menjalankan

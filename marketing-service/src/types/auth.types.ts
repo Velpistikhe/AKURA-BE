@@ -8,6 +8,7 @@ export interface AccessTokenPayload extends JWTPayload {
   type: 'access';
   role?: string;
   section?: string | null;
+  officeBranchId: string | null;
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -18,6 +19,7 @@ export interface AuthUser {
   id: string;
   role: string;
   section: string | null;
+  officeBranchId: string | null;
   isActive: boolean;
 }
 

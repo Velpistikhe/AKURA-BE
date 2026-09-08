@@ -4,9 +4,9 @@ Microservice administrasi menu dan menu item untuk Akura. Pengelolaan user dilay
 
 ## Keamanan
 
-Seluruh endpoint bisnis harus melewati API Gateway. Access token RS256 divalidasi melalui JWKS Auth Service, lalu status dan role user aktif diperiksa ke Auth Service.
+Seluruh endpoint bisnis harus melewati API Gateway. JWKS dan profil user Auth Service juga selalu diakses App Manager melalui API Gateway, bukan melalui alamat Auth Service secara langsung. Secret inbound App Manager bersifat target-spesifik dan tidak boleh digunakan service lain.
 
-Endpoint `menus/my-menus` dapat diakses semua user aktif. CRUD menu, menu access, dan menu item memerlukan role `APP_MANAGER`.
+Endpoint `menus/my-menus` dapat diakses semua user aktif. CRUD menu, menu access, menu item, dan office branch memerlukan role `APP_MANAGER`.
 
 ## Endpoint
 
@@ -21,6 +21,9 @@ Gateway meneruskan prefix `/api/v1/app-manager` ke service dan menghapus prefix 
 | `/api/v1/app-manager/menu-accesses/:menuAccessId` | GET, PATCH, DELETE | Detail, perubahan, atau penghapusan aturan akses menu |
 | `/api/v1/app-manager/menu-items` | GET, POST | Daftar atau membuat menu item |
 | `/api/v1/app-manager/menu-items/:menuItemId` | GET, PATCH, DELETE | Detail, perubahan, atau penghapusan menu item |
+| `/api/v1/app-manager/office-branches` | GET, POST | Daftar atau membuat cabang kantor |
+| `/api/v1/app-manager/office-branches/options` | GET | Pilihan cabang kantor berisi `id` dan `name` |
+| `/api/v1/app-manager/office-branches/:officeBranchId` | GET, PATCH, DELETE | Detail, perubahan, atau penghapusan cabang kantor |
 
 Pengelolaan user tersedia di `/api/v1/auth/users`, bukan di App Manager Service.
 
@@ -33,6 +36,7 @@ Semua endpoint daftar menerima `page` (default `1`), `limit` (`1`–`100`), `sor
 | `GET /menus` | `hasItem`, `isActive` | `key`, `label` | `key`, `label`, `hasItem`, `order`, `isActive`, `updatedAt` | `createdAt desc` |
 | `GET /menu-accesses` | `menuItemId`, `role`, `section` | - | `menuItemId`, `role`, `section`, `updatedAt` | `createdAt desc` |
 | `GET /menu-items` | `menuId`, `isActive` | `key`, `label` | `menuId`, `key`, `label`, `order`, `isActive`, `updatedAt` | `createdAt desc` |
+| `GET /office-branches` | `isHead` | `name`, `address`, `telp`, `email` | `name`, `address`, `telp`, `email`, `isHead`, `updatedAt` | `createdAt desc` |
 
 Default `limit` adalah `20` untuk menu dan `50` untuk menu item. Jika `sortBy` tidak dikirim, hasil selalu memakai `createdAt desc`; `createdAt` tidak dapat dipilih secara eksplisit oleh user. Contoh: `/api/v1/app-manager/menu-items?isActive=true&sortBy=label&sortOrder=asc&page=1&limit=25`.
 
@@ -140,9 +144,29 @@ Endpoint ini mengambil menu item aktif yang mempunyai `MenuAccess` sesuai dengan
 }
 ```
 
+## Referensi office branch
+
+Data office branch memiliki field `id`, `name`, `address`, `telp`, `email`, dan `isHead`. Hanya satu office branch yang boleh memiliki `isHead=true`. Field `createdAt` dan `updatedAt` ditambahkan otomatis. Contoh payload create:
+
+```json
+{
+  "name": "Kantor Pusat",
+  "address": "Jl. Merdeka No. 10, Jakarta",
+  "telp": "+62 21 555 0100",
+  "email": "jakarta@example.com",
+  "isHead": true
+}
+```
+
+Sebelum menggunakan endpoint office branch pada database lama, jalankan:
+
+```powershell
+npm run db:migrate-office-branches
+```
+
 ## Database dan kepemilikan data user
 
-Database App Manager hanya menyimpan data menu dan menu-item. Tabel `users`, `user_passwords`, dan `refresh_tokens` tidak berada di service ini.
+Database App Manager menyimpan data menu, menu item, akses menu, dan referensi office branch. Tabel `users`, `user_passwords`, dan `refresh_tokens` tidak berada di service ini.
 
 Auth Service menjadi satu-satunya pemilik sekaligus penyedia endpoint pengelolaan user, optimistic versioning, invariant app-manager terakhir, dan revokasi refresh token saat deactivation.
 
@@ -170,10 +194,9 @@ Salin `.env.example` menjadi `.env`.
 |---|---|---|
 | `PORT` | `5002` | Port App Manager Service |
 | `NODE_ENV` | `development` | Environment runtime |
-| `GATEWAY_SECRET` | Tidak ada | Harus sama dengan gateway |
+| `GATEWAY_SECRET` | Tidak ada | Secret khusus koneksi API Gateway ke App Manager Service |
 | `DATABASE_URL` | Tidak ada | Database menu milik App Manager Service |
-| `AUTH_JWKS_URL` | Tidak ada | Endpoint public key Auth Service |
-| `AUTH_SERVICE_URL` | Tidak ada | Validasi profil user aktif melalui Auth Service |
+| `API_GATEWAY_URL` | Tidak ada | Base URL Gateway untuk akses JWKS dan profil Auth Service |
 | `JWT_ISSUER` | `akura-auth` | Issuer access token yang diterima |
 | `JWT_AUDIENCE` | `akura-api` | Audience access token yang diterima |
 
@@ -218,8 +241,12 @@ src/
   config/             Environment dan database
   middlewares/        Gateway, JWT, admin authorization, validasi, dan error
   modules/
-    menus/            Pengelolaan menu dan endpoint my-menus
-    menu-items/       Pengelolaan item di dalam menu
+    menu/
+      menus/          Pengelolaan menu dan endpoint my-menus
+      menu-items/     Pengelolaan item di dalam menu
+      menu-accesses/  Pengelolaan akses menu item
+    reference/
+      office-branch/  CRUD referensi cabang kantor
   routes/             Registry modul
   utils/              Logger, HTTP error, dan async handler
 ```

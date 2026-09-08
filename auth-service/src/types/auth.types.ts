@@ -7,6 +7,7 @@ export interface UserSanitized {
   lastName: string;
   role: UserRole;
   section: UserSection | null;
+  officeBranchId: string | null;
   isActive: boolean;
   version: number;
   createdAt: Date;
