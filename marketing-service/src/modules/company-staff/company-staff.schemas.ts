@@ -16,12 +16,15 @@ export const createCompanyStaffSchema = z.object({
   email: z.string().trim().email().max(254).nullable().optional().default(null),
 }).strict();
 export const updateCompanyStaffSchema = z.object({
+  version: z.number().int().nonnegative(),
   companyId: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(200).optional(),
   title: z.nativeEnum(StaffTitle).optional(),
   telp: z.string().trim().min(1).max(30).nullable().optional(),
   email: z.string().trim().email().max(254).nullable().optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+}).strict().refine((value) => Object.keys(value).some((key) => key !== 'version'), 'At least one editable field is required');
+
+export const deactivateCompanyStaffSchema = z.object({ version: z.number().int().nonnegative() }).strict();
 
 export type ListCompanyStaffInput = z.infer<typeof listCompanyStaffSchema>;
 export type CreateCompanyStaffInput = z.infer<typeof createCompanyStaffSchema>;

@@ -12,14 +12,14 @@ const maintenanceScopeSelect = {
 } satisfies Prisma.MaintenanceScopeSelect;
 
 const detailSelect = {
-  id: true, officeBranchId: true, name: true, hasMaintenance: true,
+  id: true, officeBranchId: true, name: true, type: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: { where: { revoked: false }, select: scopeSelect },
   maintenanceScopes: { where: { revoked: false }, select: maintenanceScopeSelect },
 } satisfies Prisma.ServiceSelect;
 
 const listSelect = {
-  id: true, officeBranchId: true, name: true, hasMaintenance: true,
+  id: true, officeBranchId: true, name: true, type: true, hasMaintenance: true,
   isActive: true, createdAt: true, updatedAt: true,
   scopes: {
     where: { revoked: false },
@@ -42,12 +42,14 @@ export const serviceRepository = {
       {
       baseWhere: { officeBranchId, isActive: true } as Prisma.ServiceWhereInput,
       filters: {
+        type: (type) => ({ type }),
         isActive: (isActive) => ({ isActive }),
         name: (name) => ({ name: { contains: name, mode: 'insensitive' } }),
       },
       defaultSort: { createdAt: 'desc' },
       sorts: defineSortRules<NonNullable<ListServicesInput['sortBy']>, Prisma.ServiceOrderByWithRelationInput>({
         name: (direction) => ({ name: direction }),
+        type: (direction) => ({ type: direction }),
         isActive: (direction) => ({ isActive: direction }),
       }),
       },
@@ -75,6 +77,7 @@ export const serviceRepository = {
     data: {
       officeBranchId,
       name: data.name,
+      type: data.type,
       hasMaintenance: data.hasMaintenance,
       isActive: true,
       scopes: { create: data.scopes.map((scope) => ({ scope, revoked: false })) },

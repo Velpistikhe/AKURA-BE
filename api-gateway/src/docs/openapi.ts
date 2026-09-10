@@ -67,7 +67,7 @@ export const openApiDocument = {
   openapi: '3.0.3',
   info: {
     title: 'Akura API Gateway',
-    version: '2.1.0',
+    version: '2.7.0',
     description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway; direct service access is rejected with a target-specific internal secret.',
   },
   servers: [
@@ -729,15 +729,17 @@ export const openApiDocument = {
       },
       Company: {
         type: 'object',
-        required: ['id', 'officeBranchId', 'name', 'normalizeName', 'type', 'address', 'hasContract', 'revoked', 'version', 'createdAt', 'updatedAt', '_count'],
+        required: ['id', 'officeBranchId', 'name', 'normalizeName', 'type', 'address', 'hasContract', 'revoked', 'version', 'createdById', 'updatedById', 'createdAt', 'updatedAt', '_count'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'PT Akura Indonesia' },
           normalizeName: { type: 'string', readOnly: true, example: 'ptakuraindonesia' },
-          type: { type: 'string', example: 'CUSTOMER' },
+          type: schemaRef('CompanyType'),
           address: { type: 'string', example: 'Jakarta' },
           hasContract: { type: 'boolean', example: true },
+          createdById: { type: 'string', format: 'uuid', nullable: true, readOnly: true, description: 'Creator user ID; nullable for historical records.' },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true, description: 'Last modifying user ID; null until updated.' },
           revoked: { type: 'boolean', example: false },
           version: { type: 'integer', minimum: 0, example: 0 },
           createdAt: { type: 'string', format: 'date-time' },
@@ -746,12 +748,18 @@ export const openApiDocument = {
         },
       },
       StaffTitle: { type: 'string', enum: ['mr', 'mrs'], example: 'mr' },
+      CompanyType: {
+        type: 'string', enum: ['PT', 'CV', 'FIRMA', 'KOPERASI', 'PERORANGAN'], example: 'PT',
+        description: 'Bentuk badan usaha perusahaan. Nilai harus sesuai enum dan menggunakan huruf kapital.',
+      },
       CompanyStaff: {
-        type: 'object', required: ['id', 'companyId', 'name', 'normalizeName', 'title', 'telp', 'email', 'revoked', 'version', 'createdAt', 'updatedAt', 'company'],
+        type: 'object', required: ['id', 'companyId', 'name', 'normalizeName', 'title', 'telp', 'email', 'revoked', 'version', 'createdById', 'updatedById', 'createdAt', 'updatedAt', 'company'],
         properties: {
           id: { type: 'string', format: 'uuid' }, companyId: { type: 'string', format: 'uuid' },
           name: { type: 'string', example: 'John Doe' },
           normalizeName: { type: 'string', readOnly: true, example: 'johndoe' },
+          createdById: { type: 'string', format: 'uuid', nullable: true, readOnly: true, description: 'Creator user ID; nullable for historical records.' },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true, description: 'Last modifying user ID; null until updated.' },
           title: schemaRef('StaffTitle'),
           telp: { type: 'string', nullable: true, maxLength: 30, example: '+628123456789' },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 254 },
@@ -762,7 +770,7 @@ export const openApiDocument = {
             type: 'object', required: ['id', 'name', 'type', 'version'],
             properties: {
               id: { type: 'string', format: 'uuid' }, name: { type: 'string' },
-              type: { type: 'string' }, version: { type: 'integer', minimum: 0 },
+              type: schemaRef('CompanyType'), version: { type: 'integer', minimum: 0 },
             },
           },
         },
@@ -775,13 +783,18 @@ export const openApiDocument = {
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
         },
       },
+      ServiceType: {
+        type: 'string', enum: ['TUBULAR', 'OCTG'], example: 'TUBULAR',
+        description: 'Service type. Only uppercase TUBULAR and OCTG are accepted.',
+      },
       Service: {
         type: 'object',
-        required: ['id', 'officeBranchId', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'Social Media Management' },
+          type: schemaRef('ServiceType'),
           hasMaintenance: { type: 'boolean' },
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
@@ -792,11 +805,12 @@ export const openApiDocument = {
       },
       ServiceListItem: {
         type: 'object',
-        required: ['id', 'officeBranchId', 'name', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'Social Media Management' },
+          type: schemaRef('ServiceType'),
           hasMaintenance: { type: 'boolean' },
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
@@ -806,13 +820,17 @@ export const openApiDocument = {
         },
       },
       Item: {
-        type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'isActive', 'createdAt', 'updatedAt', 'sizes'],
+        type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'isActive', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt', 'sizes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
           isActive: { type: 'boolean' },
+          createdById: { type: 'string', format: 'uuid', readOnly: true },
+          createdByName: { type: 'string', readOnly: true, description: 'Snapshot of the current user name when the item was created.' },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
+          updatedByName: { type: 'string', nullable: true, readOnly: true, description: 'Snapshot of the current user name when the item was last changed.' },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
           sizes: { type: 'array', items: schemaRef('ItemSize') },
           service: {
@@ -827,28 +845,53 @@ export const openApiDocument = {
       },
       ItemSize: {
         type: 'object',
-        required: ['id', 'itemId', 'size', 'priceServicePrimary', 'priceServiceSisterCompany', 'isActive', 'version', 'createdAt', 'updatedAt'],
+        description: 'Item size with price values sourced from its one-to-one item_prices record.',
+        required: ['id', 'itemId', 'size', 'priceServicePrimary', 'priceServiceSisterCompany', 'isActive', 'version', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           itemId: { type: 'string', format: 'uuid' },
           size: { type: 'string', maxLength: 100 },
-          priceServicePrimary: { type: 'string', format: 'decimal' },
-          priceServiceSisterCompany: { type: 'string', format: 'decimal' },
-          priceMaintenancePrimary: { type: 'string', format: 'decimal', nullable: true },
-          priceMaintenanceSisterCompany: { type: 'string', format: 'decimal', nullable: true },
+          priceServicePrimary: { type: 'string', format: 'decimal', description: 'Service price for a primary company.' },
+          priceServiceSisterCompany: { type: 'string', format: 'decimal', description: 'Service price for a sister company.' },
+          priceMaintenancePrimary: { type: 'string', format: 'decimal', nullable: true, description: 'Maintenance price for a primary company.' },
+          priceMaintenanceSisterCompany: { type: 'string', format: 'decimal', nullable: true, description: 'Maintenance price for a sister company.' },
           isActive: { type: 'boolean' }, version: { type: 'integer', minimum: 1 },
+          createdById: { type: 'string', format: 'uuid', readOnly: true },
+          createdByName: { type: 'string', readOnly: true, description: 'Snapshot of the current user name when the item size was created.' },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
+          updatedByName: { type: 'string', nullable: true, readOnly: true, description: 'Snapshot of the current user name when the item size was last changed.' },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
         },
       },
       ItemListRow: {
-        allOf: [schemaRef('ItemSize')],
-        required: ['item'],
+        type: 'object',
+        description: 'Active Item row with its service summary. Item sizes are intentionally not loaded.',
+        required: ['id', 'officeBranchId', 'serviceId', 'name', 'isActive', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt', 'service'],
         properties: {
-          item: {
-            type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'service'],
+          id: { type: 'string', format: 'uuid' },
+          officeBranchId: { type: 'string', format: 'uuid', readOnly: true },
+          serviceId: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          isActive: { type: 'boolean', enum: [true] },
+          createdById: { type: 'string', format: 'uuid', readOnly: true },
+          createdByName: { type: 'string', readOnly: true },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
+          updatedByName: { type: 'string', nullable: true, readOnly: true },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+          service: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } } },
+        },
+      },
+      ItemDetail: {
+        allOf: [schemaRef('ItemListRow')],
+        description: 'Active Item detail without item-size data.',
+        properties: {
+          service: {
+            type: 'object', required: ['id', 'name', 'hasMaintenance'],
             properties: {
-              id: { type: 'string', format: 'uuid' }, officeBranchId: { type: 'string', format: 'uuid', readOnly: true }, serviceId: { type: 'string', format: 'uuid' }, name: { type: 'string' },
-              service: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } } },
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string' },
+              hasMaintenance: { type: 'boolean' },
             },
           },
         },
@@ -981,6 +1024,20 @@ export const openApiDocument = {
           data: schemaRef('Item'), requestId: { type: 'string', format: 'uuid' },
         },
       },
+      ItemDetailResponse: {
+        type: 'object', required: ['status', 'success', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] },
+          data: schemaRef('ItemDetail'), requestId: { type: 'string', format: 'uuid' },
+        },
+      },
+      ItemSizeResponse: {
+        type: 'object', required: ['status', 'success', 'data'],
+        properties: {
+          status: { type: 'integer', example: 201 }, success: { type: 'boolean', enum: [true] },
+          data: schemaRef('ItemSize'), requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       ItemListResponse: {
         type: 'object', required: ['status', 'success', 'data'],
         properties: {
@@ -995,20 +1052,36 @@ export const openApiDocument = {
           requestId: { type: 'string', format: 'uuid' },
         },
       },
+      ItemSizeListResponse: {
+        type: 'object', required: ['status', 'success', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] },
+          data: {
+            type: 'object', required: ['sizes', 'pagination'],
+            properties: {
+              sizes: { type: 'array', items: schemaRef('ItemSize') },
+              pagination: schemaRef('Pagination'),
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       CreateCompanyRequest: {
         type: 'object', required: ['name', 'type', 'address'], additionalProperties: false,
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 200 },
-          type: { type: 'string', minLength: 1, maxLength: 100 },
+          type: schemaRef('CompanyType'),
           address: { type: 'string', minLength: 1, maxLength: 500 },
           hasContract: { type: 'boolean', default: false },
         },
       },
       UpdateCompanyRequest: {
-        type: 'object', minProperties: 1, additionalProperties: false,
+        type: 'object', required: ['version'], minProperties: 2, additionalProperties: false,
+        description: 'Supply the current version and at least one editable field. A stale version or inactive record returns 409.',
         properties: {
+          version: { type: 'integer', minimum: 0, example: 0 },
           name: { type: 'string', minLength: 1, maxLength: 200 },
-          type: { type: 'string', minLength: 1, maxLength: 100 },
+          type: schemaRef('CompanyType'),
           address: { type: 'string', minLength: 1, maxLength: 500 },
           hasContract: { type: 'boolean' },
         },
@@ -1024,8 +1097,10 @@ export const openApiDocument = {
         },
       },
       UpdateCompanyStaffRequest: {
-        type: 'object', minProperties: 1, additionalProperties: false,
+        type: 'object', required: ['version'], minProperties: 2, additionalProperties: false,
+        description: 'Supply the current version and at least one editable field. A stale version or inactive record returns 409.',
         properties: {
+          version: { type: 'integer', minimum: 0, example: 0 },
           companyId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
           title: schemaRef('StaffTitle'),
@@ -1033,9 +1108,20 @@ export const openApiDocument = {
           email: { type: 'string', format: 'email', nullable: true, maxLength: 254 },
         },
       },
+      DeactivateCompanyRequest: {
+        type: 'object', required: ['version'], additionalProperties: false,
+        description: 'Current company version for optimistic locking.',
+        properties: { version: { type: 'integer', minimum: 0, example: 0 } },
+      },
+      DeactivateCompanyStaffRequest: {
+        type: 'object', required: ['version'], additionalProperties: false,
+        description: 'Current staff version for optimistic locking.',
+        properties: { version: { type: 'integer', minimum: 0, example: 0 } },
+      },
       CreateServiceRequest: {
-        type: 'object', required: ['name', 'hasMaintenance'], additionalProperties: false,
+        type: 'object', required: ['name', 'type', 'hasMaintenance'], additionalProperties: false,
         properties: {
+          type: schemaRef('ServiceType'),
           name: { type: 'string', minLength: 1, maxLength: 200 },
           hasMaintenance: { type: 'boolean', description: 'When true, at least one maintenanceScopes item is required.' },
           scopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
@@ -1045,6 +1131,7 @@ export const openApiDocument = {
       UpdateServiceRequest: {
         type: 'object', minProperties: 1, additionalProperties: false,
         properties: {
+          type: schemaRef('ServiceType'),
           name: { type: 'string', minLength: 1, maxLength: 200 },
           hasMaintenance: { type: 'boolean', description: 'Whenever true is supplied, at least one maintenanceScopes item is required. Supplying false revokes active maintenance scopes.' },
           isActive: { type: 'boolean' },
@@ -1066,17 +1153,20 @@ export const openApiDocument = {
           sizes: { type: 'array', minItems: 1, maxItems: 100, items: schemaRef('ItemSizeInput') },
         },
       },
-      UpdateItemRequest: {
-        type: 'object', additionalProperties: false, required: ['serviceId', 'name', 'sizes'],
+      AddItemSizeRequest: {
+        type: 'object', additionalProperties: false, required: ['itemId', 'size', 'priceServicePrimary'],
         properties: {
-          serviceId: { type: 'string', format: 'uuid' },
-          name: { type: 'string', minLength: 1, maxLength: 200 },
-          sizes: { type: 'array', minItems: 1, maxItems: 100, items: schemaRef('ItemSizeInput') },
+          itemId: { type: 'string', format: 'uuid' },
+          size: { type: 'string', minLength: 1, maxLength: 100 },
+          priceServicePrimary: { type: 'number', minimum: 0 },
+          priceServiceSisterCompany: { type: 'number', minimum: 0, default: 0 },
+          priceMaintenancePrimary: { type: 'number', minimum: 0, nullable: true },
+          priceMaintenanceSisterCompany: { type: 'number', minimum: 0, nullable: true },
         },
       },
       ItemSizeInput: {
         type: 'object', additionalProperties: false,
-        description: 'For services with hasMaintenance=true, priceMaintenancePrimary is required by business validation.',
+        description: 'Prices are persisted in the one-to-one item_prices record. For services with hasMaintenance=true, priceMaintenancePrimary is required by business validation.',
         required: ['size', 'priceServicePrimary', 'priceServiceSisterCompany'],
         properties: {
           size: { type: 'string', minLength: 1, maxLength: 100 },
@@ -1706,14 +1796,13 @@ export const openApiDocument = {
     },
     '/api/v1/marketing/items': {
       get: {
-        tags: ['Marketing'], summary: 'List active item sizes', description: 'Each active size is returned as one row together with its item and service. Results are restricted to the office branch in the access token.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'List active items', description: 'Returns rows from the items table with a service summary and without loading item sizes. Only active items from the office branch in the access token are returned. Default ordering is createdAt descending.', security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+          { in: 'query', name: 'name', description: 'Case-insensitive partial match on item name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
           { in: 'query', name: 'serviceName', description: 'Case-insensitive partial match on service name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
-          { in: 'query', name: 'itemName', description: 'Case-insensitive partial match on item name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
-          { in: 'query', name: 'size', description: 'Case-insensitive partial match on size.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
-          ...listSortParameters(['serviceName', 'itemName', 'size'], 'serviceName ascending.'),
+          ...listSortParameters(['name', 'serviceName']),
         ],
         responses: {
           200: { description: 'Items retrieved', ...jsonContent(schemaRef('ItemListResponse')) },
@@ -1737,21 +1826,10 @@ export const openApiDocument = {
         tags: ['Marketing'], summary: 'Get an item', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'itemId', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: {
-          200: { description: 'Item retrieved', ...jsonContent(schemaRef('ItemResponse')) },
+          200: { description: 'Item retrieved without sizes', ...jsonContent(schemaRef('ItemDetailResponse')) },
           400: errorResponse('Invalid item ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Item not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
-        },
-      },
-      patch: {
-        tags: ['Marketing'], summary: 'Update an item', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'itemId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: { required: true, ...jsonContent(schemaRef('UpdateItemRequest')) },
-        responses: {
-          200: { description: 'Item updated', ...jsonContent(schemaRef('ItemResponse')) },
-          400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Item not found'),
-          409: errorResponse('Service is inactive or not found'), 429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
       delete: {
@@ -1762,6 +1840,46 @@ export const openApiDocument = {
           400: errorResponse('Invalid item ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Item not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/marketing/items/sizes': {
+      get: {
+        tags: ['Marketing'], summary: 'List active sizes for one item', description: 'itemId is required. Only active sizes are returned. The only optional business filter and sort field is size; default ordering is createdAt descending.', security: protectedSecurity,
+        parameters: [
+          { in: 'query', name: 'itemId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'query', name: 'size', description: 'Case-insensitive partial match on size.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+          ...listSortParameters(['size']),
+        ],
+        responses: {
+          200: { description: 'Active item sizes retrieved', ...jsonContent(schemaRef('ItemSizeListResponse')) },
+          400: errorResponse('Invalid query parameters'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Item not found'),
+          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+      post: {
+        tags: ['Marketing'], summary: 'Add one size to an item', description: 'Creates one ItemSize and its ItemPrice atomically. itemId, size, and priceServicePrimary are required. Only active sizes must be unique within an item. Reusing an inactive size creates a new ID and price record while preserving the inactive size and its price history.', security: protectedSecurity,
+        requestBody: { required: true, ...jsonContent(schemaRef('AddItemSizeRequest')) },
+        responses: {
+          201: { description: 'Item size and price created', ...jsonContent(schemaRef('ItemSizeResponse')) },
+          400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Item not found'),
+          409: errorResponse('An active size with the same value already exists for this item'), 429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/marketing/items/sizes/{itemSizeId}': {
+      delete: {
+        tags: ['Marketing'], summary: 'Deactivate one item size', description: 'Deactivates only the selected ItemSize and closes its active item and contract price periods. The parent Item and its other sizes remain active.', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'itemSizeId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: { description: 'Item size deactivated', ...jsonContent(schemaRef('ItemSizeResponse')) },
+          400: errorResponse('Invalid item size ID'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Item size not found'),
+          409: errorResponse('Item size is already inactive'), 429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
     },
@@ -1805,24 +1923,26 @@ export const openApiDocument = {
         },
       },
       patch: {
-        tags: ['Marketing'], summary: 'Create a new company version', description: 'Revokes the current company and active staff records, then creates a new company version and copies active staff with version 0.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Create a new company version', description: 'Requires the current version. Atomically revokes the current company and active staff, creates a company with a new ID and version + 1, copies active staff with new IDs and version 0, and copies contract prices. Changes are recorded in the company audit log.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'companyId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateCompanyRequest')) },
         responses: {
           200: { description: 'Company updated', ...jsonContent(schemaRef('CompanyResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Company not found'),
-          409: errorResponse('Normalized company or staff name already exists'),
+          409: errorResponse('Version mismatch, inactive record, or normalized company or staff name already exists'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
       delete: {
         tags: ['Marketing'], summary: 'Revoke a company', description: 'Soft deletes the company by setting revoked=true, increments its version, and revokes its active staff records.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'companyId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: { required: true, ...jsonContent(schemaRef('DeactivateCompanyRequest')) },
         responses: {
           200: { description: 'Company revoked', ...jsonContent(schemaRef('CompanyResponse')) },
-          400: errorResponse('Invalid company ID'), 401: errorResponse('Missing or invalid access token'),
+          400: errorResponse('Invalid company ID or version body'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Company not found'),
+          409: errorResponse('Version mismatch or inactive record'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
@@ -1868,24 +1988,26 @@ export const openApiDocument = {
         },
       },
       patch: {
-        tags: ['Marketing'], summary: 'Update company staff', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Update company staff', description: 'Requires the current staff version. Updates the existing record, increments its version, and records the change in the company audit log.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'companyStaffId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateCompanyStaffRequest')) },
         responses: {
           200: { description: 'Company staff updated', ...jsonContent(schemaRef('CompanyStaffResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Company or staff not found'),
-          409: errorResponse('Normalized company staff name already exists'),
+          409: errorResponse('Version mismatch, inactive staff or company, or normalized company staff name already exists'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
       delete: {
         tags: ['Marketing'], summary: 'Revoke company staff', description: 'Sets revoked to true and increments the staff version instead of deleting the row.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'companyStaffId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: { required: true, ...jsonContent(schemaRef('DeactivateCompanyStaffRequest')) },
         responses: {
           200: { description: 'Company staff deleted', ...jsonContent(schemaRef('CompanyStaffResponse')) },
-          400: errorResponse('Invalid staff ID'), 401: errorResponse('Missing or invalid access token'),
+          400: errorResponse('Invalid staff ID or version body'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Company staff not found'),
+          409: errorResponse('Version mismatch or inactive record'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
@@ -1898,7 +2020,8 @@ export const openApiDocument = {
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
           { in: 'query', name: 'name', description: 'Case-insensitive partial match on name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
           { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
-          ...listSortParameters(['name', 'isActive']),
+          { in: 'query', name: 'type', description: 'Exact service type match: TUBULAR or OCTG.', schema: schemaRef('ServiceType') },
+          ...listSortParameters(['name', 'type', 'isActive']),
         ],
         responses: {
           200: { description: 'Services retrieved', ...jsonContent(schemaRef('ServiceListResponse')) },

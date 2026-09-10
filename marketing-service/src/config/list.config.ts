@@ -1,4 +1,4 @@
-import { StaffTitle } from '@prisma/client';
+import { ServiceType, StaffTitle } from '@prisma/client';
 import { z } from 'zod';
 
 const pagination = {
@@ -19,8 +19,9 @@ export const COMPANY_LIST_CONFIG = {
 } as const;
 
 export const SERVICE_LIST_CONFIG = {
-  sortFields: ['name', 'isActive'],
+  sortFields: ['name', 'type', 'isActive'],
   filterFields: {
+    type: z.nativeEnum(ServiceType).optional(),
     name: z.string().trim().min(1).max(200).optional(),
     isActive: booleanFilter,
   },
@@ -28,10 +29,17 @@ export const SERVICE_LIST_CONFIG = {
 } as const;
 
 export const ITEM_LIST_CONFIG = {
-  sortFields: ['serviceName', 'itemName', 'size'],
+  sortFields: ['name', 'serviceName'],
   filterFields: {
+    name: z.string().trim().min(1).max(200).optional(),
     serviceName: z.string().trim().min(1).max(200).optional(),
-    itemName: z.string().trim().min(1).max(200).optional(),
+  },
+  pagination,
+} as const;
+
+export const ITEM_SIZE_LIST_CONFIG = {
+  sortFields: ['size'],
+  filterFields: {
     size: z.string().trim().min(1).max(100).optional(),
   },
   pagination,

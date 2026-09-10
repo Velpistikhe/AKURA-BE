@@ -108,22 +108,6 @@ Refresh token untuk endpoint refresh dan logout hanya dibaca dari cookie `refres
 
 Token tidak dikembalikan di response JSON. Endpoint register, login, dan refresh mengirim token melalui header `Set-Cookie`.
 
-## Migrasi profil user
-
-Setelah menghentikan service yang sedang menggunakan Prisma Client, jalankan migrasi profil satu kali:
-
-```powershell
-npm run db:migrate-user-profile
-```
-
-Migrasi ini memecah kolom lama `name` menjadi `first_name` dan `last_name`, lalu menghapus kolom `email` dan `bio`.
-
-Untuk menambahkan `office_branch_id` pada database Auth lama, jalankan:
-
-```powershell
-npm run db:migrate-office-branch
-```
-
 ## Validasi request
 
 ### Register
@@ -198,12 +182,11 @@ Gunakan salah satu `JWT_ACCESS_PRIVATE_KEY_PATH` atau `JWT_ACCESS_PRIVATE_KEY_BA
 npm install
 npm run db:generate
 npm run db:push
-npm run keys:generate
 ```
 
 Jalankan `npm run db:generate` setelah instalasi atau perubahan schema. Perintah `npm run dev` tidak melakukan generate ulang agar query engine Prisma yang sedang digunakan tidak ditimpa pada Windows.
 
-`npm run keys:generate` membuat RSA private key 3072-bit pada `keys/access-private.pem` dan menolak menimpa key yang sudah ada. Folder `keys` diabaikan Git. Pada production, mount private key dari KMS atau secret manager dan jangan menyimpannya di image aplikasi.
+Sediakan RSA private key PKCS#8 melalui `JWT_ACCESS_PRIVATE_KEY_PATH` atau `JWT_ACCESS_PRIVATE_KEY_BASE64`. Pada production, gunakan KMS atau secret manager.
 
 Database PostgreSQL yang dirujuk oleh `DATABASE_URL` harus sudah tersedia sebelum menjalankan `db:push` atau service.
 

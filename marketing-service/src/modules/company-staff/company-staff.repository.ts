@@ -1,3 +1,5 @@
+import { AuditActor } from '../../types/auth.types.js';
+import { lockCompanyBranch, recordCompanyAudit, requireCurrentVersion } from '../../utils/companyAudit.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -5,6 +7,7 @@ import { buildListQuery, buildPagination, defineSortRules } from '../../utils/li
 import { CreateCompanyStaffInput, ListCompanyStaffInput, UpdateCompanyStaffInput } from './company-staff.schemas.js';
 
 const select = {
+  createdById: true, updatedById: true,
   id: true, companyId: true, name: true, normalizeName: true, title: true,
   telp: true, email: true, revoked: true, version: true, createdAt: true, updatedAt: true,
   company: { select: { id: true, name: true, type: true, version: true } },
@@ -49,27 +52,59 @@ export const companyStaffRepository = {
     select: { id: true },
   }),
 
-  async create(data: CreateCompanyStaffInput & { normalizeName: string }) {
+
+  async create(data: CreateCompanyStaffInput & { normalizeName: string }, officeBranchId: string, actor: AuditActor) {
+    return prisma.$transaction(async (tx) => {
+      await lockCompanyBranch(tx, officeBranchId);
+      const parent = await tx.company.findFirst({ where: { id: data.companyId, officeBranchId, revoked: false } });
+      if (!parent) throw new HttpError('Company not found or inactive', 404);
+      const duplicate = await tx.companyStaff.findFirst({ where: { normalizeName: data.normalizeName, revoked: false, company: { officeBranchId, revoked: false } } });
+      if (duplicate) throw new HttpError('Company staff name already exists', 409);
+      const created = await tx.companyStaff.create({ data: { ...data, createdById: actor.id, version: 0 }, select });
+      await recordCompanyAudit(tx, officeBranchId, 'COMPANY_STAFF', created.id, 'CREATE', null, created, actor);
+      return created;
+    });
+  },
+
+  async update(id: string, officeBranchId: string, data: UpdateCompanyStaffInput & { normalizeName?: string }, actor: AuditActor) {
     try {
-      return await prisma.companyStaff.create({ data: { ...data, revoked: false, version: 0 }, select });
+      return await prisma.$transaction(async (tx) => {
+        await lockCompanyBranch(tx, officeBranchId);
+        const current = await tx.companyStaff.findFirst({ where: { id, company: { officeBranchId } }, select });
+        if (!current) throw new HttpError('Company staff not found', 404);
+        requireCurrentVersion(current, data.version);
+        const parent = await tx.company.findFirst({ where: { id: data.companyId ?? current.companyId, officeBranchId, revoked: false } });
+        if (!parent) throw new HttpError('Company not found or inactive', 409);
+        const duplicate = await tx.companyStaff.findFirst({
+          where: { id: { not: id }, normalizeName: data.normalizeName ?? current.normalizeName, revoked: false, company: { officeBranchId, revoked: false } },
+        });
+        if (duplicate) throw new HttpError('Company staff name already exists', 409);
+        const { version, ...changes } = data;
+        const updated = await tx.companyStaff.update({
+          where: { id, version, revoked: false },
+          data: { ...changes, version: { increment: 1 }, updatedById: actor.id }, select,
+        });
+        await recordCompanyAudit(tx, officeBranchId, 'COMPANY_STAFF', id, 'UPDATE', current, updated, actor);
+        return updated;
+      });
     } catch (error) {
       if (isUniqueError(error)) throw new HttpError('Company staff name already exists', 409);
       throw error;
     }
   },
 
-  async update(id: string, officeBranchId: string, data: UpdateCompanyStaffInput & { normalizeName?: string }) {
-    try {
-      return await prisma.companyStaff.update({ where: { id, company: { officeBranchId } }, data, select });
-    } catch (error) {
-      if (isUniqueError(error)) throw new HttpError('Company staff name already exists', 409);
-      throw error;
-    }
-  },
-
-  revoke(id: string, officeBranchId: string) {
-    return prisma.companyStaff.update({
-      where: { id, company: { officeBranchId } }, data: { revoked: true, version: { increment: 1 } }, select,
+  revoke(id: string, officeBranchId: string, version: number, actor: AuditActor) {
+    return prisma.$transaction(async (tx) => {
+      await lockCompanyBranch(tx, officeBranchId);
+      const current = await tx.companyStaff.findFirst({ where: { id, company: { officeBranchId } }, select });
+      if (!current) throw new HttpError('Company staff not found', 404);
+      requireCurrentVersion(current, version);
+      const updated = await tx.companyStaff.update({
+        where: { id, version, revoked: false },
+        data: { revoked: true, version: { increment: 1 }, updatedById: actor.id }, select,
+      });
+      await recordCompanyAudit(tx, officeBranchId, 'COMPANY_STAFF', id, 'DEACTIVATE', current, updated, actor);
+      return updated;
     });
   },
 };

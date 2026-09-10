@@ -158,33 +158,11 @@ Data office branch memiliki field `id`, `name`, `address`, `telp`, `email`, dan 
 }
 ```
 
-Sebelum menggunakan endpoint office branch pada database lama, jalankan:
-
-```powershell
-npm run db:migrate-office-branches
-```
-
 ## Database dan kepemilikan data user
 
 Database App Manager menyimpan data menu, menu item, akses menu, dan referensi office branch. Tabel `users`, `user_passwords`, dan `refresh_tokens` tidak berada di service ini.
 
 Auth Service menjadi satu-satunya pemilik sekaligus penyedia endpoint pengelolaan user, optimistic versioning, invariant app-manager terakhir, dan revokasi refresh token saat deactivation.
-
-## Migrasi akses menu
-
-`role` dan `section` disimpan di tabel `menu_accesses` pada level menu item. Untuk mengubah data akses level-menu lama menjadi akses per item, hentikan App Manager Service lalu jalankan:
-
-```powershell
-npm run db:migrate-menu-item-accesses
-```
-
-Untuk menambahkan `menus.has_item`, menandai menu lama yang sudah mempunyai item, dan menghapus `menu_items.path`, jalankan:
-
-```powershell
-npm run db:migrate-menu-has-item
-```
-
-Migrasi menyalin setiap aturan akses menu lama ke seluruh menu item di bawah menu tersebut, lalu mengganti relasi menjadi `menuItemId`. Constraint unik juga dibuat untuk kombinasi `menuItemId`, `role`, dan `section`, termasuk kombinasi yang memiliki nilai `null`.
 
 ## Konfigurasi
 

@@ -114,12 +114,6 @@ Pemeriksaan TypeScript:
 npm run typecheck
 ```
 
-Verifikasi isolasi komunikasi antar-service:
-
-```powershell
-npm run verify:service-boundaries
-```
-
 ## Menambah service
 
 Tambahkan konfigurasi ke `src/config/services.config.ts` dengan prefix unik, target URL, secret target-spesifik, aturan rewrite, deskripsi, dan nilai `authRequired`. Service baru harus mempunyai secret sendiri dan tidak boleh menggunakan secret service yang sudah ada.

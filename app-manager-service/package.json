@@ -9,10 +9,6 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
-    "db:migrate-rbac": "node scripts/migrate-rbac.mjs && prisma generate",
-    "db:migrate-menu-item-accesses": "node scripts/migrate-menu-item-accesses.mjs && prisma generate",
-    "db:migrate-menu-has-item": "node scripts/migrate-menu-has-item-remove-item-path.mjs && prisma generate",
-    "db:migrate-office-branches": "node scripts/migrate-office-branches.mjs && prisma generate",
     "db:push": "prisma db push",
     "test:api": "node tests/app-manager-verification.mjs",
     "test:all": "node tests/all-endpoints-verification.mjs"

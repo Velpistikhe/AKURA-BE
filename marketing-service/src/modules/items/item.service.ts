@@ -1,12 +1,13 @@
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 import { itemRepository } from './item.repository.js';
-import { CreateItemInput, ListItemsInput, UpdateItemInput } from './item.schemas.js';
+import { AddItemSizeInput, CreateItemInput, ListItemsInput, ListItemSizesInput } from './item.schemas.js';
+import { AuditActor } from '../../types/auth.types.js';
 
 export const itemList = (query: ListItemsInput, officeBranchId: string) => itemRepository.list(query, officeBranchId);
 
 export const itemService = {
-  async validateServiceAndPrices(data: CreateItemInput | UpdateItemInput, officeBranchId: string) {
+  async validateServiceAndPrices(data: CreateItemInput, officeBranchId: string) {
     const service = await prisma.service.findFirst({
       where: { id: data.serviceId, officeBranchId },
     });
@@ -17,9 +18,25 @@ export const itemService = {
     }
   },
 
-  async create(data: CreateItemInput, officeBranchId: string) {
+  async create(data: CreateItemInput, officeBranchId: string, actor: AuditActor) {
     await this.validateServiceAndPrices(data, officeBranchId);
-    return itemRepository.create(data, officeBranchId);
+    return itemRepository.create(data, officeBranchId, actor);
+  },
+  async addSize(data: AddItemSizeInput, officeBranchId: string, actor: AuditActor) {
+    const item = await prisma.item.findFirst({
+      where: { id: data.itemId, officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
+      select: { id: true },
+    });
+    if (!item) throw new HttpError('Item not found', 404);
+    return itemRepository.addSize(data, officeBranchId, actor);
+  },
+  async listSizes(data: ListItemSizesInput, officeBranchId: string) {
+    const item = await prisma.item.findFirst({
+      where: { id: data.itemId, officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
+      select: { id: true },
+    });
+    if (!item) throw new HttpError('Item not found', 404);
+    return itemRepository.listSizes(data, officeBranchId);
   },
   async get(id: string, officeBranchId: string) {
     const item = await itemRepository.findActive(id, officeBranchId);
@@ -28,15 +45,12 @@ export const itemService = {
 
     return item;
   },
-  async update(id: string, data: UpdateItemInput, officeBranchId: string) {
-    const item = await itemRepository.find(id, officeBranchId);
-    if (!item) throw new HttpError('Item not found', 404);
-    await this.validateServiceAndPrices(data, officeBranchId);
-    return itemRepository.update(id, officeBranchId, data);
+  async removeSize(id: string, officeBranchId: string, actor: AuditActor) {
+    return itemRepository.removeSize(id, officeBranchId, actor);
   },
-  async remove(id: string, officeBranchId: string) {
+  async remove(id: string, officeBranchId: string, actor: AuditActor) {
     const item = await itemRepository.find(id, officeBranchId);
     if (!item) throw new HttpError('Item not found', 404);
-    return itemRepository.remove(id, officeBranchId);
+    return itemRepository.remove(id, officeBranchId, actor);
   },
 };

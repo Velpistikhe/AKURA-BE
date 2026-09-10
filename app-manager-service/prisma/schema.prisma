@@ -75,7 +75,7 @@ model OfficeBranch {
   address     String
   telp        String
   email       String
-  /// A partial unique index created by migrate-office-branches enforces a single true value.
+  /// A partial unique index enforces a single true value.
   isHead      Boolean  @default(false) @map("is_head")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

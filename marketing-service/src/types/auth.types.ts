@@ -17,10 +17,18 @@ export interface AuthenticatedRequest extends Request {
 
 export interface AuthUser {
   id: string;
+  username: string;
+  firstName: string;
+  lastName: string;
   role: string;
   section: string | null;
   officeBranchId: string | null;
   isActive: boolean;
+}
+
+export interface AuditActor {
+  id: string;
+  name: string;
 }
 
 declare global {

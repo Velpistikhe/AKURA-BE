@@ -1,3 +1,4 @@
+import { AuditActor } from '../../types/auth.types.js';
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 import { normalizeName } from '../../utils/normalizeName.js';
@@ -15,22 +16,19 @@ export const companyStaffService = {
     if (!staff) throw new HttpError('Company staff not found', 404);
     return staff;
   },
-  async create(data: CreateCompanyStaffInput, officeBranchId: string) {
+  async create(data: CreateCompanyStaffInput, officeBranchId: string, actor: AuditActor) {
     await ensureCompany(data.companyId, officeBranchId);
     const normalized = normalizeName(data.name);
     if (await companyStaffRepository.findByNormalizeName(normalized, officeBranchId)) throw new HttpError('Company staff name already exists', 409);
-    return companyStaffRepository.create({ ...data, normalizeName: normalized });
+    return companyStaffRepository.create({ ...data, normalizeName: normalized }, officeBranchId, actor);
   },
-  async update(id: string, data: UpdateCompanyStaffInput, officeBranchId: string) {
-    const current = await companyStaffRepository.findById(id, officeBranchId);
-    if (!current) throw new HttpError('Company staff not found', 404);
+  async update(id: string, data: UpdateCompanyStaffInput, officeBranchId: string, actor: AuditActor) {
     if (data.companyId) await ensureCompany(data.companyId, officeBranchId);
     const normalized = data.name ? normalizeName(data.name) : undefined;
     if (normalized && await companyStaffRepository.findByNormalizeName(normalized, officeBranchId, id)) throw new HttpError('Company staff name already exists', 409);
-    return companyStaffRepository.update(id, officeBranchId, { ...data, ...(normalized && { normalizeName: normalized }) });
+    return companyStaffRepository.update(id, officeBranchId, { ...data, ...(normalized && { normalizeName: normalized }) }, actor);
   },
-  async delete(id: string, officeBranchId: string) {
-    if (!await companyStaffRepository.findById(id, officeBranchId)) throw new HttpError('Company staff not found', 404);
-    return companyStaffRepository.revoke(id, officeBranchId);
+  async delete(id: string, officeBranchId: string, version: number, actor: AuditActor) {
+    return companyStaffRepository.revoke(id, officeBranchId, version, actor);
   },
 };

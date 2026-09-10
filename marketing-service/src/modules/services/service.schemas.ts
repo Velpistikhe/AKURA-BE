@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { ServiceType } from '@prisma/client';
 import { SERVICE_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
 
 const fields = {
+  type: z.nativeEnum(ServiceType),
   name: z.string().trim().min(1).max(200),
 };
 const scopeList = z.array(z.string().trim().min(1).max(500)).max(100)
@@ -34,6 +36,7 @@ export const createServiceScopeSchema = z.object({
   scope: z.string().trim().min(1).max(500),
 }).strict();
 export const updateServiceSchema = z.object({
+  type: fields.type.optional(),
   name: fields.name.optional(),
   hasMaintenance: z.boolean().optional(),
   isActive: z.boolean().optional(),

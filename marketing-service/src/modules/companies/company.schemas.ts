@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { CompanyType } from '@prisma/client';
 import { COMPANY_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
 
 const fields = {
   name: z.string().trim().min(1).max(200),
-  type: z.string().trim().min(1).max(100),
+  type: z.nativeEnum(CompanyType),
   address: z.string().trim().min(1).max(500),
 };
 
@@ -15,8 +16,11 @@ export const listCompaniesSchema = z.object({
 }).strict();
 export const createCompanySchema = z.object({ ...fields, hasContract: z.boolean().optional().default(false) }).strict();
 export const updateCompanySchema = z.object({
+  version: z.number().int().nonnegative(),
   name: fields.name.optional(), type: fields.type.optional(), address: fields.address.optional(), hasContract: z.boolean().optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+}).strict().refine((value) => Object.keys(value).some((key) => key !== 'version'), 'At least one editable field is required');
+
+export const deactivateCompanySchema = z.object({ version: z.number().int().nonnegative() }).strict();
 
 export type ListCompaniesInput = z.infer<typeof listCompaniesSchema>;
 export type CreateCompanyInput = z.infer<typeof createCompanySchema>;
