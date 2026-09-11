@@ -17,11 +17,9 @@ export const companyService = {
     return companyRepository.create({ ...data, normalizeName: normalized, officeBranchId }, actor);
   },
   async update(id: string, data: UpdateCompanyInput, officeBranchId: string, actor: AuditActor) {
-    return companyRepository.createVersion(id, officeBranchId, data, actor);
+    return companyRepository.update(id, officeBranchId, data, actor);
   },
   async delete(id: string, officeBranchId: string, version: number, actor: AuditActor) {
-    const current = await companyRepository.findById(id, officeBranchId);
-    if (!current) throw new HttpError('Company not found', 404);
     return companyRepository.revoke(id, officeBranchId, version, actor);
   },
 };

@@ -4,38 +4,30 @@ import { prisma } from '../../config/db.js';
 import { AddItemSizeInput, CreateItemInput, ListItemsInput, ListItemSizesInput } from './item.schemas.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
+import { itemWriteRepository } from './item-write.repository.js';
 
 const priceSelect = {
+  id: true, version: true, isActive: true, effectiveFrom: true, effectiveUntil: true,
   priceServicePrimary: true,
   priceServiceSisterCompany: true,
   priceMaintenancePrimary: true,
   priceMaintenanceSisterCompany: true,
 } satisfies Prisma.ItemPriceSelect;
 
-const flattenSizePrice = ({ price, ...itemSize }: any) => {
-  if (!price) throw new Error(`Price is missing for item size ${itemSize.id}`);
-  return { ...itemSize, ...price };
+const flattenSizePrice = ({ price, ...itemSize }: any, now = new Date()) => {
+  const available = price?.isActive && price.effectiveFrom <= now && (price.effectiveUntil == null || price.effectiveUntil > now);
+  return { ...itemSize, priceId: price?.id ?? null, priceVersion: price?.version ?? null,
+    priceServicePrimary: available ? price.priceServicePrimary : null,
+    priceServiceSisterCompany: available ? price.priceServiceSisterCompany : null,
+    priceMaintenancePrimary: available ? price.priceMaintenancePrimary : null,
+    priceMaintenanceSisterCompany: available ? price.priceMaintenanceSisterCompany : null,
+    priceStatus: available ? 'AVAILABLE' : 'UNAVAILABLE',
+  };
 };
 
 const flattenItemPrices = ({ sizes, ...item }: any) => ({
   ...item,
-  sizes: sizes.map(flattenSizePrice),
-});
-
-const toItemSizeCreate = (size: CreateItemInput['sizes'][number] | AddItemSizeInput, actor: AuditActor) => ({
-  size: size.size,
-  createdById: actor.id,
-  createdByName: actor.name,
-  price: {
-    create: {
-      priceServicePrimary: size.priceServicePrimary,
-      priceServiceSisterCompany: size.priceServiceSisterCompany,
-      priceMaintenancePrimary: size.priceMaintenancePrimary,
-      priceMaintenanceSisterCompany: size.priceMaintenanceSisterCompany,
-      createdById: actor.id,
-      createdByName: actor.name,
-    },
-  },
+  sizes: sizes.map((size: any) => flattenSizePrice(size)),
 });
 
 export const itemRepository = {
@@ -88,134 +80,75 @@ export const itemRepository = {
         },
       },
     }),
-  async listSizes(input: ListItemSizesInput, officeBranchId: string) {
+  async listSizes(input: ListItemSizesInput, officeBranchId: string, companyId?: string, resolvePrices = false) {
+    return prisma.$transaction(async tx => {
+    const now = new Date();
+    const company = companyId ? await tx.company.findFirst({ where: { id: companyId, officeBranchId, revoked: false } }) : null;
+    if (companyId && !company) throw new HttpError('Company not found', 404);
+    const activeContracts = companyId ? await tx.companyContract.findMany({ where: {
+      companyId, isActive: true, status: 'ACTIVE', effectiveFrom: { lte: now }, OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+    }, orderBy: { effectiveFrom: 'desc' }, take: 2 }) : [];
+    if (activeContracts.length > 1) throw new HttpError('Multiple current contracts found; resolve overlapping contract periods', 409);
+    const contractWhere: Prisma.CompanyContractPriceWhereInput = {
+      contractId: { in: activeContracts.map(contract => contract.id) }, isActive: true,
+      effectiveFrom: { lte: now },
+      OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+    };
     const result = await findAll<any, NonNullable<ListItemSizesInput['sortBy']>, ListItemSizesInput, Prisma.ItemSizeWhereInput, Prisma.ItemSizeOrderByWithRelationInput>(
       input,
       {
         baseWhere: {
-          itemId: input.itemId,
+          ...(companyId && !resolvePrices ? { contractPrices: { some: contractWhere } } : {}),
           isActive: true,
           item: { officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
         },
         filters: {
+          itemId: (value: string) => ({ itemId: value }),
+          notIn: (value: string[]) => ({ id: { notIn: value } }),
           size: (value: string) => ({ size: { contains: value, mode: 'insensitive' } }),
+          itemName: (value: string) => ({ item: { name: { contains: value, mode: 'insensitive' } } }),
+          serviceName: (value: string) => ({ item: { service: { name: { contains: value, mode: 'insensitive' } } } }),
         },
         defaultSort: { createdAt: 'desc' },
         sorts: defineSortRules<NonNullable<ListItemSizesInput['sortBy']>, Prisma.ItemSizeOrderByWithRelationInput>({
           size: (direction) => ({ size: direction }),
         }),
       },
-      (query) => prisma.itemSize.findMany({ ...query, include: { price: { select: priceSelect } } }),
-      (where) => prisma.itemSize.count({ where }),
+      (query) => tx.itemSize.findMany({
+        ...query,
+        orderBy: [query.orderBy, { id: 'asc' }],
+        include: {
+          price: { select: priceSelect },
+          ...(companyId ? { contractPrices: { where: contractWhere, include: { contract: true } } } : {}),
+          item: { include: { service: { select: { id: true, name: true, type: true, hasMaintenance: true } } } },
+        },
+      }),
+      (where) => tx.itemSize.count({ where }),
     );
-    return { sizes: result.items.map(flattenSizePrice), pagination: result.pagination };
-  },
-  create: (data: CreateItemInput, officeBranchId: string, actor: AuditActor) =>
-    prisma.item.create({
-      data: {
-        officeBranchId,
-        serviceId: data.serviceId,
-        name: data.name,
-        createdById: actor.id,
-        createdByName: actor.name,
-        sizes: { create: data.sizes.map((size) => toItemSizeCreate(size, actor)) },
-      },
-      include: { sizes: { include: { price: { select: priceSelect } } } },
-    }).then(flattenItemPrices),
-  async addSize(data: AddItemSizeInput, officeBranchId: string, actor: AuditActor) {
-    try {
-      return await prisma.$transaction(async (transaction) => {
-        await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'item:' + data.itemId}))`;
-        const item = await transaction.item.findFirst({
-          where: { id: data.itemId, officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
-          select: { id: true },
-        });
-        if (!item) throw new HttpError('Item not found', 404);
-        const duplicate = await transaction.itemSize.findFirst({
-          where: { itemId: data.itemId, size: data.size, isActive: true },
-          select: { id: true },
-        });
-        if (duplicate) throw new HttpError('Item size already exists', 409);
-        const created = await transaction.itemSize.create({
-          data: { itemId: data.itemId, ...toItemSizeCreate(data, actor) },
-          include: { price: { select: priceSelect } },
-        });
-        await transaction.item.update({
-          where: { id: data.itemId, officeBranchId },
-          data: { updatedById: actor.id, updatedByName: actor.name },
-        });
-        return flattenSizePrice(created);
-      });
-    } catch (error) {
-      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
-        throw new HttpError('Item size already exists', 409);
-      }
-      throw error;
+    const sizes = result.items.map(row => flattenSizePrice(row, now));
+    if (resolvePrices && company) {
+      return { company: { id: company.id, isSisterCompany: company.isSisterCompany },
+        sizes: sizes.map(({ contractPrices, ...size }) => {
+          const source = activeContracts.length ? 'CONTRACT' : company.isSisterCompany ? 'SISTER_COMPANY' : 'PRIMARY';
+          const contractPrice = contractPrices?.[0] ?? null;
+          const priceService = source === 'CONTRACT' ? contractPrice?.priceService ?? null : source === 'SISTER_COMPANY' ? size.priceServiceSisterCompany : size.priceServicePrimary;
+          const priceMaintenance = source === 'CONTRACT' ? contractPrice?.priceMaintenance ?? null : source === 'SISTER_COMPANY' ? size.priceMaintenanceSisterCompany : size.priceMaintenancePrimary;
+          const missing = priceService == null || (size.item.service.hasMaintenance && priceMaintenance == null);
+          return { ...size, contractPrice, contractId: activeContracts[0]?.id ?? null,
+            priceSource: source, priceStatus: missing ? 'UNAVAILABLE' : 'AVAILABLE',
+            priceMessage: missing ? (source === 'CONTRACT' ? 'Current contract price is missing or incomplete for this size' : 'Standard price is missing, inactive or incomplete for this size') : null,
+            priceService, priceMaintenance,
+          };
+        }), pagination: result.pagination };
     }
+    return {
+      sizes: companyId ? sizes.map(({ contractPrices, ...size }) => ({ ...size, contractPrice: contractPrices[0] })) : sizes,
+      pagination: result.pagination,
+    };
+    }, { isolationLevel: 'RepeatableRead' });
   },
-  async removeSize(id: string, officeBranchId: string, actor: AuditActor) {
-    return prisma.$transaction(async (transaction) => {
-      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'item-size:' + id}))`;
-      const size = await transaction.itemSize.findFirst({
-        where: { id, item: { officeBranchId, isActive: true } },
-        select: { id: true, itemId: true, isActive: true },
-      });
-      if (!size) throw new HttpError('Item size not found', 404);
-      if (!size.isActive) throw new HttpError('Item size is already inactive', 409);
-
-      const changedAt = new Date();
-      const inactivePriceData = {
-        isActive: false,
-        effectiveUntil: changedAt,
-        updatedById: actor.id,
-        updatedByName: actor.name,
-      };
-      await transaction.itemPrice.updateMany({
-        where: { itemSizeId: id, isActive: true },
-        data: inactivePriceData,
-      });
-      await transaction.companyContractPrice.updateMany({
-        where: { itemSizeId: id, isActive: true },
-        data: inactivePriceData,
-      });
-      const removed = await transaction.itemSize.update({
-        where: { id },
-        data: { isActive: false, updatedById: actor.id, updatedByName: actor.name },
-        include: { price: { select: priceSelect } },
-      });
-      await transaction.item.update({
-        where: { id: size.itemId, officeBranchId },
-        data: { updatedById: actor.id, updatedByName: actor.name },
-      });
-      return flattenSizePrice(removed);
-    });
-  },
-  async remove(id: string, officeBranchId: string, actor: AuditActor) {
-    return prisma.$transaction(async (transaction) => {
-      const changedAt = new Date();
-      const inactivePriceData = {
-        isActive: false,
-        effectiveUntil: changedAt,
-        updatedById: actor.id,
-        updatedByName: actor.name,
-      };
-      await transaction.itemPrice.updateMany({
-        where: { itemSize: { itemId: id, isActive: true, item: { officeBranchId } }, isActive: true },
-        data: inactivePriceData,
-      });
-      await transaction.companyContractPrice.updateMany({
-        where: { itemSize: { itemId: id, isActive: true, item: { officeBranchId } }, isActive: true },
-        data: inactivePriceData,
-      });
-      await transaction.itemSize.updateMany({
-        where: { itemId: id, item: { officeBranchId } },
-        data: { isActive: false, updatedById: actor.id, updatedByName: actor.name },
-      });
-      return transaction.item.update({
-        where: { id, officeBranchId },
-        data: { isActive: false, updatedById: actor.id, updatedByName: actor.name },
-        include: { sizes: { include: { price: { select: priceSelect } } } },
-      });
-    }).then(flattenItemPrices);
-  },
+  create: (data: CreateItemInput, branch: string, actor: AuditActor) => itemWriteRepository.create(data, branch, actor).then(flattenItemPrices),
+  addSize: (data: AddItemSizeInput, branch: string, actor: AuditActor) => itemWriteRepository.addSize(data, branch, actor).then(flattenSizePrice),
+  removeSize: (id: string, branch: string, actor: AuditActor, version: number) => itemWriteRepository.removeSize(id, branch, actor, version).then(flattenSizePrice),
+  remove: (id: string, branch: string, actor: AuditActor, version: number) => itemWriteRepository.remove(id, branch, actor, version).then(flattenItemPrices),
 };

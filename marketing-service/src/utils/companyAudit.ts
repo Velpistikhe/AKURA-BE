@@ -13,14 +13,18 @@ export const requireCurrentVersion = (row: { version: number; revoked: boolean }
   }
 };
 
-export const recordCompanyAudit = (
-  tx: Prisma.TransactionClient, officeBranchId: string, entityType: 'COMPANY' | 'COMPANY_STAFF',
-  entityId: string, action: 'CREATE' | 'UPDATE' | 'DEACTIVATE' | 'COPY',
-  before: unknown, after: unknown, actor: AuditActor,
-) => tx.companyAuditLog.create({
-  data: {
-    officeBranchId, entityType, entityId, action, createdById: actor.id,
-    before: before == null ? Prisma.DbNull : JSON.parse(JSON.stringify(before)),
-    after: JSON.parse(JSON.stringify(after)),
-  },
-});
+export const saveCompanyStaffHistory = async (
+  tx: Prisma.TransactionClient, companyStaffId: string, actor: AuditActor,
+  action: 'CREATE' | 'UPDATE' | 'DEACTIVATE',
+) => {
+  const staff = await tx.companyStaff.findUniqueOrThrow({
+    where: { id: companyStaffId },
+    include: {
+      company: { select: { id: true, name: true, type: true, version: true } },
+    },
+  });
+  await tx.companyStaffHistory.create({ data: {
+    companyStaffId, version: staff.version, action,
+    snapshot: JSON.parse(JSON.stringify(staff)), createdById: actor.id, createdByName: actor.name,
+  } });
+};

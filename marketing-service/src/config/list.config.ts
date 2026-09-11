@@ -10,10 +10,10 @@ const pagination = {
 const booleanFilter = z.enum(['true', 'false']).transform((value) => value === 'true').optional();
 
 export const COMPANY_LIST_CONFIG = {
-  sortFields: ['name', 'type', 'address', 'hasContract', 'version', 'updatedAt'],
+  sortFields: ['name', 'type', 'address', 'isSisterCompany', 'version', 'updatedAt'],
   filterFields: {
     search: z.string().trim().min(1).max(100).optional(),
-    hasContract: booleanFilter,
+    isSisterCompany: booleanFilter,
   },
   pagination,
 } as const;
@@ -40,7 +40,11 @@ export const ITEM_LIST_CONFIG = {
 export const ITEM_SIZE_LIST_CONFIG = {
   sortFields: ['size'],
   filterFields: {
+    notIn: z.string().transform((value) => value.split(',').map((id) => id.trim()))
+      .pipe(z.array(z.string().uuid()).min(1).max(100)).optional(),
     size: z.string().trim().min(1).max(100).optional(),
+    itemName: z.string().trim().min(1).max(200).optional(),
+    serviceName: z.string().trim().min(1).max(200).optional(),
   },
   pagination,
 } as const;

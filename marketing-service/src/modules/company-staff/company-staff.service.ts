@@ -10,6 +10,7 @@ const ensureCompany = async (companyId: string, officeBranchId: string): Promise
 };
 
 export const companyStaffService = {
+  history: (id: string, officeBranchId: string, input: { page: number; limit: number }) => companyStaffRepository.history(id, officeBranchId, input),
   list: (input: ListCompanyStaffInput, officeBranchId: string) => companyStaffRepository.list(input, officeBranchId),
   async get(id: string, officeBranchId: string) {
     const staff = await companyStaffRepository.findById(id, officeBranchId);
@@ -23,7 +24,6 @@ export const companyStaffService = {
     return companyStaffRepository.create({ ...data, normalizeName: normalized }, officeBranchId, actor);
   },
   async update(id: string, data: UpdateCompanyStaffInput, officeBranchId: string, actor: AuditActor) {
-    if (data.companyId) await ensureCompany(data.companyId, officeBranchId);
     const normalized = data.name ? normalizeName(data.name) : undefined;
     if (normalized && await companyStaffRepository.findByNormalizeName(normalized, officeBranchId, id)) throw new HttpError('Company staff name already exists', 409);
     return companyStaffRepository.update(id, officeBranchId, { ...data, ...(normalized && { normalizeName: normalized }) }, actor);

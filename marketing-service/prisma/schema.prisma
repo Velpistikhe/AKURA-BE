@@ -29,15 +29,17 @@ model Company {
   officeBranchId String                 @map("office_branch_id") @db.Uuid
   name           String
   normalizeName  String                 @map("normalize_name")
+  npwp           String
   type           CompanyType
   address        String
-  hasContract    Boolean                @default(false) @map("has_contract")
+  isSisterCompany Boolean               @default(false) @map("is_sister_company")
   revoked        Boolean                @default(false)
   version        Int                    @default(0)
   createdAt      DateTime               @default(now()) @map("created_at")
   updatedAt      DateTime               @updatedAt @map("updated_at")
   staffs         CompanyStaff[]
-  contractPrices CompanyContractPrice[]
+  contracts      CompanyContract[]
+  history        CompanyHistory[]
 
   createdById String? @map("created_by_id") @db.Uuid
   updatedById String? @map("updated_by_id") @db.Uuid
@@ -47,7 +49,23 @@ model Company {
   @@map("companies")
 }
 
+model CompanyHistory {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  version     Int
+  action      String
+  snapshot    Json
+  createdById String   @map("created_by_id") @db.Uuid
+  createdByName String @map("created_by_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, version])
+  @@map("company_histories")
+}
+
 model CompanyStaff {
+  history       CompanyStaffHistory[]
   quotations    Quotation[]
   id            String     @id @default(uuid()) @db.Uuid
   companyId     String     @map("company_id") @db.Uuid
@@ -69,19 +87,19 @@ model CompanyStaff {
   @@map("company_staffs")
 }
 
-model CompanyAuditLog {
-  id             String   @id @default(uuid()) @db.Uuid
-  officeBranchId String   @map("office_branch_id") @db.Uuid
-  entityType     String   @map("entity_type")
-  entityId       String   @map("entity_id") @db.Uuid
+model CompanyStaffHistory {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyStaffId String       @map("company_staff_id") @db.Uuid
+  companyStaff   CompanyStaff @relation(fields: [companyStaffId], references: [id], onDelete: Restrict)
+  version        Int
   action         String
-  before         Json?
-  after          Json
-  createdById    String   @map("created_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
+  snapshot       Json
+  createdById    String       @map("created_by_id") @db.Uuid
+  createdByName  String       @map("created_by_name")
+  createdAt      DateTime     @default(now()) @map("created_at")
 
-  @@index([officeBranchId, entityType, entityId, createdAt])
-  @@map("company_audit_logs")
+  @@unique([companyStaffId, version])
+  @@map("company_staff_histories")
 }
 
 enum ServiceType {
@@ -139,6 +157,7 @@ model MaintenanceScope {
 }
 
 model Item {
+  version        Int        @default(0)
   id             String     @id @default(uuid()) @db.Uuid
   officeBranchId String     @map("office_branch_id") @db.Uuid
   name           String
@@ -158,13 +177,13 @@ model Item {
 }
 
 model ItemSize {
+  version        Int                    @default(0)
   quotationItems QuotationItem[]
   id             String                 @id @default(uuid()) @db.Uuid
   itemId         String                 @map("item_id") @db.Uuid
   item           Item                   @relation(fields: [itemId], references: [id], onDelete: Cascade)
   size           String
   isActive       Boolean                @default(true) @map("is_active")
-  version        Int                    @default(1)
   createdById    String                 @map("created_by_id") @db.Uuid
   createdByName  String                 @map("created_by_name")
   updatedById    String?                @map("updated_by_id") @db.Uuid
@@ -174,18 +193,22 @@ model ItemSize {
   price          ItemPrice?
   contractPrices CompanyContractPrice[]
 
-  /// Active-only uniqueness is enforced by prisma/constraints.sql during db:push.
+  effectiveFrom  DateTime               @default(now()) @map("effective_from")
+  effectiveUntil DateTime?              @map("effective_until")
+
+  @@unique([itemId, size, effectiveFrom])
   @@index([itemId])
   @@index([isActive])
   @@map("item_sizes")
 }
 
 model ItemPrice {
+  version                      Int       @default(0)
   id                            String    @id @default(uuid()) @db.Uuid
   itemSizeId                    String    @unique @map("item_size_id") @db.Uuid
   itemSize                      ItemSize  @relation(fields: [itemSizeId], references: [id], onDelete: Cascade)
-  priceServicePrimary           Decimal   @default(0) @map("price_service_primary") @db.Decimal(18, 2)
-  priceServiceSisterCompany     Decimal   @default(0) @map("price_service_sister_company") @db.Decimal(18, 2)
+  priceServicePrimary           Decimal   @map("price_service_primary") @db.Decimal(18, 2)
+  priceServiceSisterCompany     Decimal   @map("price_service_sister_company") @db.Decimal(18, 2)
   priceMaintenancePrimary       Decimal?  @map("price_maintenance_primary") @db.Decimal(18, 2)
   priceMaintenanceSisterCompany Decimal?  @map("price_maintenance_sister_company") @db.Decimal(18, 2)
   effectiveFrom                 DateTime  @default(now()) @map("effective_from")
@@ -203,13 +226,44 @@ model ItemPrice {
   @@map("item_prices")
 }
 
+enum CompanyContractStatus {
+  CREATE
+  ACTIVE
+  EXPIRED
+  TERMINATED
+
+  @@map("company_contract_status")
+}
+
+model CompanyContract {
+  status         CompanyContractStatus @default(CREATE)
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  effectiveFrom  DateTime @map("effective_from")
+  effectiveUntil DateTime? @map("effective_until")
+  isActive       Boolean  @default(true) @map("is_active")
+  version        Int      @default(0)
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdByName  String   @map("created_by_name")
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+  updatedByName  String?  @map("updated_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  prices         CompanyContractPrice[]
+
+  @@index([companyId, isActive, effectiveFrom, effectiveUntil])
+  @@map("company_contracts")
+}
+
 model CompanyContractPrice {
+  version          Int       @default(0)
   id               String    @id @default(uuid()) @db.Uuid
-  companyId        String    @map("company_id") @db.Uuid
-  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractId       String    @map("contract_id") @db.Uuid
+  contract         CompanyContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
   itemSizeId       String    @map("item_size_id") @db.Uuid
   itemSize         ItemSize  @relation(fields: [itemSizeId], references: [id], onDelete: Cascade)
-  priceService     Decimal   @default(0) @map("price_service") @db.Decimal(18, 2)
+  priceService     Decimal   @map("price_service") @db.Decimal(18, 2)
   priceMaintenance Decimal?  @map("price_maintenance") @db.Decimal(18, 2)
   effectiveFrom    DateTime  @default(now()) @map("effective_from")
   effectiveUntil   DateTime? @map("effective_until")
@@ -221,20 +275,84 @@ model CompanyContractPrice {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  @@unique([companyId, itemSizeId])
-  @@index([companyId])
+  @@unique([contractId, itemSizeId])
+  @@index([contractId])
   @@index([itemSizeId])
   @@index([isActive])
   @@index([effectiveFrom, effectiveUntil])
   @@map("company_contract_prices")
 }
 
+model CatalogAuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  officeBranchId String   @map("office_branch_id") @db.Uuid
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id") @db.Uuid
+  version        Int
+  action         String
+  before         Json?
+  after          Json
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdByName  String   @map("created_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([entityType, entityId, version])
+  @@index([officeBranchId, entityType, entityId, createdAt])
+  @@map("catalog_audit_logs")
+}
+
+enum InquiryMethod {
+  EMAIL
+  WHATSAPP
+  VERBAL
+  JOB_ORDER_REQUEST
+
+  @@map("inquiry_method")
+}
+
+enum QuotationStatus {
+  CREATED
+  SENT
+  REJECTED
+  APPROVED
+  REVISED
+  CONFIRMED
+  ON_PROGRESS
+  WORK_ORDER_COMPLETE
+  COMPLETE
+
+  @@map("quotation_status")
+}
+
+enum InvoiceStatus {
+  CREATED
+  SEND
+  APPROVED
+  COMPLETE
+  CANCELED
+  EXPIRED
+
+  @@map("invoice_status")
+}
+
+model QuotationSequence {
+  officeBranchId String   @map("office_branch_id") @db.Uuid
+  year           Int
+  lastNumber     Int      @default(0) @map("last_number")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@id([officeBranchId, year])
+  @@map("quotation_sequences")
+}
+
 model Quotation {
   id             String   @id @default(uuid()) @db.Uuid
   officeBranchId String   @map("office_branch_id") @db.Uuid
-  no             Int?
+  no             Int
+  numberYear     Int      @map("number_year")
   date           DateTime? @db.Date
-  inquiryMethod  Int      @map("inquiry_method")
+  inquiryMethod  InquiryMethod @map("inquiry_method")
   inquiryDate    DateTime @map("inquiry_date") @db.Date
   subject        String   @db.VarChar(255)
   termOfPayment  String   @map("term_of_payment") @db.VarChar(255)
@@ -247,17 +365,18 @@ model Quotation {
   deliveryReports String  @map("delivery_reports") @db.VarChar(255)
   staffId        String   @map("staff_id") @db.Uuid
   staff          CompanyStaff @relation(fields: [staffId], references: [id], onDelete: Restrict)
-  /// Customer and contact snapshot, independent of later company/staff edits.
-  customerSnapshot Json   @map("customer_snapshot")
-  /// Assigned user in Auth Service; no cross-database foreign key.
-  userId         String   @map("user_id") @db.Uuid
-  status         Int      @default(1)
-  invoiceStatus  Int      @default(1) @map("invoice_status")
+  /// Company staff name captured independently of later staff edits.
+  customerSnapshot String @map("customer_snapshot")
+  companySnapshot Json @map("company_snapshot")
+  status         QuotationStatus @default(CREATED)
+  invoiceStatus  InvoiceStatus? @map("invoice_status")
   subTotal       Decimal  @default(0) @map("sub_total") @db.Decimal(18, 2)
   taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
   total          Decimal  @default(0) @db.Decimal(18, 2)
   /// Concurrency token for the entire quotation, including all item mutations.
   version        Int      @default(0)
+  /// Document revision count; status-only changes and soft deletion do not increment it.
+  revision       Int      @default(0)
   isActive       Boolean  @default(true) @map("is_active")
   createdById    String   @map("created_by_id") @db.Uuid
   updatedById    String?  @map("updated_by_id") @db.Uuid
@@ -266,10 +385,9 @@ model Quotation {
   items          QuotationItem[]
   history        QuotationHistory[]
 
-  @@unique([officeBranchId, no])
+  @@unique([officeBranchId, numberYear, no])
   @@index([officeBranchId, isActive, createdAt])
   @@index([staffId])
-  @@index([userId])
   @@map("quotations")
 }
 

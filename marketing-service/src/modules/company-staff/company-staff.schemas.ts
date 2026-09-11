@@ -4,6 +4,10 @@ import { COMPANY_STAFF_LIST_CONFIG } from '../../config/list.config.js';
 import { createListQueryFields } from '../../utils/listQuery.js';
 
 export const companyStaffIdSchema = z.object({ companyStaffId: z.string().uuid() });
+export const companyStaffHistorySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+}).strict();
 export const listCompanyStaffSchema = z.object({
   ...createListQueryFields(COMPANY_STAFF_LIST_CONFIG),
   ...COMPANY_STAFF_LIST_CONFIG.filterFields,
@@ -17,7 +21,6 @@ export const createCompanyStaffSchema = z.object({
 }).strict();
 export const updateCompanyStaffSchema = z.object({
   version: z.number().int().nonnegative(),
-  companyId: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(200).optional(),
   title: z.nativeEnum(StaffTitle).optional(),
   telp: z.string().trim().min(1).max(30).nullable().optional(),

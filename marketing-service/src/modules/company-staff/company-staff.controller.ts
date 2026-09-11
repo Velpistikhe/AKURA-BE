@@ -7,6 +7,7 @@ const send = (req: Request, res: Response, status: number, message: string, data
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
 };
 export const companyStaffController = {
+  async history(req: Request, res: Response) { send(req, res, 200, 'Company staff history retrieved successfully', await companyStaffService.history(res.locals.params.companyStaffId, getOfficeBranchId(res), res.locals.query)); },
   async list(req: Request, res: Response) { send(req, res, 200, 'Company staff retrieved successfully', await companyStaffService.list(res.locals.query as ListCompanyStaffInput, getOfficeBranchId(res))); },
   async get(req: Request, res: Response) { send(req, res, 200, 'Company staff retrieved successfully', await companyStaffService.get((res.locals.params as { companyStaffId: string }).companyStaffId, getOfficeBranchId(res))); },
   async create(req: Request, res: Response) { send(req, res, 201, 'Company staff created successfully', await companyStaffService.create(res.locals.body as CreateCompanyStaffInput, getOfficeBranchId(res), getAuditActor(res))); },

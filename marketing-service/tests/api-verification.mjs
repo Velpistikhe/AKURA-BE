@@ -108,7 +108,7 @@ try {
       officeBranchId: foreignOfficeBranchId,
       name: `Foreign Company ${runId}`,
       normalizeName: `foreigncompany${runId}`,
-      type: 'PT',
+      type: 'PT', npwp: '0012345678901234',
       address: 'Surabaya',
     },
   });
@@ -138,7 +138,7 @@ try {
 
   const company = check('POST companies', await request('/api/v1/marketing/companies', {
     method: 'POST', cookies: login.cookies,
-    json: { name: companyName, type: 'PT', address: 'Jakarta', hasContract: false },
+    json: { name: companyName, type: 'PT', npwp: '0012345678901234', address: 'Jakarta', isSisterCompany: false },
   }), [201], (body) => body?.data?.normalizeName === companyNormalizeNames[0]
     && body?.data?.officeBranchId === officeBranchId && body?.data?.version === 0);
   companyId = company.body.data.id;
@@ -155,7 +155,7 @@ try {
   }, [200]);
   check('POST duplicate normalized company', await request('/api/v1/marketing/companies', {
     method: 'POST', cookies: login.cookies,
-    json: { name: companyName.toUpperCase().replaceAll(' ', '   '), type: 'PT', address: 'Bandung' },
+    json: { name: companyName.toUpperCase().replaceAll(' ', '   '), type: 'PT', npwp: '0012345678901234', address: 'Bandung' },
   }), [409]);
   check('GET companies', await request(`/api/v1/marketing/companies?search=${encodeURIComponent(companyName)}`, { cookies: login.cookies }), [200], (body) => body?.data?.companies?.some((item) => item.id === companyId));
   check('GET company detail', await request(`/api/v1/marketing/companies/${companyId}`, { cookies: login.cookies }), [200]);
@@ -182,15 +182,15 @@ try {
   const previousStaffId = companyStaffId;
   const companyVersion = check('PATCH company creates new version', await request(`/api/v1/marketing/companies/${companyId}`, {
     method: 'PATCH', cookies: login.cookies,
-    json: { version: company.body.data.version, name: updatedCompanyName, hasContract: true },
-  }), [200], (body) => body?.data?.id !== previousCompanyId && body?.data?.version === 1 && body?.data?.hasContract === true);
+    json: { version: company.body.data.version, name: updatedCompanyName, isSisterCompany: true },
+  }), [200], (body) => body?.data?.id === previousCompanyId && body?.data?.version === 1 && body?.data?.isSisterCompany === true);
   companyId = companyVersion.body.data.id;
-  check('Previous company version is revoked', await request(`/api/v1/marketing/companies/${previousCompanyId}`, { cookies: login.cookies }), [404]);
-  const copiedStaffs = check('Company staff copied to new company version', await request(`/api/v1/marketing/company-staffs?companyId=${companyId}`, {
+  check('Company ID remains readable', await request(`/api/v1/marketing/companies/${previousCompanyId}`, { cookies: login.cookies }), [200]);
+  const copiedStaffs = check('Company staff retains ID and version', await request(`/api/v1/marketing/company-staffs?companyId=${companyId}`, {
     cookies: login.cookies,
   }), [200], (body) => body?.data?.staffs?.length === 1
-    && body.data.staffs[0].id !== previousStaffId
-    && body.data.staffs[0].version === 0
+    && body.data.staffs[0].id === previousStaffId
+    && body.data.staffs[0].version === staff.body.data.version + 1
     && body.data.staffs[0].telp === '+628987654321');
   companyStaffId = copiedStaffs.body.data.staffs[0].id;
 
@@ -332,9 +332,14 @@ try {
     || createdItemSize.price.effectiveUntil !== null) {
     throw new Error('POST item did not persist prices in item_prices');
   }
+  const contract = await marketingPrisma.companyContract.create({ data: {
+    status: 'ACTIVE',
+    companyId, effectiveFrom: new Date(), effectiveUntil: null,
+    createdById: tokenPayload.sub, createdByName: 'Marketing API Test',
+  } });
   const contractPrice = await marketingPrisma.companyContractPrice.create({
     data: {
-      companyId,
+      contractId: contract.id,
       itemSizeId: createdItemSize.id,
       priceService: 80,
       priceMaintenance: 35,
@@ -370,9 +375,9 @@ try {
   }), [200], (body) => body?.data?.sizes?.length === 1
     && body.data.sizes[0].id === createdItemSize.id
     && body?.data?.pagination?.total === 1);
-  check('GET item sizes requires itemId', await request('/api/v1/marketing/items/sizes', {
+  check('GET item sizes accepts optional itemId', await request('/api/v1/marketing/items/sizes', {
     cookies: login.cookies,
-  }), [400]);
+  }), [200]);
   check('POST item size validates required primary price', await request('/api/v1/marketing/items/sizes', {
     method: 'POST', cookies: login.cookies,
     json: { itemId, size: `Invalid Size ${runId}` },
@@ -382,7 +387,8 @@ try {
     json: {
       itemId,
       size: `Added Size ${runId}`,
-      priceServicePrimary: 110,
+      itemVersion: (await marketingPrisma.item.findUniqueOrThrow({ where: { id: itemId } })).version,
+      priceServicePrimary: 110, priceServiceSisterCompany: 0, priceMaintenancePrimary: 50, priceMaintenanceSisterCompany: 40,
     },
   }), [201], (body) => body?.data?.itemId === itemId
     && body?.data?.size === `Added Size ${runId}`
@@ -397,17 +403,17 @@ try {
   if (!addedItemSize?.price
     || Number(addedItemSize.price.priceServicePrimary) !== 110
     || Number(addedItemSize.price.priceServiceSisterCompany) !== 0
-    || addedItemSize.price.priceMaintenancePrimary !== null
+    || Number(addedItemSize.price.priceMaintenancePrimary) !== 50
     || addedItemSize.createdById !== tokenPayload.sub
     || addedItemSize.updatedById !== null) {
     throw new Error('POST item size did not persist ItemSize and ItemPrice atomically');
   }
   check('POST duplicate item size returns conflict', await request('/api/v1/marketing/items/sizes', {
     method: 'POST', cookies: login.cookies,
-    json: { itemId, size: `Added Size ${runId}`, priceServicePrimary: 120 },
+    json: { itemId, itemVersion: addedSize.body.data.itemVersion, size: `Added Size ${runId}`, priceServicePrimary: 120, priceServiceSisterCompany: 0, priceMaintenancePrimary: 50, priceMaintenanceSisterCompany: 40 },
   }), [409]);
   check('DELETE one item size', await request(`/api/v1/marketing/items/sizes/${addedItemSize.id}`, {
-    method: 'DELETE', cookies: login.cookies,
+    method: 'DELETE', cookies: login.cookies, json: { version: addedItemSize.version },
   }), [200], (body) => body?.data?.id === addedItemSize.id
     && body?.data?.isActive === false
     && body?.data?.updatedById === tokenPayload.sub
@@ -425,17 +431,17 @@ try {
     throw new Error('DELETE one item size changed its parent or did not close its price');
   }
   check('DELETE inactive item size returns conflict', await request(`/api/v1/marketing/items/sizes/${addedItemSize.id}`, {
-    method: 'DELETE', cookies: login.cookies,
+    method: 'DELETE', cookies: login.cookies, json: { version: addedItemSize.version },
   }), [409]);
   check('GET item sizes excludes inactive size', await request(`/api/v1/marketing/items/sizes?itemId=${itemId}`, {
     cookies: login.cookies,
   }), [200], (body) => body?.data?.sizes?.length === 1
     && body.data.sizes[0].id === createdItemSize.id);
-  check('Removed PATCH item route returns not found', await request(`/api/v1/marketing/items/${itemId}`, {
+  check('PATCH item requires version', await request(`/api/v1/marketing/items/${itemId}`, {
     method: 'PATCH', cookies: login.cookies, json: { name: 'Not allowed' },
-  }), [404]);
+  }), [400]);
   check('DELETE item', await request(`/api/v1/marketing/items/${itemId}`, {
-    method: 'DELETE', cookies: login.cookies,
+    method: 'DELETE', cookies: login.cookies, json: { version: (await marketingPrisma.item.findUniqueOrThrow({ where: { id: itemId } })).version },
   }), [200], (body) => body?.data?.isActive === false
     && body?.data?.updatedById === tokenPayload.sub
     && body?.data?.updatedByName === 'Marketing API Test');
@@ -455,7 +461,7 @@ try {
   }), [200], (body) => !body?.data?.items?.some((row) => row.id === itemId));
   itemId = undefined;
   check('DELETE missing item returns not found', await request(`/api/v1/marketing/items/${randomUUID()}`, {
-    method: 'DELETE', cookies: login.cookies,
+    method: 'DELETE', cookies: login.cookies, json: { version: 0 },
   }), [404]);
 
   await runLoad('Concurrent service detail stress test', stressTotal, stressConcurrency,
@@ -468,7 +474,7 @@ try {
   check('DELETE company staff', await request(`/api/v1/marketing/company-staffs/${companyStaffId}`, {
     method: 'DELETE', cookies: login.cookies, json: { version: copiedStaffs.body.data.staffs[0].version },
   }), [200],
-    (body) => body?.data?.revoked === true && body?.data?.version === 1);
+    (body) => body?.data?.revoked === true && body?.data?.version === copiedStaffs.body.data.staffs[0].version + 1);
   companyStaffId = undefined;
   check('DELETE company', await request(`/api/v1/marketing/companies/${companyId}`, {
     method: 'DELETE', cookies: login.cookies, json: { version: companyVersion.body.data.version },
@@ -483,6 +489,7 @@ try {
   if (serviceId) await marketingPrisma.service.deleteMany({ where: { id: serviceId } }).catch(() => undefined);
   if (foreignServiceId) await marketingPrisma.service.deleteMany({ where: { id: foreignServiceId } }).catch(() => undefined);
   if (foreignCompanyId) await marketingPrisma.company.deleteMany({ where: { id: foreignCompanyId } }).catch(() => undefined);
+  await marketingPrisma.companyHistory.deleteMany({ where: { company: { normalizeName: { in: companyNormalizeNames } } } }).catch(() => undefined);
   await marketingPrisma.company.deleteMany({ where: { normalizeName: { in: companyNormalizeNames } } }).catch(() => undefined);
   await authPrisma.user.deleteMany({ where: { normalizeUsername: username.toLowerCase() } }).catch(() => undefined);
   await Promise.all([marketingPrisma.$disconnect(), authPrisma.$disconnect()]);

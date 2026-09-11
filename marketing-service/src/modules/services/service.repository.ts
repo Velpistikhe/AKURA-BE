@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
+import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { defineSortRules, findAll } from '../../utils/listQuery.js';
 import { CreateServiceInput, ListServicesInput, UpdateServiceInput } from './service.schemas.js';
 
@@ -88,6 +89,7 @@ export const serviceRepository = {
     select: detailSelect,
   }),
   update: (id: string, officeBranchId: string, data: UpdateServiceInput) => prisma.$transaction(async (tx) => {
+    await lockCompanyBranch(tx, officeBranchId);
     const { scopes, maintenanceScopes, ...serviceData } = data;
     await tx.service.update({ where: { id, officeBranchId }, data: serviceData });
 
@@ -118,7 +120,10 @@ export const serviceRepository = {
     return tx.service.findFirstOrThrow({ where: { id, officeBranchId }, select: detailSelect });
   }),
   async deactivate(id: string, officeBranchId: string) {
-    return prisma.service.update({ where: { id, officeBranchId }, data: { isActive: false }, select: detailSelect });
+    return prisma.$transaction(async tx => {
+      await lockCompanyBranch(tx, officeBranchId);
+      return tx.service.update({ where: { id, officeBranchId }, data: { isActive: false }, select: detailSelect });
+    });
   },
   findScopeByName: (serviceId: string, scope: string, officeBranchId: string) => prisma.serviceScope.findFirst({
     where: { serviceId, scope, service: { officeBranchId } },

@@ -21,6 +21,7 @@ export const authenticateJwt = async (req: Request, res: Response, next: NextFun
     const decoded = await verifyAccessToken(token);
     req.headers['x-user-id'] = decoded.sub;
     if (decoded.role) req.headers['x-user-role'] = decoded.role;
+    if (decoded.name) req.headers['x-user-name'] = decoded.name;
     if (decoded.username) req.headers['x-user-username'] = decoded.username;
     if (decoded.officeBranchId) req.headers['x-office-branch-id'] = decoded.officeBranchId;
     next();

@@ -1,5 +1,5 @@
 import { AuditActor } from '../../types/auth.types.js';
-import { lockCompanyBranch, recordCompanyAudit, requireCurrentVersion } from '../../utils/companyAudit.js';
+import { lockCompanyBranch, saveCompanyStaffHistory, requireCurrentVersion } from '../../utils/companyAudit.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -14,7 +14,8 @@ const select = {
 } satisfies Prisma.CompanyStaffSelect;
 
 const isUniqueError = (error: unknown): boolean => (
-  typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+  && error.meta?.modelName === 'CompanyStaff'
 );
 
 export const companyStaffRepository = {
@@ -61,7 +62,7 @@ export const companyStaffRepository = {
       const duplicate = await tx.companyStaff.findFirst({ where: { normalizeName: data.normalizeName, revoked: false, company: { officeBranchId, revoked: false } } });
       if (duplicate) throw new HttpError('Company staff name already exists', 409);
       const created = await tx.companyStaff.create({ data: { ...data, createdById: actor.id, version: 0 }, select });
-      await recordCompanyAudit(tx, officeBranchId, 'COMPANY_STAFF', created.id, 'CREATE', null, created, actor);
+      await saveCompanyStaffHistory(tx, created.id, actor, 'CREATE');
       return created;
     });
   },
@@ -73,7 +74,7 @@ export const companyStaffRepository = {
         const current = await tx.companyStaff.findFirst({ where: { id, company: { officeBranchId } }, select });
         if (!current) throw new HttpError('Company staff not found', 404);
         requireCurrentVersion(current, data.version);
-        const parent = await tx.company.findFirst({ where: { id: data.companyId ?? current.companyId, officeBranchId, revoked: false } });
+        const parent = await tx.company.findFirst({ where: { id: current.companyId, officeBranchId, revoked: false } });
         if (!parent) throw new HttpError('Company not found or inactive', 409);
         const duplicate = await tx.companyStaff.findFirst({
           where: { id: { not: id }, normalizeName: data.normalizeName ?? current.normalizeName, revoked: false, company: { officeBranchId, revoked: false } },
@@ -84,7 +85,7 @@ export const companyStaffRepository = {
           where: { id, version, revoked: false },
           data: { ...changes, version: { increment: 1 }, updatedById: actor.id }, select,
         });
-        await recordCompanyAudit(tx, officeBranchId, 'COMPANY_STAFF', id, 'UPDATE', current, updated, actor);
+        await saveCompanyStaffHistory(tx, id, actor, 'UPDATE');
         return updated;
       });
     } catch (error) {
@@ -92,6 +93,16 @@ export const companyStaffRepository = {
       throw error;
     }
   },
+
+  history: (id: string, officeBranchId: string, input: { page: number; limit: number }) => prisma.$transaction(async tx => {
+    if (!await tx.companyStaff.findFirst({ where: { id, company: { officeBranchId } }, select: { id: true } })) {
+      throw new HttpError('Company staff not found', 404);
+    }
+    const where = { companyStaffId: id };
+    const history = await tx.companyStaffHistory.findMany({ where, orderBy: { version: 'desc' }, skip: (input.page - 1) * input.limit, take: input.limit });
+    const total = await tx.companyStaffHistory.count({ where });
+    return { companyStaffId: id, history, pagination: buildPagination(input.page, input.limit, total) };
+  }, { isolationLevel: 'RepeatableRead' }),
 
   revoke(id: string, officeBranchId: string, version: number, actor: AuditActor) {
     return prisma.$transaction(async (tx) => {
@@ -103,7 +114,7 @@ export const companyStaffRepository = {
         where: { id, version, revoked: false },
         data: { revoked: true, version: { increment: 1 }, updatedById: actor.id }, select,
       });
-      await recordCompanyAudit(tx, officeBranchId, 'COMPANY_STAFF', id, 'DEACTIVATE', current, updated, actor);
+      await saveCompanyStaffHistory(tx, id, actor, 'DEACTIVATE');
       return updated;
     });
   },

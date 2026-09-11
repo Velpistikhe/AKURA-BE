@@ -1,0 +1,18 @@
+import { Router, Request, Response } from 'express';
+import { validate } from '../../middlewares/validate.middleware.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
+import { getAuditActor, getOfficeBranchId } from '../../utils/officeBranch.js';
+import { versionSchema } from '../items/item.schemas.js';
+import { contractIdSchema, createContractSchema, listContractsSchema, updateContractSchema } from './contract.schemas.js';
+import { contractRepository as repository } from './contract.repository.js';
+import { contractExcelController, uploadContractWorkbook } from './contract-excel.controller.js';
+import { importContractExcelSchema } from './contract-excel.schemas.js';
+const router = Router();
+const send = (req: Request, res: Response, data: unknown, status = 200) => { res.status(status).json({ status, success: true, data, requestId: req.headers['x-request-id'] }); };
+router.get('/', validate('query', listContractsSchema), asyncHandler(async (req, res) => { send(req, res, await repository.list(res.locals.query, getOfficeBranchId(res))); }));
+router.post('/', validate('body', createContractSchema), asyncHandler(async (req, res) => { send(req, res, await repository.create(res.locals.body, getOfficeBranchId(res), getAuditActor(res)), 201); }));
+router.post('/:contractId/prices/import', validate('params', contractIdSchema), uploadContractWorkbook, validate('body', importContractExcelSchema), asyncHandler(contractExcelController.upload));
+router.get('/:contractId', validate('params', contractIdSchema), asyncHandler(async (req, res) => { send(req, res, await repository.get(res.locals.params.contractId, getOfficeBranchId(res))); }));
+router.patch('/:contractId', validate('params', contractIdSchema), validate('body', updateContractSchema), asyncHandler(async (req, res) => { send(req, res, await repository.update(res.locals.params.contractId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); }));
+router.delete('/:contractId', validate('params', contractIdSchema), validate('body', versionSchema), asyncHandler(async (req, res) => { send(req, res, await repository.update(res.locals.params.contractId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true)); }));
+export default router;

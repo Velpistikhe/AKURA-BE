@@ -1,4 +1,12 @@
 import { z } from 'zod';
+import { InquiryMethod, QuotationStatus, InvoiceStatus } from '@prisma/client';
+
+export const quotationIdSchema = z.object({ quotationId: z.string().uuid() }).strict();
+export const listQuotationsSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+}).strict();
+export type ListQuotationsInput = z.infer<typeof listQuotationsSchema>;
 
 const text = z.string().trim().min(1).max(255);
 const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`));
@@ -15,17 +23,16 @@ const items = z.array(item).min(1).max(100).refine((rows) => {
   return ids.length === new Set(ids).size;
 }, 'Item IDs must be unique');
 const fields = {
-  no: z.number().int().nonnegative().max(2147483647).nullable().optional(),
   date: date.nullable().optional(),
-  inquiryMethod: z.number().int().nonnegative().max(2147483647),
+  inquiryMethod: z.nativeEnum(InquiryMethod),
   inquiryDate: date,
   subject: text, termOfPayment: text, validity: text,
   tax: z.number().int().min(0).max(100),
   supplyAkura: text, supplyCustomer: text, location: text,
   accomplished: text, deliveryReports: text,
-  staffId: z.string().uuid(), userId: z.string().uuid(),
-  status: z.number().int().min(1).max(2147483647).optional(),
-  invoiceStatus: z.number().int().min(1).max(2147483647).optional(),
+  staffId: z.string().uuid(),
+  status: z.nativeEnum(QuotationStatus).optional(),
+  invoiceStatus: z.nativeEnum(InvoiceStatus).nullable().optional(),
   items,
 };
 export const createQuotationSchema = z.object(fields).strict()

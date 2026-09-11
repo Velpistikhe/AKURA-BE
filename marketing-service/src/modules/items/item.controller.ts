@@ -20,13 +20,16 @@ export const itemController = {
   listSizes: async (req: Request, res: Response): Promise<void> => {
     send(req, res, 200, await itemService.listSizes(res.locals.query, getOfficeBranchId(res)));
   },
+  listContractSizes: async (req: Request, res: Response): Promise<void> => {
+    send(req, res, 200, await itemService.listContractSizes(res.locals.query, getOfficeBranchId(res)));
+  },
   removeSize: async (req: Request, res: Response): Promise<void> => {
-    send(req, res, 200, await itemService.removeSize(res.locals.params.itemSizeId, getOfficeBranchId(res), getAuditActor(res)));
+    send(req, res, 200, await itemService.removeSize(res.locals.params.itemSizeId, getOfficeBranchId(res), getAuditActor(res), res.locals.body.version));
   },
   get: async (req: Request, res: Response): Promise<void> => {
     send(req, res, 200, await itemService.get(res.locals.params.itemId, getOfficeBranchId(res)));
   },
   remove: async (req: Request, res: Response): Promise<void> => {
-    send(req, res, 200, await itemService.remove(res.locals.params.itemId, getOfficeBranchId(res), getAuditActor(res)));
+    send(req, res, 200, await itemService.remove(res.locals.params.itemId, getOfficeBranchId(res), getAuditActor(res), res.locals.body.version));
   },
 };
