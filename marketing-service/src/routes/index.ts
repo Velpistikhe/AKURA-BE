@@ -5,6 +5,7 @@ import serviceRoutes from '../modules/services/service.routes.js';
 import itemRoutes from '../modules/items/item.routes.js';
 import contractRoutes from '../modules/contracts/contract.routes.js';
 import quotationRoutes from '../modules/quotations/quotation.routes.js';
+import contractPriceHistoryRoutes from '../modules/contract-prices/contract-price-history.routes.js';
 import { requireMarketingAccess } from '../middlewares/authorize.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -15,5 +16,6 @@ router.use('/company-staffs', companyStaffRoutes);
 router.use('/services', serviceRoutes);
 router.use('/items', itemRoutes);
 router.use('/company-contracts', contractRoutes);
+router.use('/company-contract-prices', contractPriceHistoryRoutes);
 router.use('/quotations', quotationRoutes);
 export default router;

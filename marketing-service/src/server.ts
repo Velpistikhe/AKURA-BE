@@ -2,10 +2,12 @@ import app from './app.js';
 import { connectDb, disconnectDb } from './config/db.js';
 import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
+import { startContractExpiryScheduler } from './modules/contracts/contract-expiry.scheduler.js';
 
 const start = async (): Promise<void> => {
   try {
     await connectDb();
+    startContractExpiryScheduler();
     const server = app.listen(env.PORT, () => logger.info(`Marketing Service is running on port ${env.PORT}`));
     const shutdown = (signal: string): void => {
       logger.info(`Received ${signal}; shutting down Marketing Service.`);

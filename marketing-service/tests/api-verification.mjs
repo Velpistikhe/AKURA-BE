@@ -84,7 +84,7 @@ try {
     '/api/v1/marketing/companies', '/api/v1/marketing/companies/{companyId}',
     '/api/v1/marketing/company-staffs', '/api/v1/marketing/company-staffs/{companyStaffId}',
     '/api/v1/marketing/services', '/api/v1/marketing/services/{serviceId}',
-    '/api/v1/marketing/services/{serviceId}/scopes', '/api/v1/marketing/services/{serviceId}/scopes/{scopeId}',
+    '/api/v1/marketing/services/{serviceId}/inspection/scopes', '/api/v1/marketing/services/{serviceId}/inspection/scopes/{inspectionScopeId}',
     '/api/v1/marketing/services/{serviceId}/maintenance/scopes',
     '/api/v1/marketing/services/{serviceId}/maintenance/scopes/{scopeId}',
     '/api/v1/marketing/items', '/api/v1/marketing/items/{itemId}',
@@ -206,16 +206,16 @@ try {
       name: 'Campaign Management',
       type: 'TUBULAR',
       hasMaintenance: true,
-      scopes: ['Planning', 'Execution'],
+      inspectionScopes: ['Planning', 'Execution'],
       maintenanceScopes: ['Inspection', 'Cleaning'],
     },
   }), [201], (body) => body?.data?.officeBranchId === officeBranchId && body?.data?.type === 'TUBULAR' && body?.data?.maintenanceScopes?.length === 2);
   serviceId = service.body.data.id;
-  if (service.body.data.scopes?.length !== 2) throw new Error('POST services did not create scopes');
-  check('GET services returns joined scopes', await request('/api/v1/marketing/services?name=Campaign%20Management&sortBy=name&sortOrder=asc', { cookies: login.cookies }), [200],
+  if (service.body.data.inspectionScopes?.length !== 2) throw new Error('POST services did not create inspectionScopes');
+  check('GET services returns joined inspectionScopes', await request('/api/v1/marketing/services?name=Campaign%20Management&sortBy=name&sortOrder=asc', { cookies: login.cookies }), [200],
     (body) => body?.data?.services?.some((item) => item.id === serviceId
       && item.type === 'TUBULAR'
-      && item.scopes === 'Planning, Execution'
+      && item.inspectionScopes === 'Planning, Execution'
       && item.maintenanceScopes === 'Inspection, Cleaning'));
   check('GET services rejects unsupported sort field', await request('/api/v1/marketing/services?sortBy=updatedAt', { cookies: login.cookies }), [400]);
   check('GET service detail', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200]);
@@ -232,19 +232,19 @@ try {
     json: { name: 'Campaign Management Updated', maintenanceScopes: ['Inspection', 'Repair'] },
   }), [200], (body) => body?.data?.type === 'OCTG'
     && body?.data?.maintenanceScopes?.map((scope) => scope.scope).sort().join(',') === 'Inspection,Repair');
-  const serviceScope = check('POST single service scope', await request(`/api/v1/marketing/services/${serviceId}/scopes`, {
-    method: 'POST', cookies: login.cookies, json: { scope: `Single Service Scope ${runId}` },
+  const inspectionScope = check('POST single inspection scope', await request(`/api/v1/marketing/services/${serviceId}/inspection/scopes`, {
+    method: 'POST', cookies: login.cookies, json: { inspectionScope: `Single Inspection Scope ${runId}` },
   }), [201], (body) => body?.data?.serviceId === serviceId && body?.data?.revoked === false);
-  check('POST duplicate active service scope', await request(`/api/v1/marketing/services/${serviceId}/scopes`, {
-    method: 'POST', cookies: login.cookies, json: { scope: `Single Service Scope ${runId}` },
+  check('POST duplicate active inspection scope', await request(`/api/v1/marketing/services/${serviceId}/inspection/scopes`, {
+    method: 'POST', cookies: login.cookies, json: { inspectionScope: `Single Inspection Scope ${runId}` },
   }), [409]);
-  check('DELETE service scope performs soft delete', await request(`/api/v1/marketing/services/${serviceId}/scopes/${serviceScope.body.data.id}`, {
+  check('DELETE inspection scope performs soft delete', await request(`/api/v1/marketing/services/${serviceId}/inspection/scopes/${inspectionScope.body.data.id}`, {
     method: 'DELETE', cookies: login.cookies,
   }), [200], (body) => body?.data?.revoked === true);
-  const revokedServiceScope = await marketingPrisma.serviceScope.findUnique({ where: { id: serviceScope.body.data.id } });
-  if (!revokedServiceScope?.revoked) throw new Error('DELETE service scope did not persist revoked=true');
+  const revokedInspectionScope = await marketingPrisma.inspectionScope.findUnique({ where: { id: inspectionScope.body.data.id } });
+  if (!revokedInspectionScope?.revoked) throw new Error('DELETE inspection scope did not persist revoked=true');
   check('GET service excludes revoked scope', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200],
-    (body) => !body?.data?.scopes?.some((scope) => scope.id === serviceScope.body.data.id));
+    (body) => !body?.data?.inspectionScopes?.some((scope) => scope.id === inspectionScope.body.data.id));
 
   const maintenanceScope = check('POST single maintenance scope', await request(`/api/v1/marketing/services/${serviceId}/maintenance/scopes`, {
     method: 'POST', cookies: login.cookies, json: { scope: `Single Maintenance Scope ${runId}` },
@@ -261,11 +261,11 @@ try {
     (body) => !body?.data?.maintenanceScopes?.some((scope) => scope.id === maintenanceScope.body.data.id));
 
   const racingScopeName = `Racing Scope ${runId}`;
-  const scopeRace = await Promise.all(Array.from({ length: 8 }, () => request(`/api/v1/marketing/services/${serviceId}/scopes`, {
-    method: 'POST', cookies: login.cookies, json: { scope: racingScopeName },
+  const scopeRace = await Promise.all(Array.from({ length: 8 }, () => request(`/api/v1/marketing/services/${serviceId}/inspection/scopes`, {
+    method: 'POST', cookies: login.cookies, json: { inspectionScope: racingScopeName },
   })));
-  const racingScopeRows = await marketingPrisma.serviceScope.count({ where: { serviceId, scope: racingScopeName, revoked: false } });
-  check('Concurrent service scope requests preserve one active row', {
+  const racingScopeRows = await marketingPrisma.inspectionScope.count({ where: { serviceId, inspectionScope: racingScopeName, revoked: false } });
+  check('Concurrent inspection scope requests preserve one active row', {
     status: scopeRace.every((result) => [201, 409].includes(result.status)) && racingScopeRows === 1 ? 200 : 500,
     body: { statuses: summarizeStatuses(scopeRace), activeRows: racingScopeRows },
   }, [200]);
@@ -277,7 +277,7 @@ try {
       method: 'PATCH', cookies: login.cookies, json: { name: lostUpdateName },
     }),
     request(`/api/v1/marketing/services/${serviceId}`, {
-      method: 'PATCH', cookies: login.cookies, json: { scopes: lostUpdateScopes },
+      method: 'PATCH', cookies: login.cookies, json: { inspectionScopes: lostUpdateScopes },
     }),
   ]);
   const serviceAfterLostUpdateRace = await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies });
@@ -285,7 +285,7 @@ try {
     status: lostUpdateRace.every((result) => result.status === 200)
       && serviceAfterLostUpdateRace.status === 200
       && serviceAfterLostUpdateRace.body?.data?.name === lostUpdateName
-      && serviceAfterLostUpdateRace.body?.data?.scopes?.map((scope) => scope.scope).join(',') === lostUpdateScopes[0]
+      && serviceAfterLostUpdateRace.body?.data?.inspectionScopes?.map((scope) => scope.inspectionScope).join(',') === lostUpdateScopes[0]
       ? 200 : 500,
     body: { patchStatuses: summarizeStatuses(lostUpdateRace), service: serviceAfterLostUpdateRace.body?.data },
   }, [200]);

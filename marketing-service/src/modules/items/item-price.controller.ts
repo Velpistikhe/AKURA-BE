@@ -21,6 +21,10 @@ export const itemPriceController = {
   updatePrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   removePrice: async (req: Request, res: Response) => { send(req, res, await writes.removePrice(res.locals.params.itemSizeId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res))); },
   createContract: async (req: Request, res: Response) => { send(req, res, await writes.createContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)), 201); },
+  upsertContract: async (req: Request, res: Response) => {
+    const result = await writes.upsertContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res));
+    send(req, res, result.price, result.created ? 201 : 200);
+  },
   updateContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   removeContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true)); },
   getPrice: async (req: Request, res: Response) => {
@@ -34,20 +38,5 @@ export const itemPriceController = {
     const size = await prisma.itemSize.findFirst({ where: { id: res.locals.params.itemSizeId, item: { officeBranchId: branch, service: { officeBranchId: branch } } }, include: { price: true, item: { include: { service: true } } } });
     if (!size) throw new HttpError('Item size not found', 404);
     send(req, res, size);
-  },
-  getContract: async (req: Request, res: Response) => {
-    const branch = getOfficeBranchId(res);
-    const price = await prisma.companyContractPrice.findFirst({ where: { id: res.locals.params.contractPriceId, contract: { company: { officeBranchId: branch, revoked: false } }, itemSize: { item: { officeBranchId: branch, service: { officeBranchId: branch } } } } });
-    if (!price) throw new HttpError('Contract price not found', 404);
-    send(req, res, price);
-  },
-  history: async (req: Request, res: Response) => {
-    const { entityType, entityId, page, limit } = res.locals.query;
-    const where = { officeBranchId: getOfficeBranchId(res), entityType, entityId };
-    const [history, total] = await prisma.$transaction([
-      prisma.catalogAuditLog.findMany({ where, orderBy: { version: 'desc' }, skip: (page - 1) * limit, take: limit }),
-      prisma.catalogAuditLog.count({ where }),
-    ], { isolationLevel: 'RepeatableRead' });
-    send(req, res, { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   },
 };

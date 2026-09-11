@@ -4,6 +4,8 @@ Microservice untuk pengelolaan perusahaan serta katalog service, scope, dan item
 
 ## Endpoint
 
+Swagger dan spesifikasi OpenAPI dipusatkan di API Gateway: `GET /api-docs` dan `GET /api-docs.json`. Marketing Service tidak lagi mengekspos endpoint dokumentasi sendiri.
+
 - `GET /health`
 - CRUD `/companies`
 - CRUD `/company-staffs`
@@ -46,13 +48,14 @@ Model `MarketingService` dan tabel `marketing_services` sudah dihapus. Struktur 
 
 | Model / tabel | Fungsi dan relasi |
 |---|---|
-| `Service` / `services` | Katalog service; memiliki banyak `ServiceScope` dan `MaintenanceScope` |
-| `ServiceScope` / `service_scopes` | Field `scope` milik tepat satu service; unik berdasarkan service dan scope |
+| `Service` / `services` | Katalog service; memiliki banyak `InspectionScope` dan `MaintenanceScope` |
+| `InspectionScope` / `inspection_scopes` | Field `inspectionScope` milik tepat satu service; unik berdasarkan service dan inspection scope |
 | `MaintenanceScope` / `maintenance_scopes` | Field `scope` maintenance milik tepat satu service; unik berdasarkan service dan scope |
 | `Item` / `items` | Katalog item; memiliki banyak size dan satu service |
 | `ItemSize` / `item_sizes` | Daftar size milik item; unik berdasarkan item, size, dan awal berlaku |
 | `ItemPrice` / `item_prices` | Harga service dan maintenance per item size untuk primary serta sister company; tepat satu row untuk setiap item size |
-| `CompanyContract` / `company_contracts` | Periode kontrak company, dengan `effectiveFrom`, `effectiveUntil`, `isActive`, dan `version`; periode aktif tidak boleh tumpang tindih |
+| `CompanyContract` / `company_contracts` | Kontrak company, dengan `contractNumber`, `contractDate`, `effectiveFrom`, `effectiveUntil`, `isActive`, dan `version`; periode aktif tidak boleh tumpang tindih |
+| `CompanyContractHistory` / `company_contract_histories` | Snapshot append-only setiap versi kontrak, termasuk `createdById` dan `createdByName` pelaku perubahan |
 | `CompanyContractPrice` / `company_contract_prices` | Harga service dan maintenance khusus kontrak company per item size; unik berdasarkan pasangan contract dan item size; memakai `contractId` |
 
 Relasi induk-anak dan tabel penghubung menggunakan `onDelete: Cascade`, sehingga scope, size, dan relasi item ikut terhapus ketika induknya dihapus.
@@ -61,7 +64,7 @@ Payload dan response endpoint item tetap menampilkan `priceServicePrimary`, `pri
 
 Kedua tabel harga memiliki `effectiveFrom`, `effectiveUntil`, dan `isActive` untuk periode berlaku. Tabel `items`, `item_sizes`, `item_prices`, dan `company_contract_prices` menyimpan `createdById` serta `createdByName`, sedangkan `updatedById` dan `updatedByName` nullable sampai record diubah. Field tersebut merupakan snapshot user audit; ID user tidak memakai foreign key lintas database dan nama diambil dari profil terkini hasil validasi Auth Service. Data historis yang tidak mempunyai informasi pembuat ditandai dengan ID nol dan nama `System Migration`.
 
-Field `description` tidak digunakan pada service, service scope, maintenance scope, maupun item. Service dengan `hasMaintenance=true` wajib mempunyai minimal satu maintenance scope saat dibuat atau ketika maintenance diaktifkan melalui update.
+Field `description` tidak digunakan pada service, inspection scope, maintenance scope, maupun item. Service dengan `hasMaintenance=true` wajib mempunyai minimal satu maintenance scope saat dibuat atau ketika maintenance diaktifkan melalui update.
 
 Semua endpoint CRUD hanya menerima request dari API Gateway dan memerlukan user aktif dengan role `ADMIN`/`APP_MANAGER` atau section `MARKETING`. JWKS dan profil user Auth Service diakses melalui `API_GATEWAY_URL`; Marketing tidak menyimpan URL maupun secret Auth Service. `GATEWAY_SECRET` Marketing hanya berlaku untuk koneksi inbound Gateway ke Marketing dan harus berbeda dari secret service lain.
 
@@ -94,6 +97,8 @@ Endpoint katalog yang tersedia:
 | `/services/:serviceId` | GET | Detail service beserta scope |
 | `/services` | POST | Membuat service dan scope secara atomik |
 | `/services/:serviceId` | PATCH | Memperbarui service dan mengganti daftar scope yang dikirim |
+| `/services/:serviceId/inspection/scopes` | POST | Menambah satu inspection scope |
+| `/services/:serviceId/inspection/scopes/:inspectionScopeId` | DELETE | Menonaktifkan satu inspection scope |
 | `/services/:serviceId/maintenance/scopes` | POST | Menambah satu maintenance scope |
 | `/services/:serviceId/maintenance/scopes/:scopeId` | DELETE | Menonaktifkan satu maintenance scope |
 | `/items` | GET | Daftar item aktif beserta service, tanpa memuat size |
@@ -112,15 +117,15 @@ Harga service primary, sister company, dan contract wajib dikirim; tidak memilik
 
 ### Kontrak company dan pemilihan harga
 
-Respons company (list, detail, create, update, delete) memiliki field `contract`: objek kontrak berstatus ACTIVE, isActive=true, dan berlaku saat request, atau `null`. Masa berlaku memakai `effectiveFrom <= sekarang` dan `effectiveUntil > sekarang` atau `effectiveUntil=null`. Kontrak nonaktif, belum mulai, sudah berakhir, dan company revoked tidak menghasilkan kontrak aktif pada respons. Ini adalah field hasil perhitungan, bukan kolom baru. CRUD kontrak tersedia melalui `/api/v1/marketing/company-contracts`: POST membuat, GET dengan `companyId` menampilkan daftar, serta GET/PATCH/DELETE `/:contractId` untuk detail, perubahan periode, dan penonaktifan. PATCH dan DELETE wajib membawa `version` kontrak terbaru.
+Respons company (list, detail, create, update, delete) memiliki field `contract`: objek kontrak berstatus ACTIVE dan isActive=true, atau `null`. Contract ini dapat memiliki masa berlaku yang akan datang; pemilihan harga tetap memakai periode `effectiveFrom <= hari ini < effectiveUntil`. Kontrak nonaktif dan company revoked tidak menghasilkan contract pada respons. Ini adalah field hasil perhitungan, bukan kolom baru. CRUD kontrak tersedia melalui `/api/v1/marketing/company-contracts`: POST membuat, GET dengan `companyId` menampilkan daftar, serta GET/PATCH/DELETE `/:contractId` untuk detail, perubahan periode, dan penonaktifan. PATCH dan DELETE wajib membawa `version` kontrak terbaru.
 
-Company memiliki `isSisterCompany` (default false). Field `hasContract` sudah dihapus dari database, input, response, filter dan sort. Keberadaan kontrak ditentukan dari tabel `company_contracts`. `effectiveFrom` inklusif, `effectiveUntil` eksklusif (null berarti tanpa batas akhir); akhir harus setelah awal. Request memakai timestamp ISO-8601 dengan zona waktu. Kontrak aktif yang belum mulai atau sudah berakhir tidak dipakai untuk harga saat ini.
+Company memiliki `isSisterCompany` (default false). Field `hasContract` sudah dihapus dari database, input, response, filter dan sort. Keberadaan kontrak ditentukan dari tabel `company_contracts`. `effectiveFrom` inklusif dan `effectiveUntil` eksklusif serta wajib diisi; akhir harus setelah awal. Ketiga tanggal kontrak (`contractDate`, `effectiveFrom`, `effectiveUntil`) memakai format `YYYY-MM-DD`. Kontrak aktif yang belum mulai atau sudah berakhir tidak dipakai untuk harga saat ini.
 
 | Endpoint | Method | Input utama |
 |---|---|---|
 | `/company-contracts` | GET | `companyId` wajib; opsional `isActive`, `page`, `limit` |
-| `/company-contracts` | POST | `companyId`, `effectiveFrom`, `effectiveUntil` |
-| `/company-contracts/:contractId` | GET / PATCH / DELETE | PATCH: `version` dan status/tanggal yang diubah; DELETE: `version` |
+| `/company-contracts` | POST | `companyId`, `contractNumber`, `contractDate`, `effectiveFrom`, `effectiveUntil` |
+| `/company-contracts/:contractId` | GET / PATCH / DELETE | PATCH: `version` dan field kontrak/tanggal yang diubah; DELETE: `version` |
 | `/items/:itemId` | PATCH | `version`, `name` |
 | `/items/sizes/:itemSizeId` | GET / PATCH | PATCH: `version`, `size` |
 | `/items/sizes/:itemSizeId/price` | GET / POST / PATCH / DELETE | Harga standar; PATCH/DELETE: versi harga |
@@ -135,9 +140,9 @@ Urutan harga: kontrak aktif dan berlaku saat ini, lalu harga standar sister comp
 
 ### Status kontrak dan template Excel
 
-`CompanyContract.status` memakai enum `CREATE`, `ACTIVE`, `EXPIRED`, `TERMINATED`, default `CREATE`. POST dapat menentukan status; PATCH wajib membawa `version` terbaru dan minimal satu field status/tanggal. Contoh aktivasi: `{ "version": 1, "status": "ACTIVE" }`. Field tanggal yang tidak dikirim tetap dipertahankan. Filter daftar: `GET /company-contracts?companyId=<UUID>&status=CREATE`.
+`CompanyContract.status` memakai enum `CREATE`, `ACTIVE`, `EXPIRED`, `TERMINATED`, tetapi tidak diterima pada request POST maupun PATCH. POST oleh user membuat status `CREATE`; POST oleh ADMIN/APP_MANAGER membuat status `ACTIVE`. Admin dapat mengaktifkan kontrak CREATE lewat `POST /company-contracts/:contractId/approve`. PATCH hanya untuk admin dan merupakan revisi: kontrak lama menjadi `TERMINATED`, `isActive=false`, `effectiveUntil` diisi timestamp revisi, lalu kontrak ACTIVE pengganti dibuat. Scheduler berjalan setiap hari pukul 00:00:00 menurut timezone server untuk mengubah kontrak yang melewati `effectiveUntil` menjadi `EXPIRED` dan `isActive=false`. DELETE menetapkan `TERMINATED`. Filter daftar: `GET /company-contracts?companyId=<UUID>&status=CREATE`.
 
-Status diubah secara eksplisit, tidak otomatis mengikuti waktu. Harga kontrak hanya dipakai jika status `ACTIVE`, `isActive=true`, dan tanggal berlaku sesuai. CREATE dapat diisi harga sebelum aktivasi. EXPIRED/TERMINATED menolak perubahan dan impor harga. Benturan periode diperiksa saat membuat atau mengubah kontrak menjadi ACTIVE. DELETE menetapkan TERMINATED dan isActive=false. Revisi profil company mempertahankan kontrak beserta status dan versinya. Penambahan kolom pada data development lama menggunakan default CREATE; aktivasi dilakukan melalui PATCH.
+Status kontrak ditentukan oleh business logic saat kontrak dibuat atau diubah berdasarkan periode berlaku. Harga kontrak hanya dipakai jika status `ACTIVE`, `isActive=true`, dan tanggal berlaku sesuai. CREATE dapat diisi harga sebelum periode berlaku. EXPIRED/TERMINATED menolak perubahan dan impor harga. Benturan periode diperiksa saat kontrak berstatus ACTIVE. DELETE menetapkan TERMINATED dan isActive=false. Revisi profil company mempertahankan kontrak beserta status dan versinya.
 
 Download template: `GET /api/v1/marketing/items/sizes/export`. Respons berupa file `akura-normal-prices.xlsx`, berisi Service, Item, Size, Harga Service, dan Harga Maintenance normal primary. Harga sister company dan harga kontrak tidak diekspor. Filter opsional: `companyId`, `itemId`, `itemName`, `serviceName`, `size`, `notIn`, `sortBy=size`, `sortOrder`; maksimal 2000 row tanpa pagination. Branch diambil dari token. Jika `companyId` dikirim, company harus belum revoked dan berada pada branch token yang sama; jika tidak, respons 404. Item dan service dibatasi ke branch tersebut. Tanpa `companyId`, ekspor langsung memakai branch token. `officeBranchId` dari query tidak diterima.
 
@@ -211,3 +216,19 @@ npm run test:api
 
 Harness menguji seluruh endpoint Marketing, race condition pada pembuatan company, request scope concurrent, perlindungan lost update untuk PATCH parsial, invariant row aktif, cleanup data, dan stress test request paralel.
 Jumlah request stress default adalah `25` dengan concurrency `5`; keduanya dapat dinaikkan melalui `TEST_STRESS_TOTAL` dan `TEST_STRESS_CONCURRENCY` dengan memperhatikan konfigurasi rate limit Gateway.
+
+### Inspection scope
+
+Service menggunakan relasi dan field request/response `inspectionScopes` (sebelumnya `scopes`).
+POST `/services/:serviceId/inspection/scopes` menerima `{ "inspectionScope": "Visual inspection" }`.
+Response detail memuat `inspectionScopes: [{ id, serviceId, inspectionScope, ... }]`, sedangkan response daftar memuat `inspectionScopes` sebagai teks dipisahkan koma.
+DELETE `/services/:serviceId/inspection/scopes/:inspectionScopeId` menonaktifkan inspection scope.
+Audit menggunakan `INSPECTION_SCOPE_ADD` dan `INSPECTION_SCOPE_REMOVE`; snapshot lama tetap dapat dibaca.
+
+Sinkronkan database development langsung melalui Prisma tanpa file SQL rename:
+
+```sh
+npm run db:push
+```
+
+Jika data development boleh dikosongkan dan menghalangi perubahan schema, gunakan `npm run db:push -- --force-reset`. Perintah ini menghapus seluruh data pada database yang dikonfigurasi, menerapkan schema terbaru, dan generate ulang Prisma Client.

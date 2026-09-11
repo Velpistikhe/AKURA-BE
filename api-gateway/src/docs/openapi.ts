@@ -786,11 +786,11 @@ export const openApiDocument = {
           },
         },
       },
-      ServiceScope: {
-        type: 'object', required: ['id', 'serviceId', 'scope', 'revoked', 'createdAt', 'updatedAt'],
+      InspectionScope: {
+        type: 'object', required: ['id', 'serviceId', 'inspectionScope', 'revoked', 'createdAt', 'updatedAt'],
         properties: {
           id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid' },
-          scope: { type: 'string' }, revoked: { type: 'boolean', example: false },
+          inspectionScope: { type: 'string' }, revoked: { type: 'boolean', example: false },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
         },
       },
@@ -800,33 +800,43 @@ export const openApiDocument = {
       },
       Service: {
         type: 'object',
-        required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'version', 'isActive', 'createdById', 'createdByName', 'createdAt', 'updatedAt', 'inspectionScopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'Social Media Management' },
           type: schemaRef('ServiceType'),
           hasMaintenance: { type: 'boolean' },
+          version: { type: 'integer', minimum: 0, description: 'Use this value for PATCH and DELETE optimistic locking.' },
           isActive: { type: 'boolean' },
+          createdById: { type: 'string', format: 'uuid', readOnly: true },
+          createdByName: { type: 'string', readOnly: true },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
+          updatedByName: { type: 'string', nullable: true, readOnly: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
-          scopes: { type: 'array', items: schemaRef('ServiceScope') },
+          inspectionScopes: { type: 'array', items: schemaRef('InspectionScope') },
           maintenanceScopes: { type: 'array', items: schemaRef('MaintenanceScope') },
         },
       },
       ServiceListItem: {
         type: 'object',
-        required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'isActive', 'createdAt', 'updatedAt', 'scopes', 'maintenanceScopes'],
+        required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'version', 'isActive', 'createdById', 'createdByName', 'createdAt', 'updatedAt', 'inspectionScopes', 'maintenanceScopes'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           name: { type: 'string', example: 'Social Media Management' },
           type: schemaRef('ServiceType'),
           hasMaintenance: { type: 'boolean' },
+          version: { type: 'integer', minimum: 0 },
           isActive: { type: 'boolean' },
+          createdById: { type: 'string', format: 'uuid', readOnly: true },
+          createdByName: { type: 'string', readOnly: true },
+          updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
+          updatedByName: { type: 'string', nullable: true, readOnly: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
-          scopes: { type: 'string', example: 'Planning, Execution', description: 'Active scopes joined with a comma and one space.' },
+          inspectionScopes: { type: 'string', example: 'Planning, Execution', description: 'Active inspection scopes joined with a comma and one space.' },
           maintenanceScopes: { type: 'string', example: 'Inspection, Cleaning', description: 'Active maintenance scopes joined with a comma and one space.' },
         },
       },
@@ -1025,6 +1035,29 @@ export const openApiDocument = {
           requestId: { type: 'string', format: 'uuid' },
         },
       },
+      ServiceHistoryResponse: {
+        type: 'object', required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
+          data: {
+            type: 'object', required: ['serviceId', 'history', 'pagination'],
+            properties: {
+              serviceId: { type: 'string', format: 'uuid' },
+              history: { type: 'array', items: {
+                type: 'object', required: ['id', 'action', 'version', 'changedBy', 'changedAt', 'changes'],
+                properties: {
+                  id: { type: 'string', format: 'uuid' }, action: { type: 'string', example: 'INSPECTION_SCOPE_ADD' }, version: { type: 'integer', minimum: 0 },
+                  changedBy: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } } },
+                  changedAt: { type: 'string', format: 'date-time' },
+                  changes: { type: 'array', items: { type: 'object', required: ['field', 'label', 'before', 'after'], properties: { field: { type: 'string' }, label: { type: 'string' }, before: {}, after: {} } } },
+                },
+              } },
+              pagination: schemaRef('Pagination'),
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       ServiceListResponse: {
         type: 'object',
         required: ['status', 'success', 'message', 'data'],
@@ -1043,11 +1076,11 @@ export const openApiDocument = {
           requestId: { type: 'string', format: 'uuid' },
         },
       },
-      ServiceScopeResponse: {
+      InspectionScopeResponse: {
         type: 'object', required: ['status', 'success', 'message', 'data'],
         properties: {
           status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] },
-          message: { type: 'string' }, data: schemaRef('ServiceScope'),
+          message: { type: 'string' }, data: schemaRef('InspectionScope'),
           requestId: { type: 'string', format: 'uuid' },
         },
       },
@@ -1167,22 +1200,29 @@ export const openApiDocument = {
           type: schemaRef('ServiceType'),
           name: { type: 'string', minLength: 1, maxLength: 200 },
           hasMaintenance: { type: 'boolean', description: 'When true, at least one maintenanceScopes item is required.' },
-          scopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
+          inspectionScopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
           maintenanceScopes: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 500 }, default: [] },
         },
       },
       UpdateServiceRequest: {
-        type: 'object', minProperties: 1, additionalProperties: false,
+        type: 'object', required: ['version'], minProperties: 2, additionalProperties: false,
         properties: {
+          version: { type: 'integer', minimum: 0, example: 0, description: 'Current service version for optimistic locking.' },
           type: schemaRef('ServiceType'),
           name: { type: 'string', minLength: 1, maxLength: 200 },
-          hasMaintenance: { type: 'boolean', description: 'Whenever true is supplied, at least one maintenanceScopes item is required. Supplying false revokes active maintenance scopes.' },
-          isActive: { type: 'boolean' },
-          scopes: { type: 'array', maxItems: 100, uniqueItems: true, description: 'When supplied, replaces all active service scopes; an empty array revokes all of them.', items: { type: 'string', minLength: 1, maxLength: 500 } },
-          maintenanceScopes: { type: 'array', maxItems: 100, uniqueItems: true, description: 'When supplied while maintenance is enabled, replaces all active maintenance scopes and cannot be empty.', items: { type: 'string', minLength: 1, maxLength: 500 } },
+          hasMaintenance: { type: 'boolean', description: 'Supplying false soft-deletes every active maintenance scope. Add or remove scopes through their dedicated endpoints.' },
         },
       },
-      CreateScopeRequest: {
+      DeactivateServiceRequest: {
+        type: 'object', required: ['version'], additionalProperties: false,
+        description: 'Current service version for optimistic locking.',
+        properties: { version: { type: 'integer', minimum: 0, example: 0 } },
+      },
+      CreateInspectionScopeRequest: {
+        type: 'object', required: ['inspectionScope'], additionalProperties: false,
+        properties: { inspectionScope: { type: 'string', minLength: 1, maxLength: 500 } },
+      },
+      CreateMaintenanceScopeRequest: {
         type: 'object', required: ['scope'], additionalProperties: false,
         properties: {
           scope: { type: 'string', minLength: 1, maxLength: 500 },
@@ -2011,7 +2051,7 @@ export const openApiDocument = {
         },
       },
       patch: {
-        tags: ['Marketing'], summary: 'Update a service and optionally replace its active scopes', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Update a service', description: 'Scopes are managed only through the dedicated add and soft-delete endpoints. Submit the current version to prevent lost updates.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateServiceRequest')) },
         responses: {
@@ -2022,24 +2062,41 @@ export const openApiDocument = {
         },
       },
       delete: {
-        tags: ['Marketing'], summary: 'Deactivate a service', description: 'Sets isActive=false; the service and its scopes remain stored.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Deactivate a service', description: 'Sets isActive=false; the service and its scopes remain stored. Requires the current service version.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: { required: true, ...jsonContent(schemaRef('DeactivateServiceRequest')) },
         responses: {
           200: { description: 'Service deactivated', ...jsonContent(schemaRef('ServiceResponse')) },
-          400: errorResponse('Invalid service ID'), 401: errorResponse('Missing or invalid access token'),
+          400: errorResponse('Invalid service ID or version body'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
           409: errorResponse('Service is already inactive'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
     },
-    '/api/v1/marketing/services/{serviceId}/scopes': {
-      post: {
-        tags: ['Marketing'], summary: 'Create a single service scope', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: { required: true, ...jsonContent(schemaRef('CreateScopeRequest')) },
+    '/api/v1/marketing/services/{serviceId}/history': {
+      get: {
+        tags: ['Marketing'], summary: 'Get user-friendly service history', description: 'Shows service and scope changes as readable before/after values. Scope changes are recorded under the parent service.', security: protectedSecurity,
+        parameters: [
+          { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        ],
         responses: {
-          201: { description: 'Service scope created', ...jsonContent(schemaRef('ServiceScopeResponse')) },
+          200: { description: 'Service history retrieved', ...jsonContent(schemaRef('ServiceHistoryResponse')) },
+          400: errorResponse('Invalid service ID or pagination'), 401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
+          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/marketing/services/{serviceId}/inspection/scopes': {
+      post: {
+        tags: ['Marketing'], summary: 'Add a inspection scope', description: 'A revoked scope with the same text is reused. Each add is recorded in the parent service audit trail.', security: protectedSecurity,
+        parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: { required: true, ...jsonContent(schemaRef('CreateInspectionScopeRequest')) },
+        responses: {
+          201: { description: 'Inspection scope created', ...jsonContent(schemaRef('InspectionScopeResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
           409: errorResponse('Service is inactive or the active scope already exists'), 429: errorResponse('Rate limit exceeded'),
@@ -2047,17 +2104,17 @@ export const openApiDocument = {
         },
       },
     },
-    '/api/v1/marketing/services/{serviceId}/scopes/{scopeId}': {
+    '/api/v1/marketing/services/{serviceId}/inspection/scopes/{inspectionScopeId}': {
       delete: {
-        tags: ['Marketing'], summary: 'Soft delete a service scope', description: 'Sets revoked to true instead of deleting the row.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Soft delete a inspection scope', description: 'Sets revoked to true instead of deleting the row. The parent service audit trail records the removal.', security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
-          { in: 'path', name: 'scopeId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'path', name: 'inspectionScopeId', required: true, schema: { type: 'string', format: 'uuid' } },
         ],
         responses: {
-          200: { description: 'Service scope soft deleted', ...jsonContent(schemaRef('ServiceScopeResponse')) },
+          200: { description: 'Inspection scope soft deleted', ...jsonContent(schemaRef('InspectionScopeResponse')) },
           400: errorResponse('Invalid ID'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Service or service scope not found'),
+          403: errorResponse('Marketing access is required'), 404: errorResponse('Service or inspection scope not found'),
           409: errorResponse('Service is inactive'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
@@ -2065,9 +2122,9 @@ export const openApiDocument = {
     },
     '/api/v1/marketing/services/{serviceId}/maintenance/scopes': {
       post: {
-        tags: ['Marketing'], summary: 'Create a maintenance scope for a service', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Add a maintenance scope for a service', description: 'A revoked scope with the same text is reused. Each add is recorded in the parent service audit trail.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: { required: true, ...jsonContent(schemaRef('CreateScopeRequest')) },
+        requestBody: { required: true, ...jsonContent(schemaRef('CreateMaintenanceScopeRequest')) },
         responses: {
           201: { description: 'Maintenance scope created', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
@@ -2079,7 +2136,7 @@ export const openApiDocument = {
     },
     '/api/v1/marketing/services/{serviceId}/maintenance/scopes/{scopeId}': {
       delete: {
-        tags: ['Marketing'], summary: 'Soft delete a maintenance scope for a service', description: 'Sets revoked to true instead of deleting the row.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Soft delete a maintenance scope for a service', description: 'Sets revoked to true instead of deleting the row. The parent service audit trail records the removal.', security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
           { in: 'path', name: 'scopeId', required: true, schema: { type: 'string', format: 'uuid' } },

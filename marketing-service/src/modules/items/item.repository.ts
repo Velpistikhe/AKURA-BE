@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { defineSortRules, findAll } from '../../utils/listQuery.js';
 import { prisma } from '../../config/db.js';
+import { currentBusinessDate } from '../../utils/businessDate.js';
 import { AddItemSizeInput, CreateItemInput, ListItemsInput, ListItemSizesInput } from './item.schemas.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -82,11 +83,11 @@ export const itemRepository = {
     }),
   async listSizes(input: ListItemSizesInput, officeBranchId: string, companyId?: string, resolvePrices = false) {
     return prisma.$transaction(async tx => {
-    const now = new Date();
+    const now = currentBusinessDate();
     const company = companyId ? await tx.company.findFirst({ where: { id: companyId, officeBranchId, revoked: false } }) : null;
     if (companyId && !company) throw new HttpError('Company not found', 404);
     const activeContracts = companyId ? await tx.companyContract.findMany({ where: {
-      companyId, isActive: true, status: 'ACTIVE', effectiveFrom: { lte: now }, OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
+      companyId, isActive: true, status: 'ACTIVE', effectiveFrom: { lte: now }, effectiveUntil: { gt: now },
     }, orderBy: { effectiveFrom: 'desc' }, take: 2 }) : [];
     if (activeContracts.length > 1) throw new HttpError('Multiple current contracts found; resolve overlapping contract periods', 409);
     const contractWhere: Prisma.CompanyContractPriceWhereInput = {

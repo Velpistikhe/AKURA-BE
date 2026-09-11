@@ -18,11 +18,19 @@ const write = <T>(branch: string, action: (tx: Tx) => Promise<T>) => prisma.$tra
 });
 const createdBy = (actor: AuditActor) => ({ createdById: actor.id, createdByName: actor.name });
 const updatedBy = (actor: AuditActor) => ({ updatedById: actor.id, updatedByName: actor.name, version: { increment: 1 } });
+const contractUpdatedBy = (actor: AuditActor) => ({ updatedById: actor.id, version: { increment: 1 } });
+type ItemCatalogEntity = Exclude<CatalogEntity, 'SERVICE' | 'SERVICE_SCOPE' | 'MAINTENANCE_SCOPE'>;
 const delegates = { ITEM: 'item', ITEM_SIZE: 'itemSize', ITEM_PRICE: 'itemPrice', COMPANY_CONTRACT_PRICE: 'companyContractPrice', COMPANY_CONTRACT: 'companyContract' } as const;
-const change = async (tx: Tx, branch: string, entity: CatalogEntity, before: any, data: any, actor: AuditActor, action = 'UPDATE') => {
+const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before: any, data: any, actor: AuditActor, action = 'UPDATE') => {
   const delegate = tx[delegates[entity]] as any;
-  const after = await delegate.update({ where: { id: before.id, version: before.version }, data: { ...data, ...updatedBy(actor) } });
+  const after = await delegate.update({ where: { id: before.id, version: before.version }, data: {
+    ...data, ...(entity === 'COMPANY_CONTRACT' ? contractUpdatedBy(actor) : updatedBy(actor)),
+  } });
   await recordCatalogAudit(tx, branch, entity, before, after, actor, action);
+  if (entity === 'COMPANY_CONTRACT') await tx.companyContractHistory.create({ data: {
+    companyContractId: after.id, version: after.version, action,
+    snapshot: JSON.parse(JSON.stringify(after)), createdById: actor.id, createdByName: actor.name,
+  } });
   return after;
 };
 const itemInBranch = async (tx: Tx, id: string, branch: string) => {
@@ -178,6 +186,12 @@ export const itemWriteRepository = {
     await bumpSize(tx, branch, size, item, actor);
     return result;
   }),
+  upsertContract: async (id: string, data: ContractPriceInput & { version?: number }, branch: string, actor: AuditActor) => {
+    const existing = await prisma.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, contract: { company: { officeBranchId: branch, revoked: false } } }, select: { id: true } });
+    if (!existing) return { created: true, price: await itemWriteRepository.createContract(id, data, branch, actor) };
+    if (data.version === undefined) throw new HttpError('version is required when updating an existing contract price', 400);
+    return { created: false, price: await itemWriteRepository.changeContract(existing.id, { ...data, version: data.version }, branch, actor) };
+  },
   changeContract: (id: string, data: { version: number; priceService?: string | number; priceMaintenance?: string | number | null; isActive?: boolean }, branch: string, actor: AuditActor, remove = false) => write(branch, async tx => {
     const before = await tx.companyContractPrice.findFirst({ where: { id, contract: { company: { officeBranchId: branch, revoked: false } } } });
     if (!before) throw new HttpError('Contract price not found', 404);

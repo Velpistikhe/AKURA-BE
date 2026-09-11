@@ -6,6 +6,7 @@ import { buildListQuery, defineSortRules } from '../../utils/listQuery.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
 import { HttpError } from '../../utils/httpError.js';
+import { currentBusinessDate } from '../../utils/businessDate.js';
 import { ExcelImportError, ExcelPriceRow, ExportItemSizesInput, MAX_EXCEL_ROWS } from './contract-excel.schemas.js';
 
 export const contractExcelRepository = {
@@ -35,9 +36,9 @@ export const contractExcelRepository = {
     const contract = await tx.companyContract.findFirst({ where: { id: contractId, companyId, company: { officeBranchId: branch, revoked: false } } });
     if (!contract) throw new HttpError('Company contract not found in the current branch', 404);
     requireCatalogVersion(contract, version);
-    if (contract.status === 'EXPIRED' || contract.status === 'TERMINATED') throw new HttpError('Contract status does not allow price imports', 409);
     const now = new Date();
-    if (contract.effectiveUntil && contract.effectiveUntil <= now) throw new HttpError('Cannot import prices into an expired contract', 409);
+    const today = currentBusinessDate(now);
+    if (contract.status !== 'ACTIVE' || !contract.isActive || contract.effectiveFrom > today || contract.effectiveUntil <= today) throw new HttpError('Contract is not currently valid for price imports', 409);
     const ids = rows.map(row => row.itemSizeId);
     const sizes = await tx.itemSize.findMany({ where: { id: { in: ids }, isActive: true, item: { officeBranchId: branch, isActive: true, service: { officeBranchId: branch, isActive: true } } }, include: { price: { select: { version: true } }, item: { include: { service: true } } } });
     const byId = new Map(sizes.map(size => [size.id, size]));
@@ -51,7 +52,7 @@ export const contractExcelRepository = {
         stale = true; errors.push({ row: row.row, message: 'Size or normal price changed after export; download a new template' });
       }
       if (size.item.service.hasMaintenance && row.priceMaintenance === null) errors.push({ row: row.row, field: 'Harga Maintenance', message: 'Maintenance price is required for this service' });
-      if (existing.has(row.itemSizeId)) { stale = true; errors.push({ row: row.row, message: 'This size already has a price in this contract; import only creates new prices' }); }
+      if (existing.has(row.itemSizeId)) { stale = true; errors.push({ row: row.row, message: 'This size already has a price in this contract; use the contract price PUT endpoint to update it' }); }
     }
     if (errors.length) throw new ExcelImportError(errors, stale ? 409 : 400);
     const metadata = { createdAt: now, updatedAt: now, createdById: actor.id, createdByName: actor.name, updatedById: null, updatedByName: null, version: 0 };
@@ -74,8 +75,12 @@ export const contractExcelRepository = {
       ...sizes.map(({ item, price, ...size }) => audit('ITEM_SIZE', size, { ...size, ...changes, version: size.version + 1 }, 'PRICE_UPDATE')),
       ...items.map(({ service, ...item }) => audit('ITEM', item, { ...item, ...changes, version: item.version + 1 }, 'CHILD_UPDATE')),
     ] });
-    const updated = await tx.companyContract.update({ where: { id: contractId, version }, data: { ...changes, version: { increment: 1 } } });
+    const updated = await tx.companyContract.update({ where: { id: contractId, version }, data: { updatedAt: now, updatedById: actor.id, version: { increment: 1 } } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', contract, updated, actor, 'IMPORT');
+    await tx.companyContractHistory.create({ data: {
+      companyContractId: updated.id, version: updated.version, action: 'IMPORT',
+      snapshot: JSON.parse(JSON.stringify(updated)), createdById: actor.id, createdByName: actor.name,
+    } });
     return { companyId, contractId, version: updated.version, imported: prices.length };
   }, { maxWait: 10000, timeout: 30000 }),
 };

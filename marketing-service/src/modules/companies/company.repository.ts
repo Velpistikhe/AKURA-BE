@@ -15,23 +15,25 @@ const select = {
   _count: { select: { staffs: { where: { revoked: false } } } },
 } satisfies Prisma.CompanySelect;
 
-const selectWithContract = (now = new Date()) => ({
+const selectWithContract = () => ({
   ...select,
   contracts: {
     where: {
       status: 'ACTIVE',
       isActive: true,
-      effectiveFrom: { lte: now },
-      OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
     },
-    orderBy: { effectiveFrom: 'desc' as const },
+    orderBy: { effectiveFrom: 'asc' as const },
     take: 1,
+    include: { _count: { select: { prices: true } } },
   },
 } satisfies Prisma.CompanySelect);
 
 const withCurrentContract = ({ contracts, ...company }: Prisma.CompanyGetPayload<{ select: ReturnType<typeof selectWithContract> }>) => ({
   ...company,
-  contract: company.revoked ? null : contracts[0] ?? null,
+  contract: company.revoked || !contracts[0] ? null : (() => {
+    const { _count, ...contract } = contracts[0];
+    return { ...contract, hasList: _count.prices > 0 };
+  })(),
 });
 
 const saveHistory = async (tx: Prisma.TransactionClient, companyId: string, actor: AuditActor, action: string) => {

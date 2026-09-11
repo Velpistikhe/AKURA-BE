@@ -116,9 +116,14 @@ model Service {
   type              ServiceType
   hasMaintenance    Boolean            @default(false) @map("has_maintenance")
   isActive          Boolean            @default(true) @map("is_active")
+  version           Int                @default(0)
+  createdById       String             @map("created_by_id") @db.Uuid
+  createdByName     String             @map("created_by_name")
+  updatedById       String?            @map("updated_by_id") @db.Uuid
+  updatedByName     String?            @map("updated_by_name")
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
-  scopes            ServiceScope[]
+  inspectionScopes  InspectionScope[]
   maintenanceScopes MaintenanceScope[]
   itemCatalog       Item[]
 
@@ -126,19 +131,19 @@ model Service {
   @@map("services")
 }
 
-model ServiceScope {
-  id        String   @id @default(uuid()) @db.Uuid
-  serviceId String   @map("service_id") @db.Uuid
-  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  scope     String
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+model InspectionScope {
+  id              String   @id @default(uuid()) @db.Uuid
+  serviceId       String   @map("service_id") @db.Uuid
+  service         Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  inspectionScope String   @map("inspection_scope")
+  revoked         Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  @@unique([serviceId, scope])
+  @@unique([serviceId, inspectionScope])
   @@index([serviceId])
   @@index([revoked])
-  @@map("service_scopes")
+  @@map("inspection_scopes")
 }
 
 model MaintenanceScope {
@@ -236,24 +241,40 @@ enum CompanyContractStatus {
 }
 
 model CompanyContract {
-  status         CompanyContractStatus @default(CREATE)
-  id             String   @id @default(uuid()) @db.Uuid
-  companyId      String   @map("company_id") @db.Uuid
-  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  effectiveFrom  DateTime @map("effective_from")
-  effectiveUntil DateTime? @map("effective_until")
-  isActive       Boolean  @default(true) @map("is_active")
-  version        Int      @default(0)
-  createdById    String   @map("created_by_id") @db.Uuid
-  createdByName  String   @map("created_by_name")
-  updatedById    String?  @map("updated_by_id") @db.Uuid
-  updatedByName  String?  @map("updated_by_name")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  status         CompanyContractStatus   @default(CREATE)
+  id             String                  @id @default(uuid()) @db.Uuid
+  companyId      String                  @map("company_id") @db.Uuid
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractNumber String                  @map("contract_number")
+  contractDate   DateTime                @map("contract_date") @db.Date
+  effectiveFrom  DateTime                @map("effective_from") @db.Date
+  effectiveUntil DateTime                @map("effective_until") @db.Date
+  isActive       Boolean                 @default(true) @map("is_active")
+  version        Int                     @default(0)
+  createdById    String                  @map("created_by_id") @db.Uuid
+  updatedById    String?                 @map("updated_by_id") @db.Uuid
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
   prices         CompanyContractPrice[]
+  history        CompanyContractHistory[]
 
   @@index([companyId, isActive, effectiveFrom, effectiveUntil])
   @@map("company_contracts")
+}
+
+model CompanyContractHistory {
+  id                String          @id @default(uuid()) @db.Uuid
+  companyContractId String          @map("company_contract_id") @db.Uuid
+  companyContract   CompanyContract @relation(fields: [companyContractId], references: [id], onDelete: Restrict)
+  version           Int
+  action            String
+  snapshot          Json
+  createdById       String          @map("created_by_id") @db.Uuid
+  createdByName     String          @map("created_by_name")
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@unique([companyContractId, version])
+  @@map("company_contract_histories")
 }
 
 model CompanyContractPrice {

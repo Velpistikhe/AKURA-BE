@@ -36,10 +36,7 @@ export const updateItemPriceSchema = versionSchema.extend({ ...priceFields, isAc
 export const contractPriceIdSchema = z.object({ contractPriceId: z.string().uuid() }).strict();
 export const createContractPriceSchema = z.object({ contractId: z.string().uuid(), priceService: price, priceMaintenance: price.nullable().optional() }).strict();
 export const updateContractPriceSchema = versionSchema.extend({ priceService: price, priceMaintenance: price.nullable().optional(), isActive: z.boolean().optional() });
-export const catalogHistorySchema = z.object({
-  entityType: z.enum(['ITEM', 'ITEM_SIZE', 'ITEM_PRICE', 'COMPANY_CONTRACT_PRICE', 'COMPANY_CONTRACT']), entityId: z.string().uuid(),
-  page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20),
-}).strict();
+export const upsertContractPriceSchema = createContractPriceSchema.extend({ version: z.number().int().nonnegative().optional() });
 export type PriceInput = z.infer<typeof createItemPriceSchema>;
 export type ContractPriceInput = z.infer<typeof createContractPriceSchema>;
 const size = z
