@@ -228,3 +228,7 @@ src/
   routes/             Registry modul
   utils/              Logger, HTTP error, dan async handler
 ```
+
+## Tax ownership moved to Finance
+
+Tax mutation and snapshot endpoints are no longer mounted in App Manager. Use `/api/v1/finance/taxes`. The legacy `taxes` table remains read-only archival data for the ID-preserving import in `finance-service/scripts/import-app-manager-taxes.cjs`. See Finance README for cutover instructions. Do not run an old App Manager version that still allows tax writes after cutover.

@@ -11,8 +11,14 @@ const schema = z.object({
   API_GATEWAY_URL: z.string({ required_error: 'API_GATEWAY_URL is required' })
     .url('API_GATEWAY_URL must be a valid URL')
     .transform((value) => value.replace(/\/$/, '')),
+  TAX_SYNC_SECRET: z.string().min(32).optional(),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),
+  AWS_ENDPOINT_URL_S3: z.string().url().optional(),
+  AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  AWS_REGION: z.string().min(1).default('us-east-2'),
+  AWS_S3_BUCKET: z.string().min(1).default('akura'),
 });
 
 const result = schema.safeParse(process.env);

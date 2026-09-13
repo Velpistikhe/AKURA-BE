@@ -7,6 +7,7 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import routes from './routes/index.js';
+import taxEvents from './modules/taxes/tax-events.routes.js';
 
 const app: Express = express();
 app.use(helmet());
@@ -15,6 +16,7 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(taxEvents);
 app.use(verifyGatewaySecret);
 
 app.get('/health', (req: Request, res: Response) => {

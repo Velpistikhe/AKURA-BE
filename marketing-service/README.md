@@ -60,7 +60,7 @@ Model `MarketingService` dan tabel `marketing_services` sudah dihapus. Struktur 
 
 Relasi induk-anak dan tabel penghubung menggunakan `onDelete: Cascade`, sehingga scope, size, dan relasi item ikut terhapus ketika induknya dihapus.
 
-Payload dan response endpoint item tetap menampilkan `priceServicePrimary`, `priceServiceSisterCompany`, `priceMaintenancePrimary`, dan `priceMaintenanceSisterCompany` di dalam setiap size agar kontrak API tetap kompatibel. Marketing Service menyimpan nilai tersebut secara atomik pada tabel `item_prices`. Harga kontrak company disimpan terpisah pada `company_contract_prices`; PATCH company mempertahankan seluruh ID kontrak dan harga yang terhubung tanpa menyalin atau mengubahnya.
+POST item dan size hanya menerima referensi, tanpa harga. POST item menerima `serviceId`, `name`, dan `sizes: [{ size }]` opsional; POST size menerima `itemId`, `itemVersion`, dan `size`. Harga dibuat terpisah melalui POST `/items/sizes/:itemSizeId/price`, menggunakan referensi size yang sama. Response daftar size tetap menyertakan harga untuk memudahkan pemilihan; sebelum harga dibuat nilainya null dan `priceStatus=UNAVAILABLE`. Harga kontrak company disimpan terpisah pada `company_contract_prices`; PATCH company mempertahankan seluruh ID kontrak dan harga yang terhubung tanpa menyalin atau mengubahnya.
 
 Kedua tabel harga memiliki `effectiveFrom`, `effectiveUntil`, dan `isActive` untuk periode berlaku. Tabel `items`, `item_sizes`, `item_prices`, dan `company_contract_prices` menyimpan `createdById` serta `createdByName`, sedangkan `updatedById` dan `updatedByName` nullable sampai record diubah. Field tersebut merupakan snapshot user audit; ID user tidak memakai foreign key lintas database dan nama diambil dari profil terkini hasil validasi Auth Service. Data historis yang tidak mempunyai informasi pembuat ditandai dengan ID nol dan nama `System Migration`.
 
@@ -89,7 +89,6 @@ Filter tipe service menggunakan exact match `type=TUBULAR` atau `type=OCTG`; nil
 
 Endpoint katalog yang tersedia:
 
-`GET /api/v1/marketing/items/sizes/contract-prices?companyId=<UUID>&itemName=pipe&sortBy=size&sortOrder=asc` mengembalikan `{ sizes, pagination }`. Setiap row memuat data size, harga standar, `item.service`, dan objek `contractPrice` (termasuk `priceService` dan `priceMaintenance`). Hanya size dengan harga kontrak aktif yang sudah mulai berlaku dan belum berakhir yang ditampilkan. Company harus belum revoked dan berada di branch pengguna; item, service, dan size harus aktif serta mengikuti pembatasan branch. Company atau `itemId` yang tidak ditemukan menghasilkan `404`; tanpa kontrak yang cocok hasilnya daftar kosong. Filter dan pagination sama dengan GET size biasa, termasuk `notIn` untuk mengecualikan ID size.
 
 | Endpoint | Method | Fungsi |
 |---|---|---|
@@ -104,16 +103,16 @@ Endpoint katalog yang tersedia:
 | `/items` | GET | Daftar item aktif beserta service, tanpa memuat size |
 | `/items/:itemId` | GET | Detail item aktif beserta service tanpa memuat array size |
 | `/items/sizes` | GET | Daftar size aktif lintas item dalam branch pengguna; `itemId` opsional, filter `size`, `itemName`, `serviceName`, sort `size`, default `createdAt desc`, dengan pagination dan data `item.service` pada setiap row |
-| `/items` | POST | Membuat satu item beserta satu atau beberapa size dan harga secara atomik |
-| `/items/sizes` | POST | Menambahkan satu size dan satu row harga secara atomik; body wajib berisi `itemId`, `itemVersion`, `size`, `priceServicePrimary`, dan `priceServiceSisterCompany` |
-| `/items/sizes/:itemSizeId` | DELETE | Menonaktifkan satu item size dan menutup periode harga terkait tanpa menonaktifkan item induk |
-| `/items/:itemId` | DELETE | Menonaktifkan item, seluruh size, serta harga terkait |
+| `/items` | POST | Membuat referensi item dan size opsional secara atomik, tanpa harga |
+| `/items/sizes` | POST | Menambahkan referensi size; body wajib berisi `itemId`, `itemVersion`, dan `size` |
+| `/items/sizes/:itemSizeId` | DELETE | Menonaktifkan satu item size dan menutup periode harga standar tanpa menonaktifkan item induk atau harga kontrak |
+| `/items/:itemId` | DELETE | Menonaktifkan item, seluruh size aktif, dan harga standar; harga kontrak dipertahankan |
 
-PATCH item dan size tersedia untuk mengubah nama/label. PATCH dan DELETE wajib mengirim `version` resource terbaru; POST penambahan size wajib `itemVersion` parent terbaru. Versi stale menghasilkan `409`. Perubahan harga menaikkan versi size dan item; perubahan contract price juga menaikkan versi kontrak. Semua operasi katalog menggunakan satu urutan lock branch bersama operasi company dan service, transaksi atomik, compare-and-swap, dan audit before/after pada `catalog_audit_logs`. API audit hanya menyediakan pembacaan; aplikasi selalu menambahkan snapshot baru tanpa mengubah atau menghapus snapshot lama. Soft delete item/size hanya menutup harga aktif; riwayat yang sudah nonaktif tetap utuh.
+PATCH item tersedia untuk mengubah nama. Label size tidak dapat diubah; perubahan daftar size dilakukan dengan menambah referensi baru atau soft delete size lama. PATCH dan DELETE wajib mengirim `version` resource terbaru; POST penambahan size wajib `itemVersion` parent terbaru. Versi stale menghasilkan `409`. Perubahan harga menaikkan versi size dan item; perubahan contract price juga menaikkan versi kontrak. Semua operasi katalog menggunakan satu urutan lock branch bersama operasi company dan service, transaksi atomik, compare-and-swap, dan audit before/after pada `catalog_audit_logs`. API audit hanya menyediakan pembacaan; aplikasi selalu menambahkan snapshot baru tanpa mengubah atau menghapus snapshot lama. Soft delete item/size hanya menutup harga standar aktif; harga kontrak dipertahankan dan riwayat yang sudah nonaktif tetap utuh.
 
-Harga service primary, sister company, dan contract wajib dikirim; tidak memiliki default `0`. Nilai negatif, null untuk service price, boolean, string kosong, dan lebih dari dua desimal ditolak (`400`). Gunakan string desimal untuk nominal besar. Nilai `0` eksplisit valid. Maintenance price boleh null kecuali service memiliki maintenance, saat itu harga maintenance wajib lengkap. GET harga yang hilang tidak membuat harga nol: GET detail price mengembalikan `404`, daftar size mengembalikan `priceStatus=UNAVAILABLE` dan harga null.
+Saat POST harga, harga service primary, sister company, dan contract wajib dikirim; tidak memiliki default `0`. Nilai negatif, null untuk service price, boolean, string kosong, dan lebih dari dua desimal ditolak (`400`). Gunakan string desimal untuk nominal besar. Nilai `0` eksplisit valid. Maintenance price boleh null kecuali service memiliki maintenance, saat itu harga maintenance wajib lengkap. GET harga yang hilang tidak membuat harga nol: GET detail price mengembalikan `404`, daftar size mengembalikan `priceStatus=UNAVAILABLE` dan harga null.
 
-`ItemSize` menggunakan `effectiveFrom` dan `effectiveUntil`; aplikasi memeriksa duplikasi size aktif per `(itemId, size)` sebelum menyimpan dalam transaksi dengan lock branch, sedangkan constraint `(itemId, size, effectiveFrom)` mempertahankan histori reuse. `ItemPrice` tetap satu row per size dan `CompanyContractPrice` satu row per `(contractId, itemSizeId)`; setiap revisi disimpan sebagai snapshot audit immutable, bukan menimpa histori. Harga nonaktif dapat diaktifkan kembali melalui PATCH dengan `isActive=true`, field harga lengkap, dan versi terbaru.
+`Item` dan `ItemSize` menggunakan `activeKey` internal yang dinormalisasi (Unicode NFKC, spasi, huruf kecil). Unique key `(serviceId, activeKey)` dan `(itemId, activeKey)` mencegah duplikasi referensi aktif. Soft delete mengosongkan activeKey agar nama dapat digunakan kembali dengan ID baru. `ItemSize` mempertahankan periode dan constraint `(itemId, size, effectiveFrom)` untuk histori reuse. `ItemPrice` tetap satu row per size dan `CompanyContractPrice` satu row per `(contractId, itemSizeId)`; setiap revisi disimpan sebagai snapshot audit immutable, bukan menimpa histori. Harga standar mendukung PATCH parsial: wajib `version` dan minimal satu field; nilai yang tidak dikirim dipertahankan. Harga standar nonaktif dapat diaktifkan kembali dengan `isActive=true` dan versi terbaru selama item serta size aktif. Harga kontrak tetap memerlukan field harga pada PATCH.
 
 ### Kontrak company dan pemilihan harga
 
@@ -127,16 +126,18 @@ Company memiliki `isSisterCompany` (default false). Field `hasContract` sudah di
 | `/company-contracts` | POST | `companyId`, `contractNumber`, `contractDate`, `effectiveFrom`, `effectiveUntil` |
 | `/company-contracts/:contractId` | GET / PATCH / DELETE | PATCH: `version` dan field kontrak/tanggal yang diubah; DELETE: `version` |
 | `/items/:itemId` | PATCH | `version`, `name` |
-| `/items/sizes/:itemSizeId` | GET / PATCH | PATCH: `version`, `size` |
+| `/items/sizes/:itemSizeId` | GET / DELETE | DELETE: `version`; label size tidak dapat diubah |
 | `/items/sizes/:itemSizeId/price` | GET / POST / PATCH / DELETE | Harga standar; PATCH/DELETE: versi harga |
-| `/items/sizes/:itemSizeId/contract-prices` | POST | `contractId`, `priceService`, `priceMaintenance` |
-| `/items/contract-prices/:contractPriceId` | GET / PATCH / DELETE | Harga kontrak; PATCH/DELETE: versi harga |
-| `/items/history` | GET | `entityType`, `entityId`, opsional `page`, `limit` |
+| `/items/sizes/:itemSizeId/contract-prices` | POST / PUT | `contractId`, `priceService`, `priceMaintenance` |
+| `/items/contract-prices/:contractPriceId` | PATCH / DELETE | Harga kontrak; PATCH/DELETE: versi harga |
+| `/items/:itemId/history` | GET | History item dan seluruh size/harganya; `page`, `limit` |
+| `/items/sizes/:itemSizeId/history` | GET | History size dan harganya; `page`, `limit` |
+| `/items/sizes/:itemSizeId/price/history` | GET | History harga standar; `page`, `limit` |
 | `/items/sizes/prices` | GET | `companyId` wajib; filter/sort/pagination sama dengan GET size |
 
 Contoh endpoint harga: `/api/v1/marketing/items/sizes/prices?companyId=<UUID>&itemName=pipe&sortBy=size&sortOrder=asc`.
 
-Urutan harga: kontrak aktif dan berlaku saat ini, lalu harga standar sister company jika `isSisterCompany=true`, lalu harga primary. Jika ada kontrak yang berlaku tetapi harga suatu size tidak ada, respons memakai `UNAVAILABLE` tanpa fallback. Setiap row memuat `priceSource` (`CONTRACT`, `SISTER_COMPANY`, `PRIMARY`), `priceStatus`, `priceMessage`, `priceService`, `priceMaintenance`, `contractId`, dan `contractPrice`. Endpoint `/items/sizes/contract-prices` tetap tersedia untuk hanya menampilkan size yang memiliki harga kontrak saat ini. Semua relasi dibatasi branch pengguna. DELETE kontrak mengubah status menjadi TERMINATED dan menonaktifkan kontrak, mempertahankan data harganya, dan menghentikan pemakaiannya dalam pemilihan harga.
+Quotation options (`GET /items/sizes/prices?companyId=...`) menampilkan katalog aktif yang tidak tercantum dalam kontrak ACTIVE dan berlaku saat ini milik company terpilih di cabang pengguna. Keanggotaan kontrak tetap mengecualikan size meskipun harga kontraknya nonaktif. Kontrak company/cabang lain tidak mengecualikan size. Harga option, create quotation, dan repricing item PATCH hanya PRIMARY atau SISTER_COMPANY berdasarkan isSisterCompany, tidak pernah harga kontrak. Snapshot quotation lama tetap dipertahankan. Filter membership berlaku pada options; itemSizeId yang dikirim langsung ke create tetap divalidasi katalog/harga standar dan tidak menggunakan harga kontrak.
 
 ### Status kontrak dan template Excel
 
@@ -164,13 +165,13 @@ Tes: `npm run test:catalog-pricing`, `npm run test:item-size-list`, dan `npm run
 
 ## Quotation
 
-`revision` menandai jumlah revisi isi dokumen, mulai dari `0`. Perubahan isi header atau daftar/urutan/quantity/harga item menaikkannya satu kali per transaksi. Perubahan status saja, pengiriman isi identik, dan soft delete tidak menaikkannya. `version` tetap menjadi token concurrency dan naik pada setiap update/delete. Nomor `no` tidak berubah saat direvisi; snapshot histori menyimpan revision tiap versi. `revision` diisi server dan tidak diterima dari request. Frontend menggunakan label `no 1` untuk no=1/revision=0, `no 1 revisi 1` untuk revision=1, dan seterusnya. GET daftar/detail mengembalikan revision terkini; snapshot versi sebelumnya tersedia melalui repository history.
+`revision` dimulai dari 0 dan hanya bertambah ketika isi quotation approved direvisi. PATCH membuat dan mengembalikan quotation baru dengan ID baru, version=0, revision=lama+1, previousQuotationId=ID lama, status=REVISED, no=null, numberYear=null, dan pdfDocument=null. Quotation lama menjadi nonaktif tanpa mengubah isi, item, nomor, atau relasi PDF historis. Edit draft tidak menambah revision. Frontend wajib memakai ID/version yang dikembalikan PATCH. Approval revisi memakai nomor/tahun lama (contoh Q-1734 R1), tanpa menghabiskan nomor baru.
 
-`quotations` menyimpan field dokumen: `no`, `numberYear`, `date`, `inquiryMethod`, `inquiryDate`, `subject`, `termOfPayment`, `validity`, `tax`, `supplyAkura`, `supplyCustomer`, `location`, `accomplished`, `deliveryReports`, `staffId`, `status`, `invoiceStatus`, `subTotal`, `taxAmount`, dan `total`. `date` boleh kosong untuk draft. `no` dan `numberYear` otomatis dari server dan tidak diterima pada create/update. Nomor unik berdasarkan `(officeBranchId, numberYear, no)`. `inquiryMethod` menggunakan enum `EMAIL`, `WHATSAPP`, `VERBAL`, atau `JOB_ORDER_REQUEST`. `status` menggunakan enum `CREATED` (default), `SENT`, `REJECTED`, `APPROVED`, `REVISED`, `CONFIRMED`, `ON_PROGRESS`, `WORK_ORDER_COMPLETE`, atau `COMPLETE`. Nilai API wajib huruf kapital; angka dan nilai di luar enum ditolak. `invoiceStatus` menggunakan enum nullable `CREATED`, `SEND`, `APPROVED`, `COMPLETE`, `CANCELED`, atau `EXPIRED`. Jika tidak dikirim saat create, nilainya `null` sampai quotation menerbitkan invoice; request juga dapat mengirim `null`. Update tanpa field ini mempertahankan nilai sebelumnya.
+`quotations` menyimpan field dokumen: `no`, `numberYear`, `date`, `inquiryMethod`, `inquiryDate`, `subject`, `termOfPayment`, `validity`, `tax`, `supplyAkura`, `supplyCustomer`, `location`, `accomplished`, `deliveryReports`, `staffId`, `status`, `invoiceStatus`, `subTotal`, `taxAmount`, dan `total`. `date` boleh kosong untuk draft. `no` dan `numberYear` otomatis dari server dan tidak diterima pada create/update. Draft memiliki no=null dan numberYear=null sampai approved. Nomor unik berdasarkan `(officeBranchId, numberYear, no, revision)`. `inquiryMethod` menggunakan enum `EMAIL`, `WHATSAPP`, `VERBAL`, atau `JOB_ORDER_REQUEST`. `status` dan `invoiceStatus` dikelola server dan hanya ditampilkan pada response. POST selalu menetapkan status CREATED dan invoiceStatus null. POST/PATCH umum menolak kedua field tersebut dengan 400, termasuk nilai null atau nilai default. Perubahan status berikutnya harus melalui business logic server, bukan input bebas dari frontend.
 
-`quotation_sequences` menyimpan `lastNumber` per `(officeBranchId, year)`. Tahun mengikuti waktu create dalam zona `Asia/Jakarta`, bukan tanggal dokumen. Create menginisialisasi counter jika belum ada dengan `INSERT ... ON CONFLICT DO NOTHING`, lalu membaca counter menggunakan pessimistic row lock `SELECT ... FOR UPDATE`. Nomor quotation diisi `lastNumber + 1`, kemudian counter diperbarui menggunakan nomor yang sama. Counter, quotation, item, dan histori berada dalam satu transaksi; kegagalan me-rollback semuanya. Tahun baru memakai counter baru mulai 1 untuk setiap cabang. Soft delete tidak mengurangi counter atau menggunakan ulang nomor lama. Nomor dan tahun penomoran tetap saat quotation diperbarui.
+`quotation_sequences` menyimpan lastNumber per cabang/tahun approval (Asia/Jakarta). Create draft tidak menggunakan nomor. Approval pertama mengunci counter, memberi nomor, menghasilkan serta mengupload PDF, lalu menyimpan status APPROVED, metadata PDF, counter dan history dalam satu transaksi (timeout 60 detik). Kegagalan upload atau database me-rollback nomor sehingga tidak ada nomor terbuang. Revisi memakai nomor/tahun sebelumnya tanpa menaikkan counter. Nomor historis tidak digunakan ulang. File upload dari transaksi gagal dibersihkan hanya setelah dipastikan tidak terdaftar di metadata.
 
-`quotation_items` menyimpan referensi item size, snapshot nama service/tipe service/nama item/ukuran, quantity, harga satuan, dan subtotal. `quantity` menggunakan Decimal(18,3), nominal Decimal(18,2). Input quantity/harga berupa string desimal. `tax` diperlakukan sebagai persentase integer 0–100. Subtotal dibulatkan ke dua desimal per baris; subtotal quotation adalah jumlah baris aktif, pajak dihitung dari subtotal, dan total adalah subtotal + pajak. Nominal total dihitung oleh repository, tidak diterima dari input.
+`quotation_items` menyimpan referensi item size, snapshot nama service/tipe service/nama item/ukuran, quantity, harga satuan, dan subtotal. Quantity inspection dan maintenance menggunakan Decimal(18,3), nominal Decimal(18,2). Input quantity berupa string desimal; harga dipilih oleh server. `tax` diperlakukan sebagai persentase integer 0–100. Subtotal dibulatkan ke dua desimal per baris; subtotal quotation adalah jumlah baris aktif, pajak dihitung dari subtotal, dan total adalah subtotal + pajak. Nominal total dihitung oleh repository, tidak diterima dari input.
 
 `createdById`/`updatedById` pada quotation dan item menyimpan ID user Auth Service tanpa foreign key lintas database. Pembuat diisi dari actor terautentikasi; pengubah bernilai null sampai record diubah. `customerSnapshot` berupa string yang hanya menyimpan nama company staff saat quotation dibuat atau kontak diganti. Perubahan nama staff sesudahnya tidak mengubah snapshot yang sudah tersimpan.
 
@@ -184,13 +185,13 @@ Endpoint melalui Gateway (akses Marketing dan office branch wajib):
 
 | Endpoint | Method | Fungsi |
 |---|---|---|
-| `/api/v1/marketing/quotations` | GET | Daftar quotation aktif beserta item aktif, `page` minimal 1 dan `limit` 1–100 (default 20), urut terbaru |
+| `/api/v1/marketing/quotations` | GET | Daftar seluruh quotation dan item (aktif maupun nonaktif) dalam branch pengguna, `page` minimal 1 dan `limit` 1–100 (default 20), urut terbaru |
 | `/api/v1/marketing/quotations/:quotationId` | GET | Detail quotation aktif dari branch pengguna |
 | `/api/v1/marketing/quotations` | POST | Membuat quotation dan array `items` (1–100 baris) secara atomik |
 | `/api/v1/marketing/quotations/:quotationId` | PATCH | Update header dan/atau daftar item; wajib `version` terbaru dan minimal satu field perubahan |
 | `/api/v1/marketing/quotations/:quotationId` | DELETE | Soft delete quotation beserta item aktif; body wajib `{ "version": 0 }` sesuai versi terbaru |
 
-GET tidak menampilkan quotation nonaktif. DELETE mempertahankan row dan histori, menambah versi, serta mengembalikan `409` untuk versi stale atau quotation yang sudah nonaktif. Contoh payload lengkap tersedia di Swagger pada tag `Quotations`.
+GET daftar menampilkan quotation aktif maupun nonaktif beserta seluruh itemnya, dibatasi branch pengguna; pagination menghitung keduanya. Gunakan isActive untuk membedakan status. GET detail tetap tidak menampilkan quotation nonaktif. DELETE mempertahankan row dan histori, menambah versi, serta mengembalikan `409` untuk versi stale atau quotation yang sudah nonaktif. Contoh payload lengkap tersedia di Swagger pada tag `Quotations`.
 
 Verifikasi database lokal: `npm run test:quotation` dan `npm run test:quotation-http`. Harness memakai branch UUID khusus dan membersihkan hanya fixture miliknya setelah pengujian. Pengujian HTTP memakai router asli dengan konteks user terautentikasi yang diinjeksi; tidak menguji ulang JWT/Gateway.
 
@@ -232,3 +233,67 @@ npm run db:push
 ```
 
 Jika data development boleh dikosongkan dan menghalangi perubahan schema, gunakan `npm run db:push -- --force-reset`. Perintah ini menghapus seluruh data pada database yang dikonfigurasi, menerapkan schema terbaru, dan generate ulang Prisma Client.
+
+### Audit dan pengujian item
+
+History menampilkan `entityType`, `entityId`, `action`, `actionLabel`, `version`, `changedBy`, `changedAt`, dan `changes` berisi label bahasa Inggris serta nilai before/after. Histori tetap tersedia setelah soft delete dan dibatasi branch token. Pagination memakai snapshot database konsisten, urut waktu kemudian ID. Endpoint tidak menyediakan edit/hapus audit.
+
+Soft delete item menonaktifkan seluruh size aktif dan harga standar terkait, tetapi mempertahankan harga kontrak, snapshot, status, serta versi kontrak. Soft delete service juga menonaktifkan harga standar terkait tanpa mengubah kontrak. Soft delete size tidak menonaktifkan item; versi item tetap naik sebagai penanda perubahan turunannya. Cascade menulis perubahan dan audit dalam transaksi yang sama, memproses penonaktifan secara batch, tanpa membuat atau merevisi kontrak otomatis. Kontrak hanya dibuat atau direvisi user setelah kesepakatan kedua pihak. Lock branch dipertahankan agar interoperabel dengan import Excel dan perubahan kontrak; penulisan pada branch yang sama tetap diserialisasi.
+
+Jalankan `npm run test:catalog-pricing` untuk uji PostgreSQL melalui router Express (auth diinjeksi), termasuk duplikasi paralel, stale version, PATCH parsial, rollback saat audit gagal, isolasi branch, cascade, reuse, history, dan stress. Hasil tersimpan di `tests/reports/item-catalog.json`. Default 30 item, concurrency 12; `CATALOG_STRESS_ITEMS` dapat diatur 1?200. Fixture dibersihkan setelah tes. Angka latency merupakan pengukuran lokal, bukan jaminan kapasitas produksi.
+
+### Snapshot kontrak dan option quotation
+
+`CompanyContractPrice.catalogSnapshot` adalah JSON wajib: `serviceName`, `serviceType`, `itemName`, `size`, dan `hasMaintenance`. POST harga kontrak maupun import Excel mengisinya dari katalog aktif dalam transaksi yang sama. PATCH harga tidak menyegarkan snapshot. Nominal tetap memakai kolom Decimal, dan `itemSizeId` tetap menjadi referensi.
+
+GET `/items/sizes/prices?companyId=<UUID>` memilih harga berdasarkan perusahaan dan branch pengguna: kontrak berlaku per size, lalu sister company atau primary untuk size di luar kontrak. Response tetap berisi `company`, `sizes`, dan `pagination`. Size menampilkan `priceInspection` (alias `priceService`) serta `priceMaintenance`. Harga maintenance null berarti tidak tersedia. Metadata dan snapshot katalog tetap tersedia; frontend tidak perlu mengirimnya kembali. Parameter `exclude` tetap berlaku.
+
+Create quotation dapat mengirim `companyId` tanpa kontak. `staffId` opsional; jika dikirim bersama companyId, kontak harus berasal dari perusahaan yang dipilih. StaffId saja masih diterima untuk kompatibilitas pemilihan perusahaan melalui kontak. Company/contact harus aktif dan dalam branch pengguna.
+
+Setiap baris `items` mengirim `{ "itemSizeId": "<UUID>", "quantityInspection": "2", "quantityMaintenance": "0" }`. Maintenance boleh dihilangkan dan dianggap 0. Quantity menerima angka atau string desimal nonnegatif dengan maksimal 12 digit integer dan 3 desimal; null, boolean, negatif, dan kedua quantity nol ditolak. Satu size hanya boleh muncul sekali. Minimal salah satu quantity positif.
+
+Backend mengambil harga terkini dalam transaksi dengan lock branch, menyimpan kedua quantity, `priceInspection`, `priceMaintenance`, metadata sumber harga (`priceSelection`), dan snapshot identitas. Client tidak mengirim unitPrice, priceKind, priceSelection atau harga. Harga inspection harus tersedia; maintenance positif memerlukan dukungan maintenance dan harga maintenance tersedia. Maintenance kosong/0 tetap diizinkan jika harga maintenance tidak tersedia. Harga quotation hanya normal/sister; katalog dan harga standar wajib tersedia.
+
+Subtotal baris adalah inspection quantity ? inspection price ditambah maintenance quantity ? maintenance price; tiap komponen dibulatkan ke dua desimal sebelum dijumlahkan. Pajak/total dihitung server. PATCH yang menyertakan items menyegarkan harga seluruh baris yang dikirim. PATCH header/status tanpa items mempertahankan snapshot harga. Mengganti perusahaan/kontak mewajibkan daftar item lengkap. Update/delete tetap memakai version quotation. Riwayat dan snapshot dokumen Finance/Field Service yang sudah dibuat tidak ditulis ulang.
+
+Schema menggunakan nama Prisma `quantityInspection` dan `priceInspection` dengan mapping ke kolom lama quantity/unit_price, ditambah quantity_maintenance dan price_maintenance. Setelah db:push pada lingkungan yang memiliki data lama, jalankan `node scripts/upgrade-quotation-quantities.cjs` sebelum menjalankan versi baru. Script idempotent memindahkan baris maintenance lama ke kolom maintenance tanpa mengubah subtotal; historical JSON snapshots mempertahankan format aslinya. Database lokal tidak memiliki baris lama saat perubahan ini diterapkan.
+
+Jalankan `npm run test:quotation-price-options` untuk verifikasi opsi campuran, company-only create, optional maintenance, harga terkini, snapshot historis, exclude, dan pembuatan quotation paralel.
+
+Teks buatan sistem untuk audit memakai kode bahasa Inggris (misalnya `CREATE`, `UPDATE`, `DEACTIVATE`) dan key snapshot berbahasa Inggris. Label history juga berbahasa Inggris, termasuk saat membaca audit lama. Nilai input user seperti nama perusahaan, service, item, dan size disimpan apa adanya; aplikasi tidak menerjemahkan isi kontrak atau identitas user.
+
+Quotation Options menerima `exclude` berisi 1-100 UUID `itemSizeId` dipisahkan koma, misalnya `/items/sizes/prices?companyId=<UUID>&exclude=<SIZE_UUID_1>,<SIZE_UUID_2>`. Frontend mengirim ID size yang sudah dipilih pada list quotation. Filter berlaku untuk harga kontrak maupun standar sebelum pagination dan perhitungan total. Hilangkan parameter jika belum ada pilihan. UUID tidak valid, nilai kosong, atau lebih dari 100 entri menghasilkan 400. Parameter lama `notIn` tetap diterima; jika keduanya dikirim, gabungan ID dikecualikan.
+
+
+### Quotation references for downstream documents
+
+GET `/quotation-references/:quotationId` exposes an active quotation snapshot to MARKETING, FINANCE, ACCOUNTING and FIELD_SERVICE users (plus ADMIN/APP_MANAGER), restricted to the authenticated branch. Finance and Field Service use it to validate quotationId/version before saving their own documents. This read-only route does not grant access to Marketing CRUD. Run `node --test tests/quotation-reference-access.cjs` after compiling to verify section and branch restrictions.
+# Quotation approval PDF
+
+`POST /api/v1/marketing/quotations/:quotationId/approve` through the gateway, with authentication and JSON body `{"version": 0}` (use the latest quotation version).
+
+Approves active `CREATED`, `SENT`, or `REVISED` quotations within the user's branch. The PDF uses saved customer/item prices, separate inspection and maintenance quantities, stored totals, and quotation terms. The supplied TRIDAYA PDF provides the letterhead and general terms assets in `assets/quotation`; customer-specific scope descriptions, job-start estimates, contact details, and preparer names absent from quotation data are not copied from the sample. Deploy the `assets` directory alongside `dist`.
+
+PDF metadata is stored in `quotation_pdfs`. Unique `quotation_id` enforces a single optional 1:1 relation: a quotation may have no PDF, and every PDF belongs to exactly one quotation. Metadata includes bucket/key, filename, content type, byte size, SHA-256, version/revision, approval timestamp and actor. GET detail includes inactive quotations with `data.pdfDocument` and a fresh 15-minute `data.pdf.url`; old PDF links remain attached permanently. Approval retries use the latest active version without generating another PDF.
+
+Editing approved content creates a new draft quotation and marks the old one inactive; its content, items and PDF remain intact. The revision draft has no number until approval, when it receives the original quotation number/year. New PDF objects are stored at `quotation/{officeBranchId}/{quotationId}/r{revision}/{uuid}.pdf` inside bucket `akura`. Existing historical files retain their original keys; they are never moved or deleted by revision.
+
+Storage uses `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and optional `AWS_S3_BUCKET` (default `akura`). No public bucket policy is required. The quotation table changes have been applied directly to the configured database. `prisma/schema.prisma` defines the structure; no separate SQL update files are maintained. For a new development database, synchronize the schema and regenerate the client:
+
+```sh
+npm run db:push
+npm run db:generate
+npm run build
+npm run test:quotation-approval
+npm run test:quotation-number
+```
+
+The approval test uses temporary database fixtures with simulated storage failures. It does not upload to the real bucket.
+
+## Tax cache from Finance
+
+Finance owns tax. Marketing receives authenticated `POST /internal/taxes/events` requests directly using `x-tax-sync-secret` / `TAX_SYNC_SECRET`. Events carry eventId, branch, version and complete branch tax periods. Branch replacement and version advancement are atomic. Duplicate or older versions return success without modifying cache. No tax polling scheduler runs.
+
+Configure the Marketing receiver URL in Finance `TAX_DELIVERY_TARGETS`. Apply the Prisma schema and restart both services. Bootstrap/recover using Finance `POST /api/v1/finance/taxes/resync` for each branch. This is required when a new consumer is added or its database is restored. Existing `tax_sync_state` is retained only for migration compatibility.
+
+Quotation creation selects the locally cached period effective on its date (or today in Asia/Jakarta), snapshots tax and taxSourceId, and returns 503 if missing. Existing quotation snapshots and revisions retain their original tax. Cache delivery is eventually consistent; invoice tax is independently validated against Finance master data.

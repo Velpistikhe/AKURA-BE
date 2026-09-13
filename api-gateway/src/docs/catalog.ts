@@ -19,7 +19,7 @@ const price = object({ id: uuid, itemSizeId: uuid, ...audit, ...periods, isActiv
   priceServicePrimary: decimal, priceServiceSisterCompany: decimal,
   priceMaintenancePrimary: { ...decimal, nullable: true }, priceMaintenanceSisterCompany: { ...decimal, nullable: true },
 }, ['id', 'itemSizeId', 'version', 'priceServicePrimary', 'priceServiceSisterCompany', 'isActive']);
-const contractPrice = object({ id: uuid, contractId: uuid, itemSizeId: uuid, ...audit, ...periods, isActive: { type: 'boolean' }, priceService: decimal, priceMaintenance: { ...decimal, nullable: true }, contract: ref('CompanyContract') }, ['id', 'contractId', 'itemSizeId', 'version', 'priceService', 'priceMaintenance', 'isActive']);
+const contractPrice = object({ catalogSnapshot: ref('ContractCatalogSnapshot'), id: uuid, contractId: uuid, itemSizeId: uuid, ...audit, ...periods, isActive: { type: 'boolean' }, priceService: decimal, priceMaintenance: { ...decimal, nullable: true }, contract: ref('CompanyContract') }, ['id', 'contractId', 'itemSizeId', 'version', 'priceService', 'priceMaintenance', 'isActive', 'catalogSnapshot']);
 const contract = object({ id: uuid, companyId: uuid, contractNumber: { type: 'string' }, contractDate: date, status: contractStatus, ...contractPeriods, isActive: { type: 'boolean' }, hasList: { type: 'boolean', description: 'True when the contract has at least one contract price list.' }, version, createdById: uuid, updatedById: { ...uuid, nullable: true }, createdAt: timestamp, updatedAt: timestamp }, ['id', 'companyId', 'contractNumber', 'contractDate', 'status', 'hasList', 'version', 'effectiveFrom', 'effectiveUntil', 'isActive']);
 const sizeRow = { allOf: [ref('ItemSizeListRow'), object({ contractPrice: ref('CompanyContractPrice') }, ['contractPrice'])] };
 const profileFields = {
@@ -59,6 +59,7 @@ const historyResponse = (idField: string, entry: string, message: string) => obj
   data: object({ [idField]: uuid, history: { type: 'array', items: ref(entry) }, pagination: ref('Pagination') }, [idField, 'history', 'pagination']),
 }, ['status', 'success', 'message', 'data']);
 export const catalogSchemas = {
+  ContractCatalogSnapshot: { ...object({ serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string' }, hasMaintenance: { type: 'boolean' } }, ['serviceName', 'serviceType', 'itemName', 'size', 'hasMaintenance']), readOnly: true, description: 'Frozen catalog identity at contract-price creation/import. Catalog edits and soft deletion never refresh this snapshot.' },
   CompanyHistorySnapshot: {
     ...object(companySnapshotFields, Object.keys(companySnapshotFields)),
     description: 'Company profile after this change. New snapshots contain profile fields only; imported legacy snapshots may include additional fields.',
@@ -78,12 +79,11 @@ export const catalogSchemas = {
   CatalogNullableMoney: optionalMoney,
   CatalogVersionRequest: input({ version }, ['version']),
   UpdateItemRequest: input({ version, name: { type: 'string', minLength: 1, maxLength: 200 } }, ['version', 'name']),
-  UpdateItemSizeRequest: input({ version, size: { type: 'string', minLength: 1, maxLength: 100 } }, ['version', 'size']),
   CatalogPriceRequest: { ...input(standard, ['priceServicePrimary', 'priceServiceSisterCompany']), description: 'Both service prices are required. Both maintenance prices are required when the service hasMaintenance=true.' },
-  UpdateCatalogPriceRequest: input({ version, ...standard, isActive: { type: 'boolean', description: 'Use true with the current version to reactivate a price; audit preserves the previous state.' } }, ['version', 'priceServicePrimary', 'priceServiceSisterCompany']),
-  CreateContractPriceRequest: input({ contractId: uuid, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   UpsertContractPriceRequest: input({ contractId: uuid, version, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
+  UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'Use true with the current version to reactivate a price while the item and size are active.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. Stale versions return 409.' },
+  CreateContractPriceRequest: input({ contractId: uuid, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   CreateCompanyContractRequest: { ...input({ companyId: uuid, contractNumber: { type: 'string', minLength: 1, maxLength: 255 }, contractDate: date, ...contractPeriods }, ['companyId', 'contractNumber', 'contractDate', 'effectiveFrom', 'effectiveUntil']), description: 'Status is not accepted. User creation sets CREATE; ADMIN/APP_MANAGER creation sets ACTIVE. The company must not already have an ACTIVE contract. All contract dates use YYYY-MM-DD and effectiveUntil must follow effectiveFrom.' },
   UpdateCompanyContractRequest: { ...input({ version, contractNumber: { type: 'string', minLength: 1, maxLength: 255 }, contractDate: date, ...contractPeriods }, ['version', 'effectiveFrom', 'effectiveUntil']), description: 'Admin-only revision. It terminates the previous contract with effectiveUntil = new effectiveFrom minus one day, then creates an ACTIVE replacement. Status is not accepted.' },
   TerminateCompanyContractRequest: input({ version, terminatedAt: date }, ['version', 'terminatedAt']),
@@ -99,19 +99,29 @@ export const catalogSchemas = {
   }, ['contractPriceId', 'history', 'pagination'])),
   CatalogContractSizeListResponse: paginated('sizes', sizeRow),
   CatalogSizeDetailResponse: envelope(object({ id: uuid, itemId: uuid, size: { type: 'string' }, ...audit, ...periods, isActive: { type: 'boolean' }, price: { ...price, nullable: true }, item: ref('ItemListRow') }, ['id', 'itemId', 'version', 'size', 'price', 'item'])),
-  CatalogSizeMutationResponse: envelope(object({ id: uuid, itemId: uuid, size: { type: 'string' }, isActive: { type: 'boolean' }, ...periods, ...audit }, ['id', 'itemId', 'size', 'version'])),
   CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: uuid, name: { type: 'string' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'version'])),
-  ResolvedPriceListResponse: envelope(object({
-    company: object({ id: uuid, isSisterCompany: { type: 'boolean' } }, ['id', 'isSisterCompany']),
-    sizes: { type: 'array', items: { allOf: [ref('ItemSizeListRow'), object({
-      contractId: { ...uuid, nullable: true }, contractPrice: { ...contractPrice, nullable: true },
-      priceSource: { type: 'string', enum: ['CONTRACT', 'SISTER_COMPANY', 'PRIMARY'] },
-      priceStatus: { type: 'string', enum: ['AVAILABLE', 'UNAVAILABLE'] }, priceMessage: { type: 'string', nullable: true },
-      priceService: { ...decimal, nullable: true }, priceMaintenance: { ...decimal, nullable: true },
-    }, ['priceSource', 'priceStatus', 'priceMessage', 'priceService', 'priceMaintenance', 'contractId', 'contractPrice'])] } },
+  QuotationSizeOption: object({
+    id: uuid, itemId: uuid, size: {type:'string'}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
+    item: object({id:uuid,name:{type:'string'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
+    catalogSnapshot:ref('ContractCatalogSnapshot'),catalogActive:{type:'boolean'},
+    priceSource:{type:'string',enum:['PRIMARY','SISTER_COMPANY']},
+    priceStatus:{type:'string',enum:['AVAILABLE','UNAVAILABLE']},priceMessage:{type:'string',nullable:true},
+    priceService:{...decimal,nullable:true},priceInspection:{...decimal,nullable:true},priceMaintenance:{...decimal,nullable:true},
+    priceId:{...uuid,nullable:true},priceVersion:{...version,nullable:true},
+    contractId:{...uuid,nullable:true},contractVersion:{...version,nullable:true},
+    sizeVersion:version,itemVersion:version,serviceVersion:version,
+    contractPrice:{...contractPrice,nullable:true},
+  }, ['id','itemId','size','item','catalogSnapshot','catalogActive','priceSource','priceStatus','priceService','priceMaintenance','priceId','priceVersion','contractId','contractVersion','sizeVersion','itemVersion','serviceVersion']),
+  ResolvedPriceListResponse: envelope(object({company:object({id:uuid,name:{type:'string'},isSisterCompany:{type:'boolean'}}),sizes:{type:'array',items:ref('QuotationSizeOption')},pagination:ref('Pagination')},['company','sizes','pagination'])),
+  ItemCatalogHistoryResponse: envelope(object({
+    entityType: { type: 'string', enum: ['ITEM', 'ITEM_SIZE', 'ITEM_PRICE'] }, entityId: uuid,
+    history: { type: 'array', items: object({
+      id: uuid, entityType: { type: 'string' }, entityId: uuid, version, action: { type: 'string' }, actionLabel: { type: 'string' },
+      changedBy: object({ id: uuid, name: { type: 'string' } }, ['id', 'name']), changedAt: timestamp,
+      changes: { type: 'array', items: object({ field: { type: 'string' }, label: { type: 'string' }, before: {}, after: {} }, ['field', 'label', 'before', 'after']) },
+    }, ['id', 'entityType', 'entityId', 'version', 'action', 'actionLabel', 'changedBy', 'changedAt', 'changes']) },
     pagination: ref('Pagination'),
-  }, ['company', 'sizes', 'pagination'])),
-  CatalogHistoryResponse: paginated('history', object({ id: uuid, officeBranchId: uuid, entityType: { type: 'string' }, entityId: uuid, version, action: { type: 'string' }, before: { type: 'object', nullable: true }, after: { type: 'object' }, createdById: uuid, createdByName: { type: 'string' }, createdAt: timestamp })),
+  }, ['entityType', 'entityId', 'history', 'pagination'])),
 };
 const parameter = (name: string, schema: object, required = false, location = 'query') => ({ in: location, name, required, schema });
 const path = (name: string) => parameter(name, uuid, true, 'path');
@@ -142,6 +152,9 @@ const historyOperation = (summary: string, response: string, idField: string, de
 });
 const root = '/api/v1/marketing';
 export const catalogPaths = {
+  [`${root}/items/{itemId}/history`]: { get: historyOperation('Read item and descendant history', 'ItemCatalogHistoryResponse', 'itemId', 'Includes item, sizes, standard prices and company contract prices. English field labels, before/after values, actor and action labels. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
+  [`${root}/items/sizes/{itemSizeId}/history`]: { get: historyOperation('Read size and price history', 'ItemCatalogHistoryResponse', 'itemSizeId', 'Includes size, standard price and company contract price changes. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
+  [`${root}/items/sizes/{itemSizeId}/price/history`]: { get: historyOperation('Read standard price history', 'ItemCatalogHistoryResponse', 'itemSizeId', 'Includes only the standard price audit trail. Decimal values are strings. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
   [`${root}/company-staffs/{companyStaffId}/history`]: { get: historyOperation('Read company staff history', 'CompanyStaffHistoryResponse', 'companyStaffId', 'Includes CREATE, UPDATE and DEACTIVATE, including deactivation through the company. Available after staff or company soft deletion. Access follows the current parent company branch.') },
   [`${root}/companies/{companyId}/staff-history`]: { get: historyOperation('Read all staff history for a company', 'CompanyStaffAggregateHistoryResponse', 'companyId', 'Returns history entries for every staff assigned to the company, including deactivation through the company. Available for soft-deleted companies in the token branch.', 'Sorted by history creation time descending, then ID descending.') },
   [`${root}/companies/{companyId}/history`]: { get: historyOperation('Read company profile history', 'CompanyHistoryResponse', 'companyId', 'Includes CREATE, UPDATE and DEACTIVATE. Available for soft-deleted companies in the token branch. Company snapshots are separate from staff history.') },
@@ -177,21 +190,20 @@ export const catalogPaths = {
   },
   [`${root}/items`]: {
     get: operation('List active items', 'ItemListResponse', [...['name', 'serviceName'].map(name => parameter(name, { type: 'string', minLength: 1, maxLength: 200 })), parameter('sortBy', { type: 'string', enum: ['name', 'serviceName'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination]),
-    post: operation('Create item, sizes and standard prices atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Every created row receives version 0 and an audit entry. Required service prices have no defaults.'),
+    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
   },
   [`${root}/items/{itemId}`]: {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),
     patch: operation('Update item name using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest'),
-    delete: operation('Deactivate item, active sizes and their prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Historical inactive records remain unchanged.'),
+    delete: operation('Deactivate item, active sizes and standard prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Contract prices and contract versions remain unchanged; no contract is created automatically. Historical inactive records remain unchanged.'),
   },
   [`${root}/items/sizes`]: {
     get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
-    post: operation('Add size and standard prices atomically', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'itemVersion is the latest parent item version. Returns the new itemVersion. Requires both service prices; no default zero. A previously inactive size name may be reused with a new ID.'),
+    post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
   },
   [`${root}/items/sizes/{itemSizeId}`]: {
     get: operation('Get size including raw price and current versions', 'CatalogSizeDetailResponse', [path('itemSizeId')]),
-    patch: operation('Update size label using its version', 'CatalogSizeMutationResponse', [path('itemSizeId')], 'UpdateItemSizeRequest'),
-    delete: operation('Deactivate size and its active prices', 'ItemSizeResponse', [path('itemSizeId')], 'CatalogVersionRequest'),
+    delete: operation('Deactivate size and its active prices', 'ItemSizeResponse', [path('itemSizeId')], 'CatalogVersionRequest', 200, 'Atomically deactivates standard prices. Company contract prices and their snapshots remain unchanged and can be used by currently valid contracts. The parent item remains active; its version increments for the child change. Each changed row receives an audit entry.'),
   },
   [`${root}/items/sizes/{itemSizeId}/price`]: {
     get: operation('Get standard price including inactive state and version', 'CatalogItemPriceResponse', [path('itemSizeId')]),
@@ -201,7 +213,7 @@ export const catalogPaths = {
   },
   [`${root}/items/sizes/{itemSizeId}/contract-prices`]: {
     post: operation('Create size price for a company contract', 'CompanyContractPriceResponse', [path('itemSizeId')], 'CreateContractPriceRequest', 201, 'contractId replaces companyId. One row per contract/size. Maintenance price is required for services with maintenance. Parent contract version increments.'),
-    put: operation('Create or update a company contract price', 'CompanyContractPriceResponse', [path('itemSizeId')], 'UpsertContractPriceRequest', 200, 'Creates a price when none exists for contractId/itemSizeId. When it already exists, updates its prices and requires the current version.'),
+    put: { ...operation('Create or update a company contract price', 'CompanyContractPriceResponse', [path('itemSizeId')], 'UpsertContractPriceRequest', 200, 'Lookup and write are atomic. Creation requires no version; existing prices require the current version.'), responses: { ...operation('', 'CompanyContractPriceResponse').responses, 201: { description: 'Created', ...content(ref('CompanyContractPriceResponse')) } } },
   },
   [`${root}/items/contract-prices/{contractPriceId}`]: {
     patch: operation('Update or reactivate contract price using its version', 'CompanyContractPriceResponse', [path('contractPriceId')], 'UpdateContractPriceRequest'),
@@ -213,7 +225,7 @@ export const catalogPaths = {
       parameter('sortBy', { type: 'string', enum: ['priceService', 'priceMaintenance', 'effectiveFrom', 'effectiveUntil', 'createdAt', 'updatedAt'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination,
     ], undefined, 200, 'Returns all contract price lists belonging to the authenticated user branch, including inactive, future, terminated, and expired contracts unless filtered.'),
   },
-  [`${root}/items/sizes/prices`]: { get: operation('Resolve prices for a company', 'ResolvedPriceListResponse', [parameter('companyId', uuid, true), ...filters], undefined, 200, 'Priority: current active contract, otherwise sister company standard price when isSisterCompany=true, otherwise primary standard price. If a current contract lacks a size price, return UNAVAILABLE and null prices without fallback. Missing/inactive standard prices are also UNAVAILABLE. Explicit zero remains AVAILABLE. Includes item/service, selected priceSource, contract and pagination.') },
+  [`${root}/items/sizes/prices`]: { get: operation('Resolve prices for a company', 'ResolvedPriceListResponse', [parameter('companyId', uuid, true), { ...parameter('exclude', { type: 'array', minItems: 1, maxItems: 100, items: uuid }), style: 'form', explode: false, description: 'Comma-separated itemSizeId UUIDs already selected in the quotation. Excluded from options and pagination totals after excluding current-contract sizes. Omit when no sizes are selected. Combined with notIn when both are provided.' }, ...filters], undefined, 200, 'Quotation options include only active catalog sizes absent from the selected company current ACTIVE contract in the authenticated branch. Membership excludes even inactive contract-price rows. Other companies and branches do not affect membership. Expired/future/inactive contracts do not exclude sizes. Search and pagination use live catalog labels after exclusion. Prices are exclusively PRIMARY or SISTER_COMPANY according to company.isSisterCompany. Contract prices are never used for quotation creation or item repricing. Missing normal/sister prices are UNAVAILABLE. Submit itemSizeId, quantityInspection and optional quantityMaintenance; client prices are rejected.') },
   [`${root}/company-contracts`]: {
     get: operation('List company contracts in the current branch', 'CompanyContractListResponse', [parameter('companyId', uuid), parameter('isActive', { type: 'string', enum: ['true', 'false'] }), parameter('status', contractStatus), ...pagination]),
     post: operation('Create company contract', 'CompanyContractResponse', [], 'CreateCompanyContractRequest', 201),
@@ -224,7 +236,7 @@ export const catalogPaths = {
     delete: operation('Terminate company contract (admin)', 'CompanyContractResponse', [path('contractId')], 'TerminateCompanyContractRequest', 200, 'Sets TERMINATED, isActive=false, and effectiveUntil to terminatedAt; the change is saved in contract history.'),
   },
   [`${root}/company-contract-prices/{contractPriceId}/history`]: {
-    get: operation('Read user-friendly company contract price history', 'CompanyContractPriceHistoryResponse', [path('contractPriceId'), ...pagination], undefined, 200, 'Returns field-level changes with Indonesian labels, values before/after, actor, and timestamp. Only the current branch may read the history.'),
+    get: operation('Read user-friendly company contract price history', 'CompanyContractPriceHistoryResponse', [path('contractPriceId'), ...pagination], undefined, 200, 'Returns field-level changes with English labels, values before/after, actor, and timestamp. Only the current branch may read the history.'),
   },
   [`${root}/company-contracts/{contractId}/approve`]: {
     post: operation('Approve company contract (admin)', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Changes a CREATE contract to ACTIVE. Only ADMIN or APP_MANAGER may approve.'),

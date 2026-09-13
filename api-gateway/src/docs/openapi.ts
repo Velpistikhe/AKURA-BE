@@ -1,5 +1,8 @@
+import { operationalPaths, operationalSchemas } from './operational-documents.js';
 import { catalogPaths, catalogSchemas } from './catalog.js';
 import { quotationPaths, quotationSchemas } from './quotation.js';
+import { taxPaths } from './tax.js';
+import { groupByModule } from './module-tags.js';
 
 const schemaRef = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 
@@ -66,7 +69,7 @@ const refreshTokenParameters = [
   },
 ];
 
-export const openApiDocument = {
+export const openApiDocument = groupByModule({
   openapi: '3.0.3',
   info: {
     title: 'Akura API Gateway',
@@ -79,15 +82,7 @@ export const openApiDocument = {
       description: 'Current API Gateway host',
     },
   ],
-  tags: [
-    { name: 'Quotations', description: 'Marketing quotations with item lists and soft deletion.' },
-    { name: 'Gateway', description: 'Gateway diagnostics and registered services.' },
-    { name: 'Authentication', description: 'Registration, sessions, profile, and password management.' },
-    { name: 'User Management', description: 'User administration owned and served directly by Auth Service.' },
-    { name: 'App Manager', description: 'Administrative menu and application management.' },
-    { name: 'Reference', description: 'Reference data managed by App Manager Service.' },
-    { name: 'Marketing', description: 'Company and marketing service management.' },
-  ],
+  tags: [],
   components: {
     securitySchemes: {
       bearerAuth: {
@@ -105,6 +100,7 @@ export const openApiDocument = {
     },
     schemas: {
       ...quotationSchemas,
+      ...operationalSchemas,
       ...catalogSchemas,
       UserSection: {
         type: 'string',
@@ -1229,41 +1225,33 @@ export const openApiDocument = {
         },
       },
       CreateItemRequest: {
-        type: 'object', additionalProperties: false, required: ['serviceId', 'name', 'sizes'],
+        type: 'object', additionalProperties: false, required: ['serviceId', 'name'],
+        description: 'Creates reusable item references without prices. Optional sizes are created atomically. Active item names are unique per service after Unicode, whitespace and case normalization.',
         properties: {
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
-          sizes: { type: 'array', minItems: 1, maxItems: 100, items: schemaRef('ItemSizeInput') },
+          sizes: { type: 'array', maxItems: 100, default: [], items: schemaRef('ItemSizeInput') },
         },
       },
       AddItemSizeRequest: {
-        type: 'object', additionalProperties: false, required: ['itemId', 'itemVersion', 'size', 'priceServicePrimary', 'priceServiceSisterCompany'],
+        type: 'object', additionalProperties: false, required: ['itemId', 'itemVersion', 'size'],
         properties: {
           itemVersion: { type: 'integer', minimum: 0 },
           itemId: { type: 'string', format: 'uuid' },
           size: { type: 'string', minLength: 1, maxLength: 100 },
-          priceServicePrimary: schemaRef('CatalogMoney'),
-          priceServiceSisterCompany: schemaRef('CatalogMoney'),
-          priceMaintenancePrimary: schemaRef('CatalogNullableMoney'),
-          priceMaintenanceSisterCompany: schemaRef('CatalogNullableMoney'),
         },
       },
       ItemSizeInput: {
-        type: 'object', additionalProperties: false,
-        description: 'Prices are persisted in the one-to-one item_prices record. For services with hasMaintenance=true, both maintenance prices are required by business validation.',
-        required: ['size', 'priceServicePrimary', 'priceServiceSisterCompany'],
-        properties: {
-          size: { type: 'string', minLength: 1, maxLength: 100 },
-          priceServicePrimary: schemaRef('CatalogMoney'),
-          priceServiceSisterCompany: schemaRef('CatalogMoney'),
-          priceMaintenancePrimary: schemaRef('CatalogNullableMoney'),
-          priceMaintenanceSisterCompany: schemaRef('CatalogNullableMoney'),
-        },
+        type: 'object', additionalProperties: false, required: ['size'],
+        description: 'Reusable size reference. Active size labels are unique per item after normalization. Prices are created separately using itemSizeId.',
+        properties: { size: { type: 'string', minLength: 1, maxLength: 100 } },
       },
     },
   },
   paths: {
     ...quotationPaths,
+    ...taxPaths,
+    ...operationalPaths,
     ...catalogPaths,
     '/health': {
       get: {
@@ -1335,6 +1323,34 @@ export const openApiDocument = {
           401: errorResponse('Missing or invalid access token'),
           429: errorResponse('Rate limit exceeded'),
           503: errorResponse('Marketing Service is unavailable'),
+        },
+      },
+    },
+    '/api/v1/finance/health': {
+      get: {
+        tags: ['Finance'],
+        summary: 'Check Finance Service health through Gateway',
+        description: 'Requires a valid access token at the Gateway. The Gateway injects the Finance-specific internal secret.',
+        security: protectedSecurity,
+        responses: {
+          200: response('Finance Service is healthy', schemaRef('DownstreamHealthResponse')),
+          401: errorResponse('Missing or invalid access token'),
+          429: errorResponse('Rate limit exceeded'),
+          503: errorResponse('Finance Service is unavailable'),
+        },
+      },
+    },
+    '/api/v1/fieldservice/health': {
+      get: {
+        tags: ['Field Service'],
+        summary: 'Check Field Service health through Gateway',
+        description: 'Requires a valid access token at the Gateway. The Gateway injects the Field Service-specific internal secret.',
+        security: protectedSecurity,
+        responses: {
+          200: response('Field Service is healthy', schemaRef('DownstreamHealthResponse')),
+          401: errorResponse('Missing or invalid access token'),
+          429: errorResponse('Rate limit exceeded'),
+          503: errorResponse('Field Service is unavailable'),
         },
       },
     },
@@ -2062,7 +2078,7 @@ export const openApiDocument = {
         },
       },
       delete: {
-        tags: ['Marketing'], summary: 'Deactivate a service', description: 'Sets isActive=false; the service and its scopes remain stored. Requires the current service version.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Deactivate a service', description: 'Sets isActive=false and deactivates associated standard prices. Contract prices and their catalog snapshots remain unchanged; no contracts are created or revised. Requires the current service version.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('DeactivateServiceRequest')) },
         responses: {
@@ -2151,4 +2167,4 @@ export const openApiDocument = {
       },
     },
   },
-};
+});

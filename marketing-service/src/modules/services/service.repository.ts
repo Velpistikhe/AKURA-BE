@@ -45,8 +45,8 @@ const displayScopes = (value: unknown) => Array.isArray(value)
   ? value.map((entry) => (snapshot(entry)?.inspectionScope ?? snapshot(entry)?.scope)).filter((scope): scope is string => typeof scope === 'string').join(', ')
   : value;
 const historyFields = [
-  ['name', 'Nama service'], ['type', 'Tipe service'], ['hasMaintenance', 'Menyediakan maintenance'], ['isActive', 'Status aktif'],
-  ['inspectionScopes', 'Scope inspection'], ['maintenanceScopes', 'Scope maintenance'],
+  ['name', 'Service name'], ['type', 'Service type'], ['hasMaintenance', 'Provides maintenance'], ['isActive', 'Active status'],
+  ['inspectionScopes', 'Inspection scopes'], ['maintenanceScopes', 'Maintenance scopes'],
 ] as const;
 // Audit snapshots written before the rename still use scopes/scope.
 const historyValue = (value: Snapshot, field: string) => field === 'inspectionScopes'
@@ -156,6 +156,15 @@ export const serviceRepository = {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id, officeBranchId }, select: detailSelect });
       if (!before || before.version !== version) throw new HttpError('Data has changed; reload before retrying', 409);
+      // Standard prices leave the catalog; contract prices and contracts remain untouched.
+      const standardPrices = await tx.itemPrice.findMany({ where: { isActive: true, itemSize: { item: { serviceId: id, officeBranchId } } } });
+      for (const price of standardPrices) {
+        const closed = await tx.itemPrice.update({ where: { id: price.id, version: price.version }, data: {
+          isActive: false, effectiveUntil: new Date(Math.max(Date.now(), price.effectiveFrom.getTime())),
+          version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name,
+        } });
+        await recordCatalogAudit(tx, officeBranchId, 'ITEM_PRICE', price, closed, actor, 'DEACTIVATE');
+      }
       await tx.service.update({ where: { id, version }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       const after = await tx.service.findUniqueOrThrow({ where: { id }, select: detailSelect });
       await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'DEACTIVATE');

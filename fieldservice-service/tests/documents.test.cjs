@@ -1,0 +1,62 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const {randomUUID} = require('node:crypto');
+require('dotenv').config();
+const {prisma} = require('../dist/config/db.js');
+const {documentRepository: repo} = require('../dist/modules/documents/document.repository.js');
+const {createSchema,updateSchema,deleteSchema} = require('../dist/modules/documents/document.schemas.js');
+const {loadQuotation} = require('../dist/integrations/gateway.js');
+const kind = 'REPORT';
+test('documents: branch isolation, snapshots, atomic history, unique numbers and concurrent mutations', async () => {
+ const actor={id:randomUUID(),name:'Branch User',officeBranchId:randomUUID()};
+ const outsider={...actor,officeBranchId:randomUUID()};
+ const q={id:randomUUID(),officeBranchId:actor.officeBranchId,version:2,isActive:true,no:1,numberYear:2026,subject:'Inspection',companySnapshot:{name:'Customer'},customerSnapshot:'Buyer',subTotal:'100.25',taxAmount:'10.03',total:'110.28',items:[]};
+ const raw={number:'test-001',quotationId:q.id,quotationVersion:2,title:'Test document',date:'2026-09-12',content:'Inspection completed; measurements attached in report text.'};
+ try {
+  assert.equal(createSchema.safeParse({...raw,officeBranchId:outsider.officeBranchId}).success,false);
+  assert.equal(createSchema.safeParse({...raw,total:'1'}).success,false);
+  const row=await repo.create(kind,createSchema.parse(raw),q,actor);
+  assert.equal(row.number,'TEST-001'); assert.equal(row.version,0);
+  assert.equal(row.quotationSnapshot.companySnapshot.name,'Customer');
+  for (const action of [()=>repo.get(kind,row.id,outsider),()=>repo.history(kind,row.id,outsider,1,20),()=>repo.mutate(kind,row.id,{version:0,title:'Wrong'},outsider),()=>repo.mutate(kind,row.id,{version:0},outsider,true)]) await assert.rejects(action,e=>e.statusCode===404);
+  assert.equal((await repo.list(kind,{page:1,limit:20},outsider)).pagination.total,0);
+  await assert.rejects(()=>repo.create(kind,createSchema.parse({...raw,number:'wrong-branch'}),q,outsider),e=>e.statusCode===409);
+  await assert.rejects(()=>repo.create(kind,createSchema.parse(raw),q,actor),e=>e.code==='P2002');
+  assert.equal(await prisma.documentHistory.count({where:{documentId:row.id}}),1);
+  const sameNumberOtherBranch=await repo.create(kind,createSchema.parse(raw),{...q,officeBranchId:outsider.officeBranchId},outsider);
+  assert.ok(sameNumberOtherBranch.id);
+  const updates=await Promise.allSettled(Array.from({length:12},(_,i)=>repo.mutate(kind,row.id,updateSchema.parse({version:0,title:'Revision '+i,reason:'Reviewed results'}),actor)));
+  assert.equal(updates.filter(r=>r.status==='fulfilled').length,1);
+  assert.ok(updates.filter(r=>r.status==='rejected').every(r=>r.reason.statusCode===409));
+  const current=await repo.get(kind,row.id,actor);
+  assert.equal(current.version,1); assert.deepEqual(current.quotationSnapshot,row.quotationSnapshot);
+  const history=await repo.history(kind,row.id,actor,1,1);
+  assert.equal(history.pagination.total,2); assert.equal(history.history.length,1);
+  assert.equal(history.history[0].changedBy.name,'Branch User');
+  assert.equal(history.history[0].reason,'Reviewed results');
+  assert.ok(history.history[0].changes.some(change=>change.field==='title'&&change.before==='Test document'&&change.label==='Title'));
+  const deleted=await repo.mutate(kind,row.id,deleteSchema.parse({version:1,reason:'Cancelled by customer'}),actor,true);
+  assert.equal(deleted.isActive,false);assert.equal(deleted.version,2);
+  await assert.rejects(()=>repo.get(kind,row.id,actor),e=>e.statusCode===404);
+  const finalHistory=await repo.history(kind,row.id,actor,1,20);
+  assert.equal(finalHistory.pagination.total,3);assert.equal(finalHistory.history[0].actionLabel,'Document deleted');
+  await assert.rejects(()=>repo.mutate(kind,row.id,{version:2},actor,true),e=>e.statusCode===409);
+  assert.equal(updateSchema.safeParse({version:0,quotationId:randomUUID()}).success,false);
+  assert.equal(updateSchema.safeParse({title:'No version'}).success,false);
+  const originalFetch=global.fetch;
+  const req={headers:{authorization:'Bearer fixture-token','x-request-id':'fixture'}};
+  try {
+   global.fetch=async(url,options)=> {assert.ok(String(url).endsWith('/marketing/quotation-references/'+q.id));assert.equal(options.headers.Authorization,'Bearer fixture-token');return {ok:true,json:async()=>({data:q})};};
+   assert.equal((await loadQuotation(req,q.id,2,actor.officeBranchId)).id,q.id);
+   await assert.rejects(()=>loadQuotation(req,q.id,1,actor.officeBranchId),e=>e.statusCode===409);
+   await assert.rejects(()=>loadQuotation(req,q.id,2,outsider.officeBranchId),e=>e.statusCode===404);
+   global.fetch=async()=>{throw Error('offline');};
+   await assert.rejects(()=>loadQuotation(req,q.id,2,actor.officeBranchId),e=>e.statusCode===503);
+  } finally {global.fetch=originalFetch;}
+ } finally {
+  const where={officeBranchId:{in:[actor.officeBranchId,outsider.officeBranchId]}};
+  await prisma.documentHistory.deleteMany({where:{document:where}});
+  await prisma.document.deleteMany({where});
+  await prisma.$disconnect();
+ }
+});

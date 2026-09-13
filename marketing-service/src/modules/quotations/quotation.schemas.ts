@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { InquiryMethod, QuotationStatus, InvoiceStatus } from '@prisma/client';
+import { InquiryMethod } from '@prisma/client';
 
 export const quotationIdSchema = z.object({ quotationId: z.string().uuid() }).strict();
 export const listQuotationsSchema = z.object({
@@ -12,33 +12,33 @@ const text = z.string().trim().min(1).max(255);
 const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`));
 // Accept decimal strings without passing through floating-point arithmetic.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
+const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
 const item = z.object({
-  id: z.string().uuid().optional(),
-  itemSizeId: z.string().uuid(),
-  quantity: decimal(3).refine((value) => /[1-9]/.test(value), 'Quantity must be positive'),
-  unitPrice: decimal(2),
-}).strict();
+  id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
+  quantityInspection: quantity,
+  quantityMaintenance: quantity.default('0'),
+}).strict().refine(value => /[1-9]/.test(value.quantityInspection) || /[1-9]/.test(value.quantityMaintenance), 'At least one quantity must be positive');
 const items = z.array(item).min(1).max(100).refine((rows) => {
   const ids = rows.flatMap((row) => row.id ? [row.id] : []);
   return ids.length === new Set(ids).size;
-}, 'Item IDs must be unique');
+}, 'Item IDs must be unique').refine(rows => new Set(rows.map(row => row.itemSizeId.toLowerCase())).size === rows.length, 'Each size may appear only once; enter both quantities on the same line');
 const fields = {
   date: date.nullable().optional(),
   inquiryMethod: z.nativeEnum(InquiryMethod),
   inquiryDate: date,
   subject: text, termOfPayment: text, validity: text,
-  tax: z.number().int().min(0).max(100),
   supplyAkura: text, supplyCustomer: text, location: text,
   accomplished: text, deliveryReports: text,
-  staffId: z.string().uuid(),
-  status: z.nativeEnum(QuotationStatus).optional(),
-  invoiceStatus: z.nativeEnum(InvoiceStatus).nullable().optional(),
+  companyId: z.string().uuid().optional(),
+  staffId: z.string().uuid().nullable().optional(),
   items,
 };
 export const createQuotationSchema = z.object(fields).strict()
+  .refine(value => !!value.companyId || !!value.staffId, 'Company or company staff is required')
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
 export const updateQuotationSchema = z.object(fields).partial().extend({
   version: z.number().int().nonnegative().max(2147483646),
 }).strict().refine((value) => Object.keys(value).some((key) => key !== 'version'), 'At least one editable field is required');
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
+export const approveQuotationSchema = deactivateQuotationSchema;
 export type QuotationItemInput = z.infer<typeof item>;

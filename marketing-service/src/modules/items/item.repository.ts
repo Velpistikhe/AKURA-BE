@@ -1,7 +1,7 @@
+import { priceContext, quotationOptions } from './quotation-price.js';
 import { Prisma } from '@prisma/client';
 import { defineSortRules, findAll } from '../../utils/listQuery.js';
 import { prisma } from '../../config/db.js';
-import { currentBusinessDate } from '../../utils/businessDate.js';
 import { AddItemSizeInput, CreateItemInput, ListItemsInput, ListItemSizesInput } from './item.schemas.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -33,7 +33,7 @@ const flattenItemPrices = ({ sizes, ...item }: any) => ({
 
 export const itemRepository = {
   async list(input: ListItemsInput, officeBranchId: string) {
-    return findAll<any, NonNullable<ListItemsInput['sortBy']>, ListItemsInput, Prisma.ItemWhereInput, Prisma.ItemOrderByWithRelationInput>(
+    return prisma.$transaction(async tx => findAll<any, NonNullable<ListItemsInput['sortBy']>, ListItemsInput, Prisma.ItemWhereInput, Prisma.ItemOrderByWithRelationInput>(
       input,
       {
       baseWhere: { officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
@@ -47,12 +47,13 @@ export const itemRepository = {
         serviceName: (direction) => ({ service: { name: direction } }),
       }),
       },
-      (query) => prisma.item.findMany({
+      (query) => tx.item.findMany({
         ...query,
+        orderBy: [query.orderBy, { id: 'asc' }],
         include: { service: { select: { id: true, name: true } } },
       }),
-      (where) => prisma.item.count({ where }),
-    );
+      (where) => tx.item.count({ where }),
+    ), { isolationLevel: 'RepeatableRead' });
   },
   find: (id: string, officeBranchId: string) =>
     prisma.item.findFirst({
@@ -83,25 +84,21 @@ export const itemRepository = {
     }),
   async listSizes(input: ListItemSizesInput, officeBranchId: string, companyId?: string, resolvePrices = false) {
     return prisma.$transaction(async tx => {
-    const now = currentBusinessDate();
-    const company = companyId ? await tx.company.findFirst({ where: { id: companyId, officeBranchId, revoked: false } }) : null;
-    if (companyId && !company) throw new HttpError('Company not found', 404);
-    const activeContracts = companyId ? await tx.companyContract.findMany({ where: {
-      companyId, isActive: true, status: 'ACTIVE', effectiveFrom: { lte: now }, effectiveUntil: { gt: now },
-    }, orderBy: { effectiveFrom: 'desc' }, take: 2 }) : [];
-    if (activeContracts.length > 1) throw new HttpError('Multiple current contracts found; resolve overlapping contract periods', 409);
-    const contractWhere: Prisma.CompanyContractPriceWhereInput = {
-      contractId: { in: activeContracts.map(contract => contract.id) }, isActive: true,
-      effectiveFrom: { lte: now },
-      OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: now } }],
-    };
+    const now = new Date();
+    const context = companyId ? await priceContext(tx, companyId, officeBranchId, now) : null;
+    const contractWhere: Prisma.CompanyContractPriceWhereInput = { contractId: context?.contract?.id ?? '00000000-0000-0000-0000-000000000000' };
+    const activeCatalog: Prisma.ItemSizeWhereInput = { isActive: true, item: { isActive: true, service: { isActive: true } } };
+    if (input.itemId && !await tx.item.findFirst({ where: { id: input.itemId, officeBranchId }, select: { id: true } })) throw new HttpError('Item not found', 404);
+    if (resolvePrices && context) return quotationOptions(tx, input, context, officeBranchId, now);
     const result = await findAll<any, NonNullable<ListItemSizesInput['sortBy']>, ListItemSizesInput, Prisma.ItemSizeWhereInput, Prisma.ItemSizeOrderByWithRelationInput>(
       input,
       {
         baseWhere: {
-          ...(companyId && !resolvePrices ? { contractPrices: { some: contractWhere } } : {}),
-          isActive: true,
-          item: { officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
+          item: { officeBranchId, service: { officeBranchId } },
+          ...(companyId ? resolvePrices
+            ? { OR: [activeCatalog, { contractPrices: { some: contractWhere } }] }
+            : { contractPrices: { some: contractWhere } }
+            : { AND: [activeCatalog] }),
         },
         filters: {
           itemId: (value: string) => ({ itemId: value }),
@@ -119,29 +116,14 @@ export const itemRepository = {
         ...query,
         orderBy: [query.orderBy, { id: 'asc' }],
         include: {
-          price: { select: priceSelect },
+          price: true,
           ...(companyId ? { contractPrices: { where: contractWhere, include: { contract: true } } } : {}),
-          item: { include: { service: { select: { id: true, name: true, type: true, hasMaintenance: true } } } },
+          item: { include: { service: { select: { id: true, name: true, type: true, hasMaintenance: true, isActive: true, version: true } } } },
         },
       }),
       (where) => tx.itemSize.count({ where }),
     );
     const sizes = result.items.map(row => flattenSizePrice(row, now));
-    if (resolvePrices && company) {
-      return { company: { id: company.id, isSisterCompany: company.isSisterCompany },
-        sizes: sizes.map(({ contractPrices, ...size }) => {
-          const source = activeContracts.length ? 'CONTRACT' : company.isSisterCompany ? 'SISTER_COMPANY' : 'PRIMARY';
-          const contractPrice = contractPrices?.[0] ?? null;
-          const priceService = source === 'CONTRACT' ? contractPrice?.priceService ?? null : source === 'SISTER_COMPANY' ? size.priceServiceSisterCompany : size.priceServicePrimary;
-          const priceMaintenance = source === 'CONTRACT' ? contractPrice?.priceMaintenance ?? null : source === 'SISTER_COMPANY' ? size.priceMaintenanceSisterCompany : size.priceMaintenancePrimary;
-          const missing = priceService == null || (size.item.service.hasMaintenance && priceMaintenance == null);
-          return { ...size, contractPrice, contractId: activeContracts[0]?.id ?? null,
-            priceSource: source, priceStatus: missing ? 'UNAVAILABLE' : 'AVAILABLE',
-            priceMessage: missing ? (source === 'CONTRACT' ? 'Current contract price is missing or incomplete for this size' : 'Standard price is missing, inactive or incomplete for this size') : null,
-            priceService, priceMaintenance,
-          };
-        }), pagination: result.pagination };
-    }
     return {
       sizes: companyId ? sizes.map(({ contractPrices, ...size }) => ({ ...size, contractPrice: contractPrices[0] })) : sizes,
       pagination: result.pagination,

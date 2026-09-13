@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { AuthenticatedRequest, AuthUser } from '../types/auth.types.js';
 import { getAccessToken } from '../utils/requestTokens.js';
 
-export const requireMarketingAccess = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+const requireSectionAccess = (sections: readonly string[]) => async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const token = getAccessToken(req);
   const tokenPayload = (req as AuthenticatedRequest).user;
   const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
@@ -52,8 +52,8 @@ export const requireMarketingAccess = async (req: Request, res: Response, next: 
       res.status(403).json({ status: 403, success: false, message: 'Account is inactive', requestId });
       return;
     }
-    if (!['ADMIN', 'APP_MANAGER'].includes(user.role) && user.section !== 'MARKETING') {
-      res.status(403).json({ status: 403, success: false, message: 'Marketing section, admin, or app_manager access is required', requestId });
+    if (!['ADMIN', 'APP_MANAGER'].includes(user.role) && !sections.includes(user.section ?? '')) {
+      res.status(403).json({ status: 403, success: false, message: 'Access to this section is required', requestId });
       return;
     }
     if (!user.officeBranchId) {
@@ -70,3 +70,7 @@ export const requireMarketingAccess = async (req: Request, res: Response, next: 
     next(error);
   }
 };
+
+export const requireMarketingAccess = requireSectionAccess(['MARKETING']);
+// Read-only quotation references for downstream document creation. Branch checks remain mandatory.
+export const requireQuotationReferenceAccess = requireSectionAccess(['MARKETING', 'FINANCE', 'ACCOUNTING', 'FIELD_SERVICE']);

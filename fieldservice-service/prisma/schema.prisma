@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum DocumentKind {
+  REPORT
+}
+enum DocumentStatus {
+  DRAFT
+  FINAL
+}
+model Document {
+  id String @id @default(uuid()) @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  kind DocumentKind
+  number String @db.VarChar(100)
+  quotationId String @map("quotation_id") @db.Uuid
+  quotationVersion Int @map("quotation_version")
+  quotationSnapshot Json @map("quotation_snapshot") @db.JsonB
+  title String @db.VarChar(255)
+  date DateTime @db.Date
+  notes String? @db.Text
+  content String? @db.Text
+  status DocumentStatus @default(DRAFT)
+  version Int @default(0)
+  isActive Boolean @default(true) @map("is_active")
+  createdById String @map("created_by_id") @db.Uuid
+  createdByName String @map("created_by_name")
+  updatedById String? @map("updated_by_id") @db.Uuid
+  updatedByName String? @map("updated_by_name")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  history DocumentHistory[]
+  @@unique([officeBranchId, kind, number])
+  @@index([officeBranchId, kind, isActive, createdAt, id])
+  @@index([quotationId])
+  @@map("reports")
+}
+model DocumentHistory {
+  id String @id @default(uuid()) @db.Uuid
+  documentId String @map("document_id") @db.Uuid
+  document Document @relation(fields:[documentId], references:[id], onDelete: Restrict)
+  version Int
+  action String @db.VarChar(20)
+  snapshot Json @db.JsonB
+  changes Json @db.JsonB
+  reason String? @db.VarChar(1000)
+  createdById String @map("created_by_id") @db.Uuid
+  createdByName String @map("created_by_name")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([documentId, version])
+  @@map("reports_histories")
+}

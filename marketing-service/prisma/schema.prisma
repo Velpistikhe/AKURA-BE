@@ -162,6 +162,8 @@ model MaintenanceScope {
 }
 
 model Item {
+  // Normalized active reference key; null releases the name after soft deletion.
+  activeKey      String? @map("active_key")
   version        Int        @default(0)
   id             String     @id @default(uuid()) @db.Uuid
   officeBranchId String     @map("office_branch_id") @db.Uuid
@@ -178,10 +180,13 @@ model Item {
   sizes          ItemSize[]
 
   @@index([officeBranchId])
+  @@unique([serviceId, activeKey])
   @@map("items")
 }
 
 model ItemSize {
+  // Normalized active reference key; null releases the name after soft deletion.
+  activeKey      String? @map("active_key")
   version        Int                    @default(0)
   quotationItems QuotationItem[]
   id             String                 @id @default(uuid()) @db.Uuid
@@ -204,6 +209,7 @@ model ItemSize {
   @@unique([itemId, size, effectiveFrom])
   @@index([itemId])
   @@index([isActive])
+  @@unique([itemId, activeKey])
   @@map("item_sizes")
 }
 
@@ -278,6 +284,8 @@ model CompanyContractHistory {
 }
 
 model CompanyContractPrice {
+  /// Catalog identity captured when this contract price is created; never refreshed from live catalog.
+  catalogSnapshot Json @map("catalog_snapshot")
   version          Int       @default(0)
   id               String    @id @default(uuid()) @db.Uuid
   contractId       String    @map("contract_id") @db.Uuid
@@ -370,33 +378,38 @@ model QuotationSequence {
 model Quotation {
   id             String   @id @default(uuid()) @db.Uuid
   officeBranchId String   @map("office_branch_id") @db.Uuid
-  no             Int
-  numberYear     Int      @map("number_year")
+  no             Int?
+  numberYear     Int?     @map("number_year")
+  previousQuotationId String? @unique @map("previous_quotation_id") @db.Uuid
+  previousQuotation Quotation? @relation("QuotationRevisions", fields: [previousQuotationId], references: [id], onDelete: Restrict)
+  nextQuotation Quotation? @relation("QuotationRevisions")
   date           DateTime? @db.Date
   inquiryMethod  InquiryMethod @map("inquiry_method")
   inquiryDate    DateTime @map("inquiry_date") @db.Date
   subject        String   @db.VarChar(255)
   termOfPayment  String   @map("term_of_payment") @db.VarChar(255)
   validity       String   @db.VarChar(255)
-  tax            Int
+  tax            Decimal @db.Decimal(5, 2)
+  taxSourceId    String? @map("tax_source_id") @db.Uuid
   supplyAkura    String   @map("supply_akura") @db.VarChar(255)
   supplyCustomer String   @map("supply_customer") @db.VarChar(255)
   location       String   @db.VarChar(255)
   accomplished   String   @db.VarChar(255)
   deliveryReports String  @map("delivery_reports") @db.VarChar(255)
-  staffId        String   @map("staff_id") @db.Uuid
-  staff          CompanyStaff @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  staffId        String?  @map("staff_id") @db.Uuid
+  staff          CompanyStaff? @relation(fields: [staffId], references: [id], onDelete: Restrict)
   /// Company staff name captured independently of later staff edits.
   customerSnapshot String @map("customer_snapshot")
   companySnapshot Json @map("company_snapshot")
   status         QuotationStatus @default(CREATED)
+  pdfDocument    QuotationPdf?
   invoiceStatus  InvoiceStatus? @map("invoice_status")
   subTotal       Decimal  @default(0) @map("sub_total") @db.Decimal(18, 2)
   taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
   total          Decimal  @default(0) @db.Decimal(18, 2)
   /// Concurrency token for the entire quotation, including all item mutations.
   version        Int      @default(0)
-  /// Document revision count; status-only changes and soft deletion do not increment it.
+  /// Increments only when an approved quotation is replaced by a new draft.
   revision       Int      @default(0)
   isActive       Boolean  @default(true) @map("is_active")
   createdById    String   @map("created_by_id") @db.Uuid
@@ -406,13 +419,37 @@ model Quotation {
   items          QuotationItem[]
   history        QuotationHistory[]
 
-  @@unique([officeBranchId, numberYear, no])
+  @@unique([officeBranchId, numberYear, no, revision])
   @@index([officeBranchId, isActive, createdAt])
   @@index([staffId])
   @@map("quotations")
 }
 
+model QuotationPdf {
+  id             String @id @default(uuid()) @db.Uuid
+  quotationId    String @unique @map("quotation_id") @db.Uuid
+  quotation      Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  bucket         String
+  key            String
+  fileName       String @map("file_name")
+  contentType    String @map("content_type")
+  size           Int
+  sha256         String @db.VarChar(64)
+  revision       Int
+  version        Int
+  approvedAt     DateTime @map("approved_at")
+  approvedById   String @map("approved_by_id") @db.Uuid
+  approvedByName String @map("approved_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([bucket, key])
+  @@unique([quotationId, version])
+  @@index([quotationId, revision])
+  @@map("quotation_pdfs")
+}
+
 model QuotationItem {
+  priceSelection Json? @map("price_selection")
   id             String    @id @default(uuid()) @db.Uuid
   quotationId    String    @map("quotation_id") @db.Uuid
   quotation      Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
@@ -423,8 +460,10 @@ model QuotationItem {
   serviceType    ServiceType @map("service_type")
   itemName       String    @map("item_name")
   size           String
-  quantity       Decimal   @db.Decimal(18, 3)
-  unitPrice      Decimal   @map("unit_price") @db.Decimal(18, 2)
+  quantityInspection Decimal @map("quantity") @db.Decimal(18, 3)
+  quantityMaintenance Decimal @default(0) @map("quantity_maintenance") @db.Decimal(18, 3)
+  priceInspection Decimal @map("unit_price") @db.Decimal(18, 2)
+  priceMaintenance Decimal? @map("price_maintenance") @db.Decimal(18, 2)
   subTotal       Decimal   @map("sub_total") @db.Decimal(18, 2)
   isActive       Boolean   @default(true) @map("is_active")
   createdById    String    @map("created_by_id") @db.Uuid
@@ -450,4 +489,27 @@ model QuotationHistory {
 
   @@unique([quotationId, version])
   @@map("quotation_histories")
+}
+
+model TaxCache {
+  id String @id @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  percentage Decimal @db.Decimal(5, 2)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  sourceUpdatedAt DateTime @map("source_updated_at")
+  @@index([officeBranchId, effectiveFrom])
+  @@map("tax_cache")
+}
+model TaxSyncState {
+  id String @id
+  lastSuccessAt DateTime? @map("last_success_at")
+  @@map("tax_sync_state")
+}
+
+model TaxCacheRevision {
+  officeBranchId String @id @db.Uuid
+  version Int
+  eventId String @db.Uuid
+  @@map("tax_cache_revisions")
 }

@@ -8,6 +8,10 @@ export interface AuthUser {
   id: string;
   role: UserRole;
   section: UserSection | null;
+  officeBranchId?: string | null;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
 }
 
 declare global {
@@ -25,6 +29,7 @@ declare global {
  */
 const fetchAuthUserProfile = async (token: string, requestId?: string): Promise<{
   id: string; role: UserRole; section: UserSection | null; isActive: boolean;
+  officeBranchId?: string | null; firstName?: string; lastName?: string; username?: string;
 } | null> => {
   try {
     const res = await fetch(`${env.API_GATEWAY_URL}/api/v1/auth/me`, {
@@ -36,7 +41,7 @@ const fetchAuthUserProfile = async (token: string, requestId?: string): Promise<
       },
     });
     if (!res.ok) return null;
-    const json = await res.json() as { data?: { id: string; role: UserRole; section: UserSection | null; isActive: boolean } };
+    const json = await res.json() as { data?: AuthUser & { isActive: boolean } };
     return json.data ?? null;
   } catch {
     return null;
@@ -89,7 +94,7 @@ const requireRole = (allowedRoles: UserRole[]) =>
     try {
       const profile = await fetchAuthUserProfile(token, requestId);
 
-      if (!profile) {
+      if (!profile || profile.id !== tokenPayload.sub) {
         res.status(401).json({ status: 401, success: false, message: 'Unauthorized: user not found', requestId });
         return;
       }
@@ -111,7 +116,8 @@ const requireRole = (allowedRoles: UserRole[]) =>
       }
 
       // 4. Simpan ke res.locals
-      res.locals.authUser = { id: profile.id, role: profile.role, section: profile.section };
+      res.locals.authUser = { id: profile.id, role: profile.role, section: profile.section,
+        officeBranchId: profile.officeBranchId, firstName: profile.firstName, lastName: profile.lastName, username: profile.username };
 
       next();
     } catch (error) {

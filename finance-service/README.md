@@ -1,0 +1,66 @@
+# Finance Service
+
+Express/TypeScript service with quotation-linked document modules. Default port: 5004. Gateway prefix: `/api/v1/finance`.
+
+## Local setup
+
+1. Run `npm ci` in this directory.
+2. Copy `.env.example` to `.env` and configure a unique `GATEWAY_SECRET`.
+3. Set `FINANCE_SERVICE_URL=http://localhost:5004` and `FINANCE_SERVICE_GATEWAY_SECRET` in the gateway environment. Both must be configured together; the secret must match this service and differ from other services.
+4. Run `npm run dev` and restart the gateway.
+
+`GET /api/v1/finance/health` through the gateway requires a valid access token. Direct `/health` requires the service gateway secret and reports process liveness only. JWT validation for domain routes uses the Auth JWKS through the gateway; forwarded identity headers are not trusted as authentication.
+
+Commands: `npm run build`, `npm start`, `npm run typecheck`, `npm test`.
+
+Domain routes belong in `src/modules` and are registered in `src/routes/index.ts`. Authentication is applied before the router. The service owns its PostgreSQL database. Set DATABASE_URL to its own database, run npm run db:push, then npm run build. Never point DATABASE_URL at another service database. Swagger is maintained in `api-gateway/src/docs/operational-documents.ts` and `openapi.ts`.
+
+
+## Quotation-linked documents
+
+`/proforma-invoices` and `/invoices` share the billing_documents table, distinguished by DocumentKind; each record owns its history.
+
+Each module supports GET/POST at its collection, GET/PATCH/DELETE at `/:id`, and GET `/:id/history`. Lists support page, limit, quotationId, status and search (number/title). History supports page and limit, newest first, and remains accessible after soft deletion.
+
+Create fields: `quotationId`, `quotationVersion`, `number`, `title`, `date` (YYYY-MM-DD), optional `notes` and `status` (DRAFT default or FINAL). Finance additionally accepts optional nullable `dueDate`; totals come from the quotation and cannot be supplied by clients.
+
+The quotation ID and snapshot are immutable after creation. One quotation may have multiple documents. Finance uses the full quotation amount, not partial billing. Document numbers are supplied by the user, uppercased, and unique per branch and document kind even after deletion. FINAL is a document label in this CRUD module, not an accounting posting or approval workflow.
+
+PATCH and DELETE require the latest `version`; stale or competing mutations return 409. Both accept an optional `reason`. Writes and append-only history share a local transaction. History contains English action labels, actor ID/name, timestamps, field labels, before/after values, reason and full snapshots.
+
+The service verifies the current active Auth profile through Gateway and derives officeBranchId from that profile. It never trusts client-supplied branch or user headers. Quotation lookup is branch scoped, verifies the requested quotationVersion and fails closed on upstream errors. No foreign key or direct query crosses databases. The saved quotation snapshot is the state observed at validation time, not a distributed lock; later quotation edits/deletion preserve existing documents.
+
+No invoiceStatus updates are sent automatically to Marketing. No automatic invoice, proforma, report, contract or payment is generated.
+
+Run `npm test` and `npm run test:documents` after setting up the database. Document tests use isolated random branches and remove only their fixtures. They exercise cross-branch rejection, snapshot persistence, 12 competing updates, atomic history, soft deletion and upstream validation.
+
+Access is limited to ADMIN/APP_MANAGER or FINANCE/ACCOUNTING users. The JWT branch must match the current Auth profile; a changed assignment requires a fresh login. Quotation references use the read-only Marketing endpoint `/quotation-references/:quotationId`, accessible to relevant document sections within the same branch.
+
+HTTP tests mount the real module routes with an injected token identity and mock Auth/Marketing responses. Persistence and concurrency tests use the local PostgreSQL database; they do not constitute a live end-to-end test across all running services.
+
+## Finance-owned tax and automatic delivery
+
+Finance is the only master tax writer. Periods remain scoped by office branch. The gateway routes are:
+
+- `GET /api/v1/finance/taxes`: paginated master periods (`page`, `limit`).
+- `POST /api/v1/finance/taxes`: `{ "percentage": "11.25", "effectiveFrom": "2026-10-01" }`. Active ADMIN in FINANCE with a branch required. Closes the previous period and records an outbox event atomically.
+- `GET /api/v1/finance/taxes/deliveries`: per-recipient attempts, next retry, last error and delivery timestamp.
+- `POST /api/v1/finance/taxes/resync`: empty body; queues a fresh branch snapshot for bootstrap/recovery. Same write permissions.
+
+Configure `TAX_SYNC_SECRET` identically on Finance and consumers, and `TAX_DELIVERY_TARGETS` as a JSON array of `{name,url}`. The URL points directly to Marketing `/internal/taxes/events`, over HTTPS/private network. Never expose the credential to browser clients. Changing a target URL preserves pending jobs because delivery resolves the configured URL by stable service name. Removing a target leaves its jobs pending until configuration is repaired.
+
+After commit, the Finance process wakes the delivery worker. HTTP requests have a ten-second timeout and require `{success:true,eventId}` acknowledgment. Failures use durable nextRetryAt with exponential backoff (10s, 20s, 40s, ... capped at 5m) plus jitter. Only pending deliveries schedule timers. No periodic master-tax polling. Startup recovers pending jobs; transaction advisory locks protect against duplicate concurrent workers. Recipients atomically replace only the event branch and ignore older/duplicate versions.
+
+The in-process wakeup assumes each Finance process is supervised and automatically restarted after failure. A surviving replica does not receive another process's in-memory wakeup. Deploy with process restart guarantees; use a durable queue or database change-stream wakeup for independent multi-instance worker failover. Timers alone are not a durable notification mechanism. Monitor pending delivery age/attempts and worker error logs. After restoring a consumer database, queue a resync for each branch.
+
+Invoice/proforma creation reads Finance master tax effective on document date, serializes with branch tax writes, computes tax with Decimal half-up rounding to two decimals and saves taxSourceId/tax alongside amounts. A missing period returns 409. Draft date changes and finalization revalidate tax. Final documents cannot be edited; existing documents are not automatically repriced. Legacy tax snapshots remain null rather than guessing from historical amounts.
+
+### Cutover from App Manager
+
+1. Configure delivery targets and the shared secret using `.env.example`. Stop the old App Manager tax writer and old Finance/Marketing scheduler processes before import.
+2. Run `npm run tax:schema` in Finance and Marketing for an existing database (additive tax changes only), then `npm run db:generate` in both. For a new empty database use `npm run db:push`. Stop running service processes before Prisma generation on Windows to release the engine DLL. Build Finance.
+3. Run `npm run tax:import` in Finance. It reads App Manager's local `.env` (or `APP_MANAGER_DATABASE_URL`), preserves IDs, dates and audit history, refuses conflicting Finance data and queues snapshots. It never changes the source database.
+4. Start updated Marketing and Finance. The worker recovers queued events. Check `/taxes/deliveries`; source records stay archived in App Manager, whose tax endpoints are removed.
+5. Point the UI to `/api/v1/finance/taxes`. For a new consumer, add its stable target name/URL, restart Finance and call `/taxes/resync` for each branch.
+
+Swagger is served by API Gateway. Internal receiver documentation uses a direct Marketing server URL. Test using `npm run test:tax-delivery`.

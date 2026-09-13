@@ -1,87 +1,99 @@
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { prisma } = require('../dist/config/db.js');
-const { quotationRepository: repository } = require('../dist/modules/quotations/quotation.repository.js');
+const { quotationRepository: repo } = require('../dist/modules/quotations/quotation.repository.js');
+const { quotationApproval } = require('../dist/modules/quotations/quotation-approval.service.js');
+const { quotationStorage: storage } = require('../dist/modules/quotations/quotation-storage.js');
 const numbering = require('../dist/modules/quotations/quotation-number.js');
-
 async function main() {
   const originalYear = numbering.quotationNumberYear;
   assert.equal(originalYear(new Date('2026-12-31T16:59:59Z')), 2026);
   assert.equal(originalYear(new Date('2026-12-31T17:00:00Z')), 2027);
-  const branches = [randomUUID(), randomUUID()];
-  const actor = { id: randomUUID(), name: 'Number test' };
-  const fixtures = [];
+  const branches = [randomUUID(), randomUUID()], actor = { id: randomUUID(), name: 'Number test' };
+  const fixtures = [], objects = new Map(), audit = { createdById: actor.id, createdByName: actor.name };
+  let failUpload = false, failHistory = false;
+  prisma.$use(async (params, next) => {
+    if (failHistory && params.model === 'QuotationHistory' && params.action === 'create') throw new Error('Simulated history failure');
+    return next(params);
+  });
+  storage.bucket = () => 'test-bucket';
+  storage.downloadUrl = async () => ({ url: 'https://storage.example/file.pdf', expiresAt: new Date().toISOString() });
+  storage.upload = async (_bucket, key, data) => { objects.set(key, data); if (failUpload) throw new Error('Upload failure'); };
+  storage.remove = async (_bucket, key) => { objects.delete(key); };
   try {
     for (const branch of branches) {
-      const company = await prisma.company.create({ data: {
-        officeBranchId: branch, name: 'Number test', normalizeName: branch, type: 'PT', npwp: '0012345678901234', address: 'Jakarta',
-        staffs: { create: { name: 'Contact', normalizeName: branch, title: 'mr' } },
-      }, include: { staffs: true } });
-      const service = await prisma.service.create({ data: {
-        officeBranchId: branch, name: 'Inspection', type: 'TUBULAR',
-        itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', createdById: actor.id, createdByName: actor.name,
-          sizes: { create: { size: 'Large', createdById: actor.id, createdByName: actor.name } } } },
+      const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Number test', normalizeName: branch, type: 'PT', npwp: '123', address: 'Jakarta' } });
+      const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', ...audit,
+        itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', ...audit,
+          sizes: { create: { size: 'Large', ...audit, price: { create: { priceServicePrimary: '10', priceServiceSisterCompany: '8', ...audit } } } } } },
       }, include: { itemCatalog: { include: { sizes: true } } } });
-      fixtures.push({ branch, input: {
+      await prisma.taxCache.create({data:{id:randomUUID(),officeBranchId:branch,percentage:'11.25',effectiveFrom:new Date('2000-01-01'),sourceUpdatedAt:new Date()}});
+      fixtures.push({ branch, companyId: company.id, serviceId: service.id, input: {
         date: '2020-01-01', inquiryMethod: 'EMAIL', inquiryDate: '2020-01-01', subject: 'Inspection', termOfPayment: '30 days', validity: '30 days',
-        tax: 11, supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF',
-        staffId: company.staffs[0].id, items: [{ itemSizeId: service.itemCatalog[0].sizes[0].id, quantity: '1', unitPrice: '10' }],
+        supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF',
+        companyId: company.id, items: [{ itemSizeId: service.itemCatalog[0].sizes[0].id, quantityInspection: '1' }],
       } });
     }
-    const [a, b] = fixtures;
-    const create = f => repository.create(f.input, f.branch, actor);
+    const [a,b] = fixtures;
+    const create = f => repo.create(f.input, f.branch, actor);
+    const approve = q => quotationApproval.approve(q.id, { version: q.version }, q.officeBranchId, actor);
     const counter = (branch, year) => prisma.quotationSequence.findUniqueOrThrow({ where: { officeBranchId_year: { officeBranchId: branch, year } } });
     numbering.quotationNumberYear = () => 2026;
-    const invalid = { ...a.input, items: [{ ...a.input.items[0], itemSizeId: randomUUID() }] };
-    await assert.rejects(repository.create(invalid, a.branch, actor), e => e.statusCode === 404);
+    await assert.rejects(repo.create({...a.input,tax:99},a.branch,actor));
+    const drafts = await Promise.all(Array.from({ length: 5 }, () => create(a)));
+    assert.equal(drafts[0].tax.toString(),'11.25'); assert.equal(drafts[0].taxAmount.toString(),'1.13'); assert(drafts[0].taxSourceId);
+    assert(drafts.every(q => q.no === null && q.numberYear === null && q.revision === 0 && q.pdfDocument === null));
     assert.equal(await prisma.quotationSequence.count({ where: { officeBranchId: a.branch } }), 0);
-    const concurrent = await Promise.all(Array.from({ length: 5 }, () => create(a)));
-    assert.deepEqual(concurrent.map(q => q.no).sort((x,y)=>x-y), [1,2,3,4,5]);
+    const draftEdit = await repo.update(drafts[0].id, { version: 0, subject: 'Draft edit' }, a.branch, actor);
+    assert.equal(draftEdit.no, null); assert.equal(draftEdit.revision, 0);
+    const concurrent = await Promise.all(drafts.slice(1,4).reverse().map(approve));
+    assert.deepEqual(concurrent.map(q=>q.no).sort((x,y)=>x-y), [1,2,3]);
     assert(concurrent.every(q => q.numberYear === 2026));
-    assert.equal((await counter(a.branch, 2026)).lastNumber, 5);
-    assert.equal((await create(b)).no, 1);
-    await assert.rejects(repository.create(invalid, a.branch, actor));
-    assert.equal((await counter(a.branch, 2026)).lastNumber, 5);
-    await repository.deactivate(concurrent[0].id, { version: 0 }, a.branch, actor);
-    assert.equal((await create(a)).no, 6);
-    // A held row lock must block same-branch numbering while another branch proceeds.
-    let release, locked;
-    const acquired = new Promise(resolve => { locked = resolve; });
-    const gate = new Promise(resolve => { release = resolve; });
-    const holder = prisma.$transaction(async tx => {
-      await tx.$queryRaw`SELECT last_number FROM quotation_sequences WHERE office_branch_id = ${a.branch}::uuid AND year = 2026 FOR UPDATE`;
-      locked(); await gate;
-    }, { timeout: 10000 });
-    await acquired;
-    let completed = false;
-    const blocked = create(a).then(q => { completed = true; return q; });
-    try {
-      assert.equal((await create(b)).no, 2);
-      await new Promise(resolve => setTimeout(resolve, 100));
-      assert.equal(completed, false);
-    } finally { release(); await holder; }
-    assert.equal((await blocked).no, 7);
-    numbering.quotationNumberYear = () => 2027;
-    const nextA = await create(a), nextB = await create(b);
-    assert.equal(nextA.no, 1); assert.equal(nextB.no, 1);
-    assert.equal(nextA.numberYear, 2027);
-    assert.equal((await counter(a.branch, 2026)).lastNumber, 7);
-    assert.equal((await counter(a.branch, 2027)).lastNumber, 1);
-    await assert.rejects(repository.update(nextA.id, { version: 0, no: 10 }, a.branch, actor));
-    const updated = await repository.update(nextA.id, { version: 0, date: '2030-01-01' }, a.branch, actor);
-    assert.equal(updated.no, 1); assert.equal(updated.numberYear, 2027);
-    const history = await repository.history(nextA.id, a.branch);
-    assert(history.every(h => h.snapshot.no === 1 && h.snapshot.numberYear === 2027));
-    console.log('PASS: first-use concurrency, branch independence, annual reset, Jakarta year boundary, row locking, rollback, no reuse after deletion, immutable numbering, and history.');
+    assert.equal((await counter(a.branch, 2026)).lastNumber, 3);
+    assert.equal((await approve(await create(b))).no, 1);
+    const objectCount = objects.size;
+    for (const mode of ['upload','history']) {
+      failUpload = mode === 'upload'; failHistory = mode === 'history';
+      await assert.rejects(approve(drafts[4]), e => e.statusCode === 503);
+      failUpload = false; failHistory = false;
+      assert.equal(objects.size, objectCount); assert.equal((await counter(a.branch,2026)).lastNumber, 3);
+      const failed = await repo.findActive(drafts[4].id,a.branch);
+      assert.equal(failed.no,null); assert.equal(failed.status,'CREATED'); assert.equal(failed.version,0);
+      assert.equal(await prisma.quotationPdf.count({where:{quotationId:failed.id}}),0);
+    }
+    assert.equal((await approve(drafts[4])).no,4);
+    await repo.deactivate(draftEdit.id,{version:draftEdit.version},a.branch,actor);
+    await repo.deactivate(concurrent[0].id,{version:concurrent[0].version},a.branch,actor);
+    assert.equal((await repo.find(concurrent[0].id,a.branch)).pdfDocument.key,concurrent[0].pdf.key);
+    assert(objects.has(concurrent[0].pdf.key));
+    assert.equal((await approve(await create(a))).no,5);
+    numbering.quotationNumberYear=()=>2027;
+    assert.equal((await approve(await create(a))).no,1); assert.equal((await approve(await create(b))).no,1);
+    let source = concurrent[1];
+    for (const revision of [1,2]) {
+      const draft = await repo.update(source.id,{version:source.version,subject:`Revision ${revision}`,
+        items: source.items.filter(item=>item.isActive).map(item=>({id:item.id,itemSizeId:item.itemSizeId,quantityInspection:String(revision+1)}))},a.branch,actor);
+      assert.equal(draft.no,null); assert.equal(draft.numberYear,null);
+      assert.notEqual(draft.items[0].id,source.items[0].id);
+      assert.deepEqual((await repo.find(source.id,a.branch)).items,source.items);
+      const approved = await approve(draft);
+      assert.equal(approved.no,source.no); assert.equal(approved.numberYear,2026); assert.equal(approved.revision,revision);
+      assert.equal((await repo.find(source.id,a.branch)).pdfDocument.key,source.pdf.key);
+      source=approved;
+    }
+    assert.equal((await counter(a.branch,2026)).lastNumber,5); assert.equal((await counter(a.branch,2027)).lastNumber,1);
+    console.log('PASS: unnumbered drafts, concurrent approvals, branch/year isolation, upload/database rollback without gaps, no reuse, and historical revisions retaining the original number.');
   } finally {
-    numbering.quotationNumberYear = originalYear;
-    const where = { officeBranchId: { in: branches } };
-    await prisma.quotationHistory.deleteMany({ where: { quotation: where } });
-    await prisma.quotationItem.deleteMany({ where: { quotation: where } });
-    await prisma.quotation.deleteMany({ where });
-    await prisma.quotationSequence.deleteMany({ where });
-    await prisma.service.deleteMany({ where });
-    await prisma.company.deleteMany({ where });
+    failHistory=false; numbering.quotationNumberYear=originalYear;
+    const where={officeBranchId:{in:branches}};
+    await prisma.quotation.updateMany({where,data:{previousQuotationId:null}});
+    await prisma.quotationPdf.deleteMany({where:{quotation:where}});
+    await prisma.quotationHistory.deleteMany({where:{quotation:where}});
+    await prisma.quotationItem.deleteMany({where:{quotation:where}});
+    await prisma.taxCache.deleteMany({where});
+    await prisma.quotation.deleteMany({where}); await prisma.quotationSequence.deleteMany({where});
+    for(const f of fixtures){await prisma.service.delete({where:{id:f.serviceId}});await prisma.company.delete({where:{id:f.companyId}});}
+    await prisma.$disconnect();
   }
 }
-main().catch(error => { console.error(error); process.exitCode = 1; }).finally(()=>prisma.$disconnect());
+main().catch(error=>{console.error(error);process.exitCode=1;});

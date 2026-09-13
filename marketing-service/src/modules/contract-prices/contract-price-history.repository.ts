@@ -2,8 +2,8 @@ import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 
 const fields = [
-  ['priceService', 'Harga Service'], ['priceMaintenance', 'Harga Maintenance'], ['isActive', 'Status Aktif'],
-  ['effectiveFrom', 'Mulai Berlaku'], ['effectiveUntil', 'Akhir Berlaku'],
+  ['priceService', 'Service price'], ['priceMaintenance', 'Maintenance price'], ['isActive', 'Active status'],
+  ['effectiveFrom', 'Effective from'], ['effectiveUntil', 'Effective until'],
 ] as const;
 type Snapshot = Record<string, unknown> | null;
 const snapshot = (value: unknown): Snapshot => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;

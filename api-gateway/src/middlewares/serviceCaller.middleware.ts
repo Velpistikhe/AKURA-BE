@@ -6,6 +6,8 @@ const serviceSecrets = {
   'auth-service': env.AUTH_SERVICE_GATEWAY_SECRET,
   'app-manager-service': env.APP_MANAGER_SERVICE_GATEWAY_SECRET,
   'marketing-service': env.MARKETING_SERVICE_GATEWAY_SECRET,
+  'finance-service': env.FINANCE_SERVICE_GATEWAY_SECRET,
+  'fieldservice-service': env.FIELDSERVICE_SERVICE_GATEWAY_SECRET,
 } as const;
 
 type ServiceName = keyof typeof serviceSecrets;

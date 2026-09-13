@@ -1,10 +1,11 @@
+import { catalogSnapshot } from './quotation-price.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { CatalogEntity, recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
-import { AddItemSizeInput, CreateItemInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema } from './item.schemas.js';
+import { AddItemSizeInput, CreateItemInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema, referenceKey, UpdatePriceInput } from './item.schemas.js';
 
 type Tx = Prisma.TransactionClient;
 // One shared lock order for catalog writes and company revision/copy operations.
@@ -12,7 +13,7 @@ const write = <T>(branch: string, action: (tx: Tx) => Promise<T>) => prisma.$tra
   await lockCompanyBranch(tx, branch);
   return action(tx);
 }, { maxWait: 10000, timeout: 20000 }).catch(error => {
-  if (error?.code === 'P2002') throw new HttpError('An item size or price with this key already exists', 409);
+  if (error?.code === 'P2002') throw new HttpError('An active item, size or price with this key already exists', 409);
   if (error?.code === 'P2025' || error?.code === 'P2034') throw new HttpError('Data has changed; reload before retrying', 409);
   throw error;
 });
@@ -75,35 +76,77 @@ const bumpSize = async (tx: Tx, branch: string, size: any, item: any, actor: Aud
   await bumpItem(tx, branch, item, actor);
 };
 const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemInput['sizes'][number], actor: AuditActor) => {
-  const { size, ...prices } = input;
-  standardPrices(prices, item.service.hasMaintenance);
-  if (await tx.itemSize.findFirst({ where: { itemId: item.id, size, isActive: true } })) throw new HttpError('Item size already exists', 409);
+  const { size } = input;
+  const activeKey = referenceKey(size);
+  if (await tx.itemSize.findFirst({ where: { itemId: item.id, isActive: true, OR: [{ activeKey }, { size: { equals: size, mode: 'insensitive' } }] } })) throw new HttpError('Item size already exists', 409);
   const latest = await tx.itemSize.findFirst({ where: { itemId: item.id, size }, orderBy: { effectiveFrom: 'desc' } });
   const effectiveFrom = new Date(Math.max(Date.now(), latest ? latest.effectiveFrom.getTime() + 1 : 0));
-  const row = await tx.itemSize.create({ data: { itemId: item.id, size, effectiveFrom, ...createdBy(actor) } });
-  const price = await tx.itemPrice.create({ data: { itemSizeId: row.id, ...prices, effectiveFrom, ...createdBy(actor) } });
+  const row = await tx.itemSize.create({ data: { itemId: item.id, size, activeKey, effectiveFrom, ...createdBy(actor) } });
   await recordCatalogAudit(tx, branch, 'ITEM_SIZE', null, row, actor, 'CREATE');
-  await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, price, actor, 'CREATE');
-  return { ...row, price };
+  return { ...row, price: null };
 };
-const closeSize = async (tx: Tx, branch: string, size: any, actor: AuditActor) => {
-  const changedAt = new Date(Math.max(Date.now(), size.effectiveFrom.getTime()));
-  for (const price of await tx.itemPrice.findMany({ where: { itemSizeId: size.id, isActive: true } })) {
-    await change(tx, branch, 'ITEM_PRICE', price, { isActive: false, effectiveUntil: new Date(Math.max(changedAt.getTime(), price.effectiveFrom.getTime())) }, actor, 'DEACTIVATE');
-  }
-  for (const price of await tx.companyContractPrice.findMany({ where: { itemSizeId: size.id, isActive: true } })) {
-    await change(tx, branch, 'COMPANY_CONTRACT_PRICE', price, { isActive: false, effectiveUntil: new Date(Math.max(changedAt.getTime(), price.effectiveFrom.getTime())) }, actor, 'DEACTIVATE');
-    const contract = await tx.companyContract.findUniqueOrThrow({ where: { id: price.contractId } });
+// The branch transaction lock also covers contract/Excel writers. Read once, mutate in
+// batches, and append one immutable snapshot per changed row in the same transaction.
+const closeSizes = async (tx: Tx, branch: string, sizes: Prisma.ItemSizeGetPayload<{}>[], actor: AuditActor) => {
+  if (!sizes.length) return;
+  const ids = sizes.map(size => size.id);
+  const prices = await tx.itemPrice.findMany({ where: { itemSizeId: { in: ids }, isActive: true } });
+  const changedAt = new Date(Math.max(Date.now(), ...[...sizes, ...prices].map(row => row.effectiveFrom.getTime())));
+  const metadata = { updatedAt: changedAt, updatedById: actor.id, updatedByName: actor.name };
+  const closed = { ...metadata, isActive: false, effectiveUntil: changedAt };
+  const rows = <T extends { id: string; version: number }>(entityType: ItemCatalogEntity, before: T[], updates: object, action: string) => before.map(row => ({
+    officeBranchId: branch, entityType, entityId: row.id, version: row.version + 1, action,
+    before: JSON.parse(JSON.stringify(row)), after: JSON.parse(JSON.stringify({ ...row, ...updates, version: row.version + 1 })),
+    createdById: actor.id, createdByName: actor.name,
+  }));
+  await tx.itemPrice.updateMany({ where: { id: { in: prices.map(price => price.id) } }, data: { ...closed, version: { increment: 1 } } });
+  await tx.itemSize.updateMany({ where: { id: { in: ids } }, data: { ...closed, activeKey: null, version: { increment: 1 } } });
+  const audits = [
+    ...rows('ITEM_PRICE', prices, closed, 'DEACTIVATE'),
+    ...rows('ITEM_SIZE', sizes, { ...closed, activeKey: null }, 'DEACTIVATE'),
+  ];
+  // Bound each insert's parameter count for large catalogs.
+  for (let offset = 0; offset < audits.length; offset += 500) await tx.catalogAuditLog.createMany({ data: audits.slice(offset, offset + 500) });
+
+};
+
+const createContract = async (tx: Tx, id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => {
+    const { size, item } = await sizeInBranch(tx, id, branch);
+    const contract = await contractInBranch(tx, data.contractId, branch);
+    const prices = contractPrices(data, item.service.hasMaintenance);
+    if (await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id } })) {
+      throw new HttpError('Contract price already exists; use PATCH with its version', 409);
+    }
+    const result = await tx.companyContractPrice.create({ data: { itemSizeId: id, ...prices, catalogSnapshot: catalogSnapshot({ ...size, item }), ...createdBy(actor) } });
+    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
     await change(tx, branch, 'COMPANY_CONTRACT', contract, {}, actor, 'PRICE_UPDATE');
-  }
-  return change(tx, branch, 'ITEM_SIZE', size, { isActive: false, effectiveUntil: changedAt }, actor, 'DEACTIVATE');
+    await bumpSize(tx, branch, size, item, actor);
+    return result;
+};
+const changeContract = async (tx: Tx, id: string, data: { version: number; priceService?: string | number; priceMaintenance?: string | number | null; isActive?: boolean }, branch: string, actor: AuditActor, remove = false) => {
+    const before = await tx.companyContractPrice.findFirst({ where: { id, contract: { company: { officeBranchId: branch, revoked: false } } } });
+    if (!before) throw new HttpError('Contract price not found', 404);
+    const { size, item } = await sizeInBranch(tx, before.itemSizeId, branch);
+    requireCatalogVersion(before, data.version, !remove);
+    const contract = await contractInBranch(tx, before.contractId, branch);
+    const prices = remove ? {} : contractPrices({ contractId: before.contractId, priceService: data.priceService!, priceMaintenance: data.priceMaintenance }, item.service.hasMaintenance);
+    const active = remove ? false : data.isActive ?? before.isActive;
+    const result = await change(tx, branch, 'COMPANY_CONTRACT_PRICE', before, {
+      ...prices, isActive: active, effectiveUntil: active ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())),
+      ...(!before.isActive && active ? { effectiveFrom: new Date() } : {}),
+    }, actor, remove ? 'DEACTIVATE' : 'UPDATE');
+    await change(tx, branch, 'COMPANY_CONTRACT', contract, {}, actor, 'PRICE_UPDATE');
+    await bumpSize(tx, branch, size, item, actor);
+    return result;
 };
 
 export const itemWriteRepository = {
   create: (data: CreateItemInput, branch: string, actor: AuditActor) => write(branch, async tx => {
     const service = await tx.service.findFirst({ where: { id: data.serviceId, officeBranchId: branch, isActive: true } });
     if (!service) throw new HttpError('Service is inactive or not found', 409);
-    const item = await tx.item.create({ data: { officeBranchId: branch, serviceId: data.serviceId, name: data.name, ...createdBy(actor) } });
+    const activeKey = referenceKey(data.name);
+    if (await tx.item.findFirst({ where: { serviceId: data.serviceId, isActive: true, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
+    const item = await tx.item.create({ data: { officeBranchId: branch, serviceId: data.serviceId, name: data.name, activeKey, ...createdBy(actor) } });
     await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];
     for (const size of data.sizes) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
@@ -121,45 +164,40 @@ export const itemWriteRepository = {
     const item = await itemInBranch(tx, id, branch);
     requireCatalogVersion(item, data.version);
     const { service, ...before } = item;
-    return change(tx, branch, 'ITEM', before, { name: data.name }, actor);
-  }),
-  updateSize: (id: string, data: { version: number; size: string }, branch: string, actor: AuditActor) => write(branch, async tx => {
-    const { size, item } = await sizeInBranch(tx, id, branch);
-    requireCatalogVersion(size, data.version);
-    if (await tx.itemSize.findFirst({ where: { itemId: item.id, size: data.size, isActive: true, id: { not: id } } })) throw new HttpError('Item size already exists', 409);
-    const result = await change(tx, branch, 'ITEM_SIZE', size, { size: data.size }, actor);
-    await bumpItem(tx, branch, item, actor);
-    return result;
+    const activeKey = referenceKey(data.name);
+    if (await tx.item.findFirst({ where: { serviceId: item.serviceId, isActive: true, id: { not: id }, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
+    return change(tx, branch, 'ITEM', before, { name: data.name, activeKey }, actor);
   }),
   removeSize: (id: string, branch: string, actor: AuditActor, version: number) => write(branch, async tx => {
     const { size, item } = await sizeInBranch(tx, id, branch);
     requireCatalogVersion(size, version);
-    await closeSize(tx, branch, size, actor);
+    await closeSizes(tx, branch, [size], actor);
     await bumpItem(tx, branch, item, actor);
     return tx.itemSize.findUniqueOrThrow({ where: { id }, include: { price: true } });
   }),
   remove: (id: string, branch: string, actor: AuditActor, version: number) => write(branch, async tx => {
     const item = await itemInBranch(tx, id, branch);
     requireCatalogVersion(item, version);
-    for (const size of await tx.itemSize.findMany({ where: { itemId: id, isActive: true } })) await closeSize(tx, branch, size, actor);
+    await closeSizes(tx, branch, await tx.itemSize.findMany({ where: { itemId: id, isActive: true } }), actor);
     const { service, ...before } = item;
-    await change(tx, branch, 'ITEM', before, { isActive: false }, actor, 'DEACTIVATE');
+    await change(tx, branch, 'ITEM', before, { isActive: false, activeKey: null }, actor, 'DEACTIVATE');
     return tx.item.findUniqueOrThrow({ where: { id }, include: { sizes: { include: { price: true } } } });
   }),
-  savePrice: (id: string, data: PriceInput & { version?: number; isActive?: boolean }, branch: string, actor: AuditActor, create = false) => write(branch, async tx => {
+  savePrice: (id: string, data: PriceInput | UpdatePriceInput, branch: string, actor: AuditActor, create = false) => write(branch, async tx => {
     const { size, item } = await sizeInBranch(tx, id, branch);
-    const { version, isActive, ...input } = data;
-    const prices = standardPrices(input, item.service.hasMaintenance);
+    const { version, isActive, ...input } = data as Partial<UpdatePriceInput>;
     const before = await tx.itemPrice.findUnique({ where: { itemSizeId: id } });
     let result;
     if (create) {
       if (before) throw new HttpError('Price already exists; use PATCH with its version', 409);
+      const prices = standardPrices(input as PriceInput, item.service.hasMaintenance);
       result = await tx.itemPrice.create({ data: { itemSizeId: id, ...prices, ...createdBy(actor) } });
       await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, result, actor, 'CREATE');
     } else {
       if (!before) throw new HttpError('Item price not found', 404);
       requireCatalogVersion(before, version!, true);
-      result = await change(tx, branch, 'ITEM_PRICE', before, { ...prices, ...(isActive === undefined ? {} : { isActive, effectiveUntil: isActive ? null : new Date(), ...(!before.isActive && isActive ? { effectiveFrom: new Date() } : {}) }) }, actor);
+      const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany.toString(), priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service.hasMaintenance);
+      result = await change(tx, branch, 'ITEM_PRICE', before, { ...prices, ...(isActive === undefined ? {} : { isActive, effectiveUntil: isActive ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())), ...(!before.isActive && isActive ? { effectiveFrom: new Date() } : {}) }) }, actor);
     }
     await bumpSize(tx, branch, size, item, actor);
     return result;
@@ -173,39 +211,16 @@ export const itemWriteRepository = {
     await bumpSize(tx, branch, size, item, actor);
     return result;
   }),
-  createContract: (id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => write(branch, async tx => {
-    const { size, item } = await sizeInBranch(tx, id, branch);
-    const contract = await contractInBranch(tx, data.contractId, branch);
-    const prices = contractPrices(data, item.service.hasMaintenance);
-    if (await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id } })) {
-      throw new HttpError('Contract price already exists; use PATCH with its version', 409);
+  createContract: (id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => write(branch, tx => createContract(tx, id, data, branch, actor)),
+  upsertContract: (id: string, data: ContractPriceInput & { version?: number }, branch: string, actor: AuditActor) => write(branch, async tx => {
+    const existing = await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, contract: { company: { officeBranchId: branch, revoked: false } } }, select: { id: true } });
+    if (!existing) {
+      if (data.version !== undefined) throw new HttpError('Contract price no longer exists; reload before retrying', 409);
+      const { version, ...input } = data;
+      return { created: true, price: await createContract(tx, id, input, branch, actor) };
     }
-    const result = await tx.companyContractPrice.create({ data: { itemSizeId: id, ...prices, ...createdBy(actor) } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
-    await change(tx, branch, 'COMPANY_CONTRACT', contract, {}, actor, 'PRICE_UPDATE');
-    await bumpSize(tx, branch, size, item, actor);
-    return result;
-  }),
-  upsertContract: async (id: string, data: ContractPriceInput & { version?: number }, branch: string, actor: AuditActor) => {
-    const existing = await prisma.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, contract: { company: { officeBranchId: branch, revoked: false } } }, select: { id: true } });
-    if (!existing) return { created: true, price: await itemWriteRepository.createContract(id, data, branch, actor) };
     if (data.version === undefined) throw new HttpError('version is required when updating an existing contract price', 400);
-    return { created: false, price: await itemWriteRepository.changeContract(existing.id, { ...data, version: data.version }, branch, actor) };
-  },
-  changeContract: (id: string, data: { version: number; priceService?: string | number; priceMaintenance?: string | number | null; isActive?: boolean }, branch: string, actor: AuditActor, remove = false) => write(branch, async tx => {
-    const before = await tx.companyContractPrice.findFirst({ where: { id, contract: { company: { officeBranchId: branch, revoked: false } } } });
-    if (!before) throw new HttpError('Contract price not found', 404);
-    const { size, item } = await sizeInBranch(tx, before.itemSizeId, branch);
-    requireCatalogVersion(before, data.version, !remove);
-    const contract = await contractInBranch(tx, before.contractId, branch);
-    const prices = remove ? {} : contractPrices({ contractId: before.contractId, priceService: data.priceService!, priceMaintenance: data.priceMaintenance }, item.service.hasMaintenance);
-    const active = remove ? false : data.isActive ?? before.isActive;
-    const result = await change(tx, branch, 'COMPANY_CONTRACT_PRICE', before, {
-      ...prices, isActive: active, effectiveUntil: active ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())),
-      ...(!before.isActive && active ? { effectiveFrom: new Date() } : {}),
-    }, actor, remove ? 'DEACTIVATE' : 'UPDATE');
-    await change(tx, branch, 'COMPANY_CONTRACT', contract, {}, actor, 'PRICE_UPDATE');
-    await bumpSize(tx, branch, size, item, actor);
-    return result;
+    return { created: false, price: await changeContract(tx, existing.id, { ...data, version: data.version }, branch, actor) };
   }),
+  changeContract: (id: string, data: { version: number; priceService?: string | number; priceMaintenance?: string | number | null; isActive?: boolean }, branch: string, actor: AuditActor, remove = false) => write(branch, tx => changeContract(tx, id, data, branch, actor, remove)),
 };

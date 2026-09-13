@@ -4,19 +4,20 @@ import { getOfficeBranchId, getAuditActor } from '../../utils/officeBranch.js';
 import { HttpError } from '../../utils/httpError.js';
 import { itemWriteRepository as writes } from './item-write.repository.js';
 import { itemRepository } from './item.repository.js';
-import { itemService } from './item.service.js';
+import { itemHistoryRepository } from './item-history.repository.js';
 
 const send = (req: Request, res: Response, data: unknown, status = 200) => {
   res.status(status).json({ status, success: true, data, requestId: req.headers['x-request-id'] });
 };
 export const itemPriceController = {
+  itemHistory: async (req: Request, res: Response) => { send(req, res, await itemHistoryRepository.read('ITEM', res.locals.params.itemId, getOfficeBranchId(res), res.locals.query)); },
+  sizeHistory: async (req: Request, res: Response) => { send(req, res, await itemHistoryRepository.read('ITEM_SIZE', res.locals.params.itemSizeId, getOfficeBranchId(res), res.locals.query)); },
+  priceHistory: async (req: Request, res: Response) => { send(req, res, await itemHistoryRepository.read('ITEM_PRICE', res.locals.params.itemSizeId, getOfficeBranchId(res), res.locals.query)); },
   resolvedPrices: async (req: Request, res: Response) => {
     const branch = getOfficeBranchId(res);
-    await itemService.validateSizeListItem(res.locals.query, branch);
     send(req, res, await itemRepository.listSizes(res.locals.query, branch, res.locals.query.companyId, true));
   },
   updateItem: async (req: Request, res: Response) => { send(req, res, await writes.updateItem(res.locals.params.itemId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
-  updateSize: async (req: Request, res: Response) => { send(req, res, await writes.updateSize(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   createPrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true), 201); },
   updatePrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   removePrice: async (req: Request, res: Response) => { send(req, res, await writes.removePrice(res.locals.params.itemSizeId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res))); },

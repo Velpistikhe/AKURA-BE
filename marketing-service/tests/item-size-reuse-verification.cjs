@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { prisma } = require('../dist/config/db.js');
+const { itemWriteRepository } = require('../dist/modules/items/item-write.repository.js');
 const { itemRepository } = require('../dist/modules/items/item.repository.js');
 
 async function main() {
@@ -8,17 +9,18 @@ async function main() {
   const actor = { id: randomUUID(), name: 'Size reuse test' };
   let service;
   try {
-    service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Size reuse test', type: 'TUBULAR' } });
+    service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Size reuse test', type: 'TUBULAR', createdById: actor.id, createdByName: actor.name } });
     const item = await itemRepository.create({
       serviceId: service.id, name: 'Pipe',
-      sizes: [{ size: 'Large', priceServicePrimary: 100, priceServiceSisterCompany: 90 }],
+      sizes: [{ size: 'Large' }],
     }, branch, actor);
-    const input = { itemVersion: 0, itemId: item.id, size: 'Large', priceServicePrimary: 120, priceServiceSisterCompany: 110 };
+    const input = { itemVersion: 0, itemId: item.id, size: 'Large' };
+    await itemWriteRepository.savePrice(item.sizes[0].id, { priceServicePrimary: 100, priceServiceSisterCompany: 90 }, branch, actor, true);
     assert(item.sizes[0].effectiveFrom instanceof Date);
     assert.equal(item.sizes[0].version, 0);
     assert.equal(item.sizes[0].effectiveUntil, null);
     await assert.rejects(itemRepository.addSize(input, branch, actor), e => e.statusCode === 409);
-    await itemRepository.removeSize(item.sizes[0].id, branch, actor, 0);
+    await itemRepository.removeSize(item.sizes[0].id, branch, actor, 1);
     const historical = await prisma.itemSize.findUniqueOrThrow({ where: { id: item.sizes[0].id }, include: { price: true } });
     assert.equal(historical.isActive, false);
     assert(historical.effectiveUntil >= historical.effectiveFrom);
@@ -33,7 +35,8 @@ async function main() {
     assert.notEqual(replacement.id, historical.id);
     assert(replacement.effectiveFrom > historical.effectiveFrom);
     assert.equal(replacement.effectiveUntil, null);
-    assert.equal(replacement.priceServicePrimary.toString(), '120');
+    assert.equal(replacement.priceServicePrimary, null);
+    assert.equal(replacement.priceStatus, 'UNAVAILABLE');
     assert.equal(replacement.createdById, actor.id);
     assert.equal(replacement.updatedById, null);
     assert.deepEqual(await prisma.itemSize.findUniqueOrThrow({ where: { id: historical.id }, include: { price: true } }), historical);
@@ -55,7 +58,7 @@ async function main() {
     const closed = await prisma.itemSize.findUniqueOrThrow({ where: { id: third.id }, include: { price: true } });
     assert.equal(closed.isActive, false);
     assert(closed.effectiveUntil >= closed.effectiveFrom);
-    assert.deepEqual(closed.effectiveUntil, closed.price.effectiveUntil);
+    assert.equal(closed.price, null);
     for (const old of inactiveHistory) {
       assert.deepEqual(await prisma.itemSize.findUniqueOrThrow({ where: { id: old.id }, include: { price: true } }), old);
     }

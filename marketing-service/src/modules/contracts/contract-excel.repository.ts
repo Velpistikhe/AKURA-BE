@@ -1,3 +1,4 @@
+import { catalogSnapshot } from '../items/quotation-price.js';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
@@ -56,7 +57,7 @@ export const contractExcelRepository = {
     }
     if (errors.length) throw new ExcelImportError(errors, stale ? 409 : 400);
     const metadata = { createdAt: now, updatedAt: now, createdById: actor.id, createdByName: actor.name, updatedById: null, updatedByName: null, version: 0 };
-    const prices = rows.map(row => ({ id: randomUUID(), contractId, itemSizeId: row.itemSizeId,
+    const prices = rows.map(row => ({ id: randomUUID(), contractId, itemSizeId: row.itemSizeId, catalogSnapshot: catalogSnapshot(byId.get(row.itemSizeId)!),
       priceService: new Prisma.Decimal(row.priceService), priceMaintenance: row.priceMaintenance === null ? null : new Prisma.Decimal(row.priceMaintenance),
       isActive: true, effectiveFrom: now, effectiveUntil: null, ...metadata,
     }));

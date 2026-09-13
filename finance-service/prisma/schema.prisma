@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum DocumentKind {
+  PROFORMA_INVOICE
+  INVOICE
+}
+enum DocumentStatus {
+  DRAFT
+  FINAL
+}
+model Document {
+  id String @id @default(uuid()) @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  kind DocumentKind
+  number String @db.VarChar(100)
+  quotationId String @map("quotation_id") @db.Uuid
+  quotationVersion Int @map("quotation_version")
+  quotationSnapshot Json @map("quotation_snapshot") @db.JsonB
+  title String @db.VarChar(255)
+  date DateTime @db.Date
+  dueDate DateTime? @map("due_date") @db.Date
+  notes String? @db.Text
+  status DocumentStatus @default(DRAFT)
+  subTotal Decimal @map("sub_total") @db.Decimal(18,2)
+  taxSourceId String? @map("tax_source_id") @db.Uuid
+  tax Decimal? @db.Decimal(5,2)
+  taxAmount Decimal @map("tax_amount") @db.Decimal(18,2)
+  total Decimal @db.Decimal(18,2)
+  version Int @default(0)
+  isActive Boolean @default(true) @map("is_active")
+  createdById String @map("created_by_id") @db.Uuid
+  createdByName String @map("created_by_name")
+  updatedById String? @map("updated_by_id") @db.Uuid
+  updatedByName String? @map("updated_by_name")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  history DocumentHistory[]
+  @@unique([officeBranchId, kind, number])
+  @@index([officeBranchId, kind, isActive, createdAt, id])
+  @@index([quotationId])
+  @@map("billing_documents")
+}
+model DocumentHistory {
+  id String @id @default(uuid()) @db.Uuid
+  documentId String @map("document_id") @db.Uuid
+  document Document @relation(fields:[documentId], references:[id], onDelete: Restrict)
+  version Int
+  action String @db.VarChar(20)
+  snapshot Json @db.JsonB
+  changes Json @db.JsonB
+  reason String? @db.VarChar(1000)
+  createdById String @map("created_by_id") @db.Uuid
+  createdByName String @map("created_by_name")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([documentId, version])
+  @@map("billing_documents_histories")
+}
+
+model TaxCache {
+  id String @id @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  percentage Decimal @db.Decimal(5, 2)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  sourceUpdatedAt DateTime @map("source_updated_at")
+  @@index([officeBranchId, effectiveFrom])
+  @@map("tax_cache")
+}
+model TaxSyncState {
+  id String @id
+  lastSuccessAt DateTime? @map("last_success_at")
+  @@map("tax_sync_state")
+}
+
+model Tax {
+  id             String @id @default(uuid()) @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  percentage     Decimal @db.Decimal(5, 2)
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  createdById    String @map("created_by_id") @db.Uuid
+  createdByName  String @map("created_by_name")
+  updatedById    String? @map("updated_by_id") @db.Uuid
+  updatedByName  String? @map("updated_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([officeBranchId, effectiveFrom])
+  @@map("taxes")
+}
+
+model TaxRevision {
+  officeBranchId String @id @db.Uuid
+  version Int @default(0)
+  @@map("tax_revisions")
+}
+model TaxEvent {
+  id String @id @default(uuid()) @db.Uuid
+  officeBranchId String @db.Uuid
+  version Int
+  payload Json @db.JsonB
+  createdAt DateTime @default(now())
+  deliveries TaxDelivery[]
+  @@unique([officeBranchId, version])
+  @@map("tax_events")
+}
+model TaxDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  eventId String @db.Uuid
+  event TaxEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  targetService String
+  attempts Int @default(0)
+  nextRetryAt DateTime @default(now())
+  deliveredAt DateTime?
+  lastError String?
+  @@unique([eventId, targetService])
+  @@index([deliveredAt, nextRetryAt])
+  @@map("tax_deliveries")
+}

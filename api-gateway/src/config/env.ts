@@ -9,6 +9,10 @@ const envSchema = z.object({
   AUTH_SERVICE_GATEWAY_SECRET: z.string().min(1, 'AUTH_SERVICE_GATEWAY_SECRET is required'),
   APP_MANAGER_SERVICE_GATEWAY_SECRET: z.string().min(1, 'APP_MANAGER_SERVICE_GATEWAY_SECRET is required'),
   MARKETING_SERVICE_GATEWAY_SECRET: z.string().min(1, 'MARKETING_SERVICE_GATEWAY_SECRET is required'),
+  FINANCE_SERVICE_URL: z.string().url().optional(),
+  FINANCE_SERVICE_GATEWAY_SECRET: z.string().min(1).optional(),
+  FIELDSERVICE_SERVICE_URL: z.string().url().optional(),
+  FIELDSERVICE_SERVICE_GATEWAY_SECRET: z.string().min(1).optional(),
   CORS_ORIGIN: z.string().default('*'),
   AUTH_SERVICE_URL: z.string({ required_error: 'AUTH_SERVICE_URL is required' })
     .url('AUTH_SERVICE_URL must be a valid URL'),
@@ -23,11 +27,18 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform((value) => Number.parseInt(value, 10)),
   RATE_LIMIT_MAX_REQUESTS: z.string().default('100').transform((value) => Number.parseInt(value, 10)),
 }).superRefine((value, context) => {
+  for (const name of ['FINANCE', 'FIELDSERVICE'] as const) {
+    if (Boolean(value[`${name}_SERVICE_URL`]) !== Boolean(value[`${name}_SERVICE_GATEWAY_SECRET`])) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [`${name}_SERVICE_URL`], message: 'Service URL and gateway secret must be configured together' });
+    }
+  }
   const secrets = [
     value.AUTH_SERVICE_GATEWAY_SECRET,
     value.APP_MANAGER_SERVICE_GATEWAY_SECRET,
     value.MARKETING_SERVICE_GATEWAY_SECRET,
-  ];
+    value.FINANCE_SERVICE_GATEWAY_SECRET,
+    value.FIELDSERVICE_SERVICE_GATEWAY_SECRET,
+  ].filter((secret): secret is string => secret !== undefined);
   if (new Set(secrets).size !== secrets.length) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

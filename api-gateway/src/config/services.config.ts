@@ -35,3 +35,18 @@ export const servicesConfig: ServiceRouteConfig[] = [
     description: 'Marketing Service',
   },
 ];
+
+if (env.FINANCE_SERVICE_URL && env.FINANCE_SERVICE_GATEWAY_SECRET) {
+  servicesConfig.push({
+    prefix: '/api/v1/finance', target: env.FINANCE_SERVICE_URL,
+    gatewaySecret: env.FINANCE_SERVICE_GATEWAY_SECRET, authRequired: true,
+    pathRewrite: { '^/api/v1/finance': '' }, description: 'Finance Service',
+  });
+}
+if (env.FIELDSERVICE_SERVICE_URL && env.FIELDSERVICE_SERVICE_GATEWAY_SECRET) {
+  servicesConfig.push({
+    prefix: '/api/v1/fieldservice', target: env.FIELDSERVICE_SERVICE_URL,
+    gatewaySecret: env.FIELDSERVICE_SERVICE_GATEWAY_SECRET, authRequired: true,
+    pathRewrite: { '^/api/v1/fieldservice': '' }, description: 'Field Service Service',
+  });
+}

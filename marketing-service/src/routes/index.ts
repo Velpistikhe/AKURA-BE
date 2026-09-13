@@ -1,3 +1,6 @@
+import { validate } from '../middlewares/validate.middleware.js';
+import { quotationIdSchema } from '../modules/quotations/quotation.schemas.js';
+import { quotationController } from '../modules/quotations/quotation.controller.js';
 import { Router } from 'express';
 import companyRoutes from '../modules/companies/company.routes.js';
 import companyStaffRoutes from '../modules/company-staff/company-staff.routes.js';
@@ -6,10 +9,11 @@ import itemRoutes from '../modules/items/item.routes.js';
 import contractRoutes from '../modules/contracts/contract.routes.js';
 import quotationRoutes from '../modules/quotations/quotation.routes.js';
 import contractPriceHistoryRoutes from '../modules/contract-prices/contract-price-history.routes.js';
-import { requireMarketingAccess } from '../middlewares/authorize.middleware.js';
+import { requireMarketingAccess, requireQuotationReferenceAccess } from '../middlewares/authorize.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+router.get('/quotation-references/:quotationId', asyncHandler(requireQuotationReferenceAccess), validate('params', quotationIdSchema), asyncHandler(quotationController.getReference));
 router.use(asyncHandler(requireMarketingAccess));
 router.use('/companies', companyRoutes);
 router.use('/company-staffs', companyStaffRoutes);

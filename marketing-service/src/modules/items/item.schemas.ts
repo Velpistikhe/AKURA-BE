@@ -16,7 +16,17 @@ export const listItemSizesSchema = z
   })
   .strict();
 
-export const listContractItemSizesSchema = listItemSizesSchema.extend({ companyId: z.string().uuid() });
+export const listContractItemSizesSchema = listItemSizesSchema.extend({
+  companyId: z.string().uuid(),
+  exclude: z.string().transform(value => value.split(',').map(id => id.trim()))
+    .pipe(z.array(z.string().uuid()).min(1).max(100)).optional(),
+}).transform(({ exclude, ...query }) => ({
+  ...query,
+  // Keep the existing notIn parameter compatible and apply both filters together.
+  notIn: exclude || query.notIn
+    ? [...new Set([...(query.notIn ?? []), ...(exclude ?? [])].map(id => id.toLowerCase()))]
+    : undefined,
+}));
 export type ListContractItemSizesInput = z.infer<typeof listContractItemSizesSchema>;
 
 // Do not coerce null, blank strings or booleans to zero.
@@ -29,47 +39,40 @@ const priceFields = {
   priceMaintenanceSisterCompany: price.nullable().optional(),
 };
 export const versionSchema = z.object({ version: z.number().int().nonnegative() }).strict();
-export const updateItemSchema = versionSchema.extend({ name: z.string().trim().min(1).max(200) });
-export const updateItemSizeSchema = versionSchema.extend({ size: z.string().trim().min(1).max(100) });
+export const referenceLabel = (max: number) => z.string().trim().min(1).max(max).transform(value => value.normalize('NFKC').replace(/\s+/g, ' ').trim()).pipe(z.string().min(1).max(max));
+export const referenceKey = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+export const updateItemSchema = versionSchema.extend({ name: referenceLabel(200) });
 export const createItemPriceSchema = z.object(priceFields).strict();
-export const updateItemPriceSchema = versionSchema.extend({ ...priceFields, isActive: z.boolean().optional() });
+export const updateItemPriceSchema = createItemPriceSchema.partial().extend({ version: versionSchema.shape.version, isActive: z.boolean().optional() })
+  .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
+export type UpdatePriceInput = z.infer<typeof updateItemPriceSchema>;
 export const contractPriceIdSchema = z.object({ contractPriceId: z.string().uuid() }).strict();
 export const createContractPriceSchema = z.object({ contractId: z.string().uuid(), priceService: price, priceMaintenance: price.nullable().optional() }).strict();
 export const updateContractPriceSchema = versionSchema.extend({ priceService: price, priceMaintenance: price.nullable().optional(), isActive: z.boolean().optional() });
 export const upsertContractPriceSchema = createContractPriceSchema.extend({ version: z.number().int().nonnegative().optional() });
 export type PriceInput = z.infer<typeof createItemPriceSchema>;
 export type ContractPriceInput = z.infer<typeof createContractPriceSchema>;
-const size = z
-  .object({
-    size: z.string().trim().min(1).max(100),
-    priceServicePrimary: price,
-    priceServiceSisterCompany: price,
-    priceMaintenancePrimary: price.nullable().optional(),
-    priceMaintenanceSisterCompany: price.nullable().optional(),
-  })
-  .strict();
+const size = z.object({ size: referenceLabel(100) }).strict();
 
 export const itemIdSchema = z.object({ itemId: z.string().uuid() }).strict();
 export const itemSizeIdSchema = z.object({ itemSizeId: z.string().uuid() }).strict();
 export const createItemSchema = z
   .object({
     serviceId: z.string().uuid(),
-    name: z.string().trim().min(1).max(200),
-    sizes: z.array(size).min(1).max(100),
+    name: referenceLabel(200),
+    sizes: z.array(size).max(100).default([]),
   })
   .strict();
 
-export const addItemSizeSchema = z
-  .object({
-    itemId: z.string().uuid(),
-    itemVersion: z.number().int().nonnegative(),
-    size: z.string().trim().min(1).max(100),
-    priceServicePrimary: price,
-    priceServiceSisterCompany: price,
-    priceMaintenancePrimary: price.nullable().optional(),
-    priceMaintenanceSisterCompany: price.nullable().optional(),
-  })
-  .strict();
+export const addItemSizeSchema = z.object({
+  itemId: z.string().uuid(),
+  itemVersion: versionSchema.shape.version,
+  size: referenceLabel(100),
+}).strict();
+export const itemHistorySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+}).strict();
 
 export type CreateItemInput = z.infer<typeof createItemSchema>;
 export type AddItemSizeInput = z.infer<typeof addItemSizeSchema>;

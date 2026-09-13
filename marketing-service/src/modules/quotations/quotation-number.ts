@@ -5,7 +5,7 @@ export const quotationNumberYear = (now = new Date()): number => Number(
   new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', year: 'numeric' }).format(now),
 );
 
-// The caller must keep this transaction open through quotation creation and
+// The caller must keep this transaction open through PDF upload, approval and
 // lastNumber update. FOR UPDATE serializes only the same branch/year pair.
 export async function lockNextQuotationNumber(tx: Prisma.TransactionClient, officeBranchId: string, year: number) {
   // ON CONFLICT also handles concurrent creation of a branch's first sequence.
