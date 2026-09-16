@@ -16,7 +16,7 @@ export async function gatewayGet(path: string, req: Request): Promise<unknown> {
     });
   } catch { throw new HttpError('Referenced service is unavailable; retry later', 503); }
   if (!response.ok) {
-    const status = [401, 403, 404].includes(response.status) ? response.status : 503;
+    const status = [401, 403, 404, 409].includes(response.status) ? response.status : 503;
     throw new HttpError(status === 404 ? 'Referenced record not found' : 'Unable to validate reference with upstream service', status);
   }
   try { return (await response.json() as { data: unknown }).data; }
@@ -26,6 +26,7 @@ const money = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/);
 export const quotationSchema = z.object({
   id: z.string().uuid(), officeBranchId: z.string().uuid(), version: z.number().int().nonnegative(),
   isActive: z.literal(true), no: z.number().int(), numberYear: z.number().int(),
+  status: z.string(),
   subject: z.string(), companySnapshot: z.record(z.unknown()), customerSnapshot: z.string(),
   subTotal: money, taxAmount: money, total: money, items: z.array(z.record(z.unknown())),
 }).passthrough();
@@ -35,6 +36,39 @@ export async function loadQuotation(req: Request, id: string, version: number, b
   if (!parsed.success) throw new HttpError('Invalid quotation response', 502);
   const quotation = parsed.data;
   if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError('Quotation not found', 404);
-  if (quotation.version !== version) throw new HttpError('Quotation has changed; reload before creating the document', 409);
+  if (quotation.version !== version) throw new HttpError('Quotation has changed; reload before saving the Work order', 409);
+  if (quotation.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
+  if (quotation.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT')) throw new HttpError('Use the contract as the work order basis for contract pricing', 409);
   return quotation;
+}
+
+export const contractSchema = z.object({
+  id: z.string().uuid(), version: z.number().int().nonnegative(), companyId: z.string().uuid(),
+  isActive: z.boolean(), status: z.string(), effectiveFrom: z.string().datetime(), effectiveUntil: z.string().datetime(),
+  company: z.object({ id: z.string().uuid(), officeBranchId: z.string().uuid(), revoked: z.boolean() }).passthrough(),
+}).passthrough();
+export type ContractSnapshot = z.infer<typeof contractSchema>;
+export async function loadCompanyContract(req: Request, companyId: string, branch: string): Promise<ContractSnapshot> {
+  const parsed = contractSchema.safeParse(await gatewayGet(`marketing/company-contract-references/${companyId}`, req));
+  if (!parsed.success) throw new HttpError('Invalid contract response', 502);
+  const contract = parsed.data;
+  if (contract.companyId !== companyId || contract.company.id !== companyId || contract.company.officeBranchId !== branch)
+    throw new HttpError('Company contract not found', 404);
+  validateContract(contract);
+  return contract;
+}
+export async function loadContract(req: Request, id: string, version: number, branch: string) {
+  const parsed = contractSchema.safeParse(await gatewayGet(`marketing/contract-references/${id}`, req));
+  if (!parsed.success) throw new HttpError('Invalid contract response', 502);
+  const contract = parsed.data;
+  if (contract.id !== id || contract.company.officeBranchId !== branch || contract.company.id !== contract.companyId) throw new HttpError('Contract not found', 404);
+  if (contract.version !== version) throw new HttpError('Contract has changed; reload before saving the work order', 409);
+  validateContract(contract);
+  return contract;
+}
+export function validateContract(contract: ContractSnapshot) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if (!contract.isActive || contract.status !== 'ACTIVE' || contract.company.revoked
+    || contract.effectiveFrom.slice(0, 10) > today || contract.effectiveUntil.slice(0, 10) <= today)
+    throw new HttpError('Work order requires an ACTIVE contract within its effective period', 409);
 }

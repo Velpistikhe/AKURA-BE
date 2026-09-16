@@ -29,14 +29,14 @@ export const itemHistoryRepository = {
       ? await tx.itemSize.findFirst({ where: { id, item: { officeBranchId } }, select: { id: true, itemId: true } })
       : null;
     if (!item && !size) throw new HttpError(kind === 'ITEM' ? 'Item not found' : 'Item size not found', 404);
-    const sizes = size ? [size] : await tx.itemSize.findMany({ where: { itemId: id }, select: { id: true } });
+    const sizes = size ? [size] : [];
     const sizeIds = sizes.map(row => row.id);
-    const prices = await tx.itemPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
+    const prices = kind === 'ITEM' ? [] : await tx.itemPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
     if (kind === 'ITEM_PRICE' && !prices.length) throw new HttpError('Item price not found', 404);
-    const contractPrices = kind === 'ITEM_PRICE' ? [] : await tx.companyContractPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
+    const contractPrices = kind !== 'ITEM_SIZE' ? [] : await tx.companyContractPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
     const where: Prisma.CatalogAuditLogWhereInput = { officeBranchId, OR: [
-      ...(item ? [{ entityType: 'ITEM', entityId: item.id }] : []),
-      ...(kind !== 'ITEM_PRICE' ? [{ entityType: 'ITEM_SIZE', entityId: { in: sizeIds } }] : []),
+      ...(item ? [{ entityType: 'ITEM', entityId: item.id, action: { not: 'CHILD_UPDATE' } }] : []),
+      ...(kind === 'ITEM_SIZE' ? [{ entityType: 'ITEM_SIZE', entityId: { in: sizeIds } }] : []),
       { entityType: 'ITEM_PRICE', entityId: { in: prices.map(row => row.id) } },
       { entityType: 'COMPANY_CONTRACT_PRICE', entityId: { in: contractPrices.map(row => row.id) } },
     ] };

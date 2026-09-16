@@ -4,28 +4,31 @@ const {randomUUID} = require('node:crypto');
 require('dotenv').config();
 const {prisma} = require('../dist/config/db.js');
 const {documentRepository: repo} = require('../dist/modules/documents/document.repository.js');
-const {createSchema,updateSchema,deleteSchema} = require('../dist/modules/documents/document.schemas.js');
+const {createInvoiceSchema:createSchema,updateSchema,deleteSchema} = require('../dist/modules/documents/document.schemas.js');
 const {loadQuotation} = require('../dist/integrations/gateway.js');
 const kind = 'INVOICE';
 test('documents: branch isolation, snapshots, atomic history, unique numbers and concurrent mutations', async () => {
  const actor={id:randomUUID(),name:'Branch User',officeBranchId:randomUUID()};
  const outsider={...actor,officeBranchId:randomUUID()};
  const q={id:randomUUID(),officeBranchId:actor.officeBranchId,version:2,isActive:true,no:1,numberYear:2026,subject:'Inspection',companySnapshot:{name:'Customer'},customerSnapshot:'Buyer',subTotal:'100.25',taxAmount:'10.03',total:'110.28',items:[]};
- const raw={number:'test-001',quotationId:q.id,quotationVersion:2,title:'Test document',date:'2026-09-12',dueDate:'2026-10-12'};
+ const raw={quotationId:q.id,quotationVersion:2,title:'Test document'};
+ const {invoiceDate}=require('../dist/modules/invoices/invoice-number.js');
+ const year=invoiceDate().getUTCFullYear();
  try {
   await prisma.tax.createMany({data:[actor,outsider].map(a=>({officeBranchId:a.officeBranchId,percentage:'12',effectiveFrom:new Date('2026-01-01'),createdById:a.id,createdByName:a.name}))});
   assert.equal(createSchema.safeParse({...raw,officeBranchId:outsider.officeBranchId}).success,false);
   assert.equal(createSchema.safeParse({...raw,total:'1'}).success,false);
   const row=await repo.create(kind,createSchema.parse(raw),q,actor);
-  assert.equal(row.tax.toString(),'12'); assert.equal(row.taxAmount.toString(),'12.03'); assert.equal(row.total.toString(),'112.28'); assert.equal(row.number,'TEST-001'); assert.equal(row.version,0);
+  assert.equal(row.tax.toString(),'12'); assert.equal(row.taxAmount.toString(),'12.03'); assert.equal(row.total.toString(),'112.28'); assert.equal(row.number,`INV/${year}/000001`); assert.equal(row.date.toISOString(),invoiceDate().toISOString()); assert.equal(row.version,0);
   assert.equal(row.quotationSnapshot.companySnapshot.name,'Customer');
   for (const action of [()=>repo.get(kind,row.id,outsider),()=>repo.history(kind,row.id,outsider,1,20),()=>repo.mutate(kind,row.id,{version:0,title:'Wrong'},outsider),()=>repo.mutate(kind,row.id,{version:0},outsider,true)]) await assert.rejects(action,e=>e.statusCode===404);
   assert.equal((await repo.list(kind,{page:1,limit:20},outsider)).pagination.total,0);
-  await assert.rejects(()=>repo.create(kind,createSchema.parse({...raw,number:'wrong-branch'}),q,outsider),e=>e.statusCode===409);
-  await assert.rejects(()=>repo.create(kind,createSchema.parse(raw),q,actor),e=>e.code==='P2002');
+  await assert.rejects(()=>repo.create(kind,createSchema.parse(raw),q,outsider),e=>e.statusCode===409);
+  const second=await repo.create(kind,createSchema.parse(raw),q,actor);
+  assert.equal(second.number,`INV/${year}/000002`);
   assert.equal(await prisma.documentHistory.count({where:{documentId:row.id}}),1);
   const sameNumberOtherBranch=await repo.create(kind,createSchema.parse(raw),{...q,officeBranchId:outsider.officeBranchId},outsider);
-  assert.ok(sameNumberOtherBranch.id);
+  assert.ok(sameNumberOtherBranch.id); assert.equal(sameNumberOtherBranch.number,row.number);
   const updates=await Promise.allSettled(Array.from({length:12},(_,i)=>repo.mutate(kind,row.id,updateSchema.parse({version:0,title:'Revision '+i,reason:'Reviewed results'}),actor)));
   assert.equal(updates.filter(r=>r.status==='fulfilled').length,1);
   assert.ok(updates.filter(r=>r.status==='rejected').every(r=>r.reason.statusCode===409));
@@ -58,6 +61,7 @@ test('documents: branch isolation, snapshots, atomic history, unique numbers and
   const where={officeBranchId:{in:[actor.officeBranchId,outsider.officeBranchId]}};
   await prisma.documentHistory.deleteMany({where:{document:where}});
   await prisma.document.deleteMany({where});
+  await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id IN (${actor.officeBranchId}::uuid, ${outsider.officeBranchId}::uuid)`;
   await prisma.tax.deleteMany({where});
   await prisma.$disconnect();
  }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import reportsRoutes from '../modules/reports/reports.routes.js';
+import workOrderRoutes from '../modules/work-orders/work-order.routes.js';
 const router = Router();
-router.use('/reports',reportsRoutes);
+router.use('/work-orders', workOrderRoutes);
 export default router;

@@ -9,6 +9,10 @@ const fields = {
 };
 export const versionSchema = z.number().int().min(0).max(2147483646);
 export const createSchema = z.object({ ...fields, quotationId: z.string().uuid(), quotationVersion: versionSchema }).strict();
+export const createProformaSchema = createSchema.omit({ number: true });
+export const updateProformaSchema = z.object(fields).omit({ number: true }).partial().extend({ version: versionSchema, reason: z.string().trim().min(1).max(1000).optional() }).strict().refine(value => Object.keys(value).some(key => !['version','reason'].includes(key)), 'At least one editable field is required');
+export const createInvoiceSchema = createSchema.omit({ number: true, date: true });
+export const updateInvoiceSchema = z.object(fields).omit({ number: true, date: true }).partial().extend({ version: versionSchema, reason: z.string().trim().min(1).max(1000).optional() }).strict().refine(value => Object.keys(value).some(key => !['version','reason'].includes(key)), 'At least one editable field is required');
 export const updateSchema = z.object({ ...fields }).partial().extend({ version: versionSchema, reason: z.string().trim().min(1).max(1000).optional() }).strict().refine(value => Object.keys(value).some(key => !['version','reason'].includes(key)), 'At least one editable field is required');
 export const deleteSchema = z.object({ version: versionSchema, reason: z.string().trim().min(1).max(1000).optional() }).strict();
 export const idSchema = z.string().uuid();

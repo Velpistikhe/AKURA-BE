@@ -1,3 +1,4 @@
+import { nextProformaIdentity } from '../proforma-invoices/proforma-number.js';
 import { applicableTax } from '../taxes/tax.repository.js';
 import { Document, DocumentKind, Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -5,7 +6,8 @@ import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
 import { QuotationSnapshot } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
-import { createSchema, updateSchema, deleteSchema, listSchema } from './document.schemas.js';
+import { createProformaSchema, createInvoiceSchema, updateSchema, deleteSchema, listSchema } from './document.schemas.js';
+import { nextInvoiceIdentity } from '../invoices/invoice-number.js';
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 const labels: Record<string,string> = { number: 'Document number', title: 'Title', date: 'Document date', dueDate: 'Due date', notes: 'Notes', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
 const pagination = (page: number, limit: number, total: number) => ({ page, limit, total, totalPages: Math.ceil(total / limit) });
@@ -20,16 +22,21 @@ function checkDates(value: { date: Date; dueDate?: Date | null }) {
   if (value.dueDate && value.dueDate < value.date) throw new HttpError('Due date cannot precede document date', 400);
 }
 export const documentRepository = {
-  async create(kind: DocumentKind, input: z.infer<typeof createSchema>, quotation: QuotationSnapshot, actor: Actor) {
+  async create(kind: DocumentKind, input: z.infer<typeof createProformaSchema> | z.infer<typeof createInvoiceSchema>, quotation: QuotationSnapshot, actor: Actor) {
+    if ('number' in input || (kind === 'INVOICE' && 'date' in input)) throw new HttpError('Document number is server-generated; invoice date is also server-generated', 400);
     if (quotation.id !== input.quotationId || quotation.officeBranchId !== actor.officeBranchId || quotation.version !== input.quotationVersion || !quotation.isActive) throw new HttpError('Quotation reference does not match', 409);
-    checkDates(input);
     return prisma.$transaction(async tx => {
-      const tax = await applicableTax(tx, actor.officeBranchId, input.date);
+      const identity = kind === 'INVOICE' ? await nextInvoiceIdentity(tx, actor.officeBranchId) : await nextProformaIdentity(tx, actor.officeBranchId);
+      const number = identity.number;
+      const date = kind === 'INVOICE' ? identity.date : 'date' in input ? input.date : undefined;
+      if (!number || !date) throw new HttpError('Document number and date are required', 400);
+      checkDates({ date, dueDate: input.dueDate });
+      const tax = await applicableTax(tx, actor.officeBranchId, date);
       const subTotal = new Prisma.Decimal(quotation.subTotal);
       const taxAmount = subTotal.mul(tax.percentage).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-      const row = await tx.document.create({ data: { ...input, kind, officeBranchId: actor.officeBranchId, quotationSnapshot: json(quotation), subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), createdById: actor.id, createdByName: actor.name } });
+      const row = await tx.document.create({ data: { ...input, number, date, kind, officeBranchId: actor.officeBranchId, quotationSnapshot: json(quotation), subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), createdById: actor.id, createdByName: actor.name } });
       return saveHistory(tx, row, null, actor, 'CREATE');
-    });
+    }, { maxWait: 10000, timeout: 20000 });
   },
   async list(kind: DocumentKind, input: z.infer<typeof listSchema>, actor: Actor) {
     const {page,limit,search, ...filters} = input;
@@ -44,6 +51,7 @@ export const documentRepository = {
   },
   async mutate(kind: DocumentKind, id: string, input: z.infer<typeof updateSchema> | z.infer<typeof deleteSchema>, actor: Actor, deleting = false) {
     const { version, reason, ...fields } = input;
+    if ('number' in fields || (kind === 'INVOICE' && 'date' in fields)) throw new HttpError('Document number cannot be changed; invoice date is also immutable', 400);
     return prisma.$transaction(async tx => {
       const before = await tx.document.findFirst({where:{id,kind,officeBranchId:actor.officeBranchId}});
       if (!before) throw new HttpError('Document not found',404);

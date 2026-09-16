@@ -7,8 +7,9 @@ import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
 import { createQuotationSchema, updateQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput } from './quotation.schemas.js';
 import { buildPagination } from '../../utils/listQuery.js';
-import { lockNextQuotationNumber, quotationNumberYear } from './quotation-number.js';
+import { lockNextQuotationNumber, quotationDate, quotationNumberYear } from './quotation-number.js';
 import type { QuotationPdfMetadata } from './quotation-approval.service.js';
+import { serviceScopeInclude, serviceScopeSnapshot } from './quotation-service-groups.js';
 
 const include = { pdfDocument: true, items: { orderBy: { position: 'asc' as const } } };
 export const approvableStatuses = ['CREATED', 'SENT', 'REVISED'] as const;
@@ -24,9 +25,9 @@ async function customer(tx: Prisma.TransactionClient, companyId: string | undefi
   if (staffId) {
     const staff = await tx.companyStaff.findFirst({ where: { id: staffId, revoked: false,
       ...(companyId ? { companyId } : {}), company: { officeBranchId, revoked: false } },
-      select: { name: true, company: { select: selectCompany } } });
+      select: { name: true, title: true, company: { select: selectCompany } } });
     if (!staff) throw new HttpError('Company staff not found in the selected company and branch', 404);
-    return { customerSnapshot: staff.name, companySnapshot: json(staff.company) };
+    return { customerSnapshot: staff.name, companySnapshot: json({ ...staff.company, staffTitle: staff.title }) };
   }
   if (!companyId) throw new HttpError('Company is required', 400);
   const company = await tx.company.findFirst({ where: { id: companyId, officeBranchId, revoked: false }, select: selectCompany });
@@ -37,7 +38,7 @@ async function customer(tx: Prisma.TransactionClient, companyId: string | undefi
 async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, officeBranchId: string, actor: AuditActor, position: number, context: PriceContext, now: Date) {
   const size = await tx.itemSize.findFirst({
     where: { id: input.itemSizeId, item: { officeBranchId, service: { officeBranchId } } },
-    include: { ...quotationSizeInclude, contractPrices: false },
+    include: { ...quotationSizeInclude, contractPrices: false, item: { include: { service: { include: serviceScopeInclude } } } },
   });
   if (!size) throw new HttpError('Item size not found', 404);
   const resolved = resolveQuotationPrice(size, context, now);
@@ -50,7 +51,7 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
   return {
     itemSizeId: size.id, position, serviceName: resolved.catalogSnapshot.serviceName,
     serviceType: resolved.catalogSnapshot.serviceType as typeof size.item.service.type, itemName: resolved.catalogSnapshot.itemName, size: resolved.catalogSnapshot.size,
-    priceSelection: json({ quantityModel: 'DUAL', priceSource: resolved.priceSource, priceId: resolved.priceId,
+    priceSelection: json({ ...serviceScopeSnapshot(size.item.service), quantityModel: 'DUAL', priceSource: resolved.priceSource, priceId: resolved.priceId,
       priceVersion: resolved.priceVersion, contractId: resolved.contractId, contractVersion: resolved.contractVersion,
       sizeVersion: resolved.sizeVersion, itemVersion: resolved.itemVersion, serviceVersion: resolved.serviceVersion }),
     quantityInspection, quantityMaintenance, priceInspection, priceMaintenance,
@@ -98,14 +99,14 @@ export const quotationRepository = {
     return quote;
   },
   async create(input: unknown, officeBranchId: string, actor: AuditActor) {
-    const { items, companyId, ...data } = createQuotationSchema.parse(input);
+    const { items, companyId, date: _clientDate, ...data } = createQuotationSchema.parse(input);
     return prisma.$transaction(async (tx) => {
       await lockCompanyBranch(tx, officeBranchId);
       const now = new Date();
       const customerSnapshot = await customer(tx, companyId, data.staffId, officeBranchId);
       const context = await standardPriceContext(tx, (customerSnapshot.companySnapshot as { id: string }).id, officeBranchId);
-      const tax = await applicableTax(tx, officeBranchId, data.date ?? now);
-      const quote = await tx.quotation.create({ data: { ...data, tax: tax.percentage, taxSourceId: tax.id, status: 'CREATED', invoiceStatus: null, officeBranchId, ...customerSnapshot, createdById: actor.id } });
+      const tax = await applicableTax(tx, officeBranchId, now);
+      const quote = await tx.quotation.create({ data: { ...data, date: quotationDate(now), tax: tax.percentage, taxSourceId: tax.id, status: 'CREATED', invoiceStatus: null, officeBranchId, ...customerSnapshot, createdById: actor.id } });
       for (const [position, item] of items.entries()) {
         await tx.quotationItem.create({ data: { ...await newItem(tx, item, officeBranchId, actor, position, context!, now), quotationId: quote.id } });
       }
@@ -125,13 +126,38 @@ export const quotationRepository = {
       const current = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
       if (current.pdfDocument) throw new HttpError('Quotation already has a historical PDF', 409);
       if (!current.items.some(item => item.isActive)) throw new HttpError('Quotation must contain active items before approval', 409);
+      // Capture the contact title for older drafts before their first PDF is frozen.
+      const companySnapshot = current.companySnapshot as Record<string, unknown>;
+      if (current.staffId && !('staffTitle' in companySnapshot)) {
+        const staff = await tx.companyStaff.findFirst({ where: { id: current.staffId, company: { officeBranchId } }, select: { title: true } });
+        if (staff) await tx.quotation.update({ where: { id }, data: { companySnapshot: json({ ...companySnapshot, staffTitle: staff.title }) } });
+      }
+      // Capture scopes once for older drafts that predate service snapshots.
+      const legacyItems = current.items.filter(item => {
+        const snapshot = item.priceSelection as Record<string, unknown> | null;
+        return item.isActive && (typeof snapshot?.inspectionScopes !== 'string' || typeof snapshot?.maintenanceScopes !== 'string');
+      });
+      if (legacyItems.length) {
+        const sizes = await tx.itemSize.findMany({ where: { id: { in: legacyItems.map(item => item.itemSizeId) }, item: { officeBranchId, service: { officeBranchId } } },
+          include: { item: { include: { service: { include: serviceScopeInclude } } } } });
+        const bySize = new Map(sizes.map(size => [size.id, size.item.service]));
+        for (const item of legacyItems) {
+          const service = bySize.get(item.itemSizeId);
+          if (!service) throw new HttpError('Unable to resolve quotation service scopes', 409);
+          await tx.quotationItem.update({ where: { id: item.id }, data: {
+            priceSelection: json({ ...(item.priceSelection as Record<string, unknown> | null), ...serviceScopeSnapshot(service) }),
+          } });
+        }
+      }
       const previous = current.previousQuotationId
         ? await tx.quotation.findUniqueOrThrow({ where: { id: current.previousQuotationId } }) : null;
       // Revisions inherit the approved number only at approval. New quotations allocate a fresh number.
       const numberYear = previous?.numberYear ?? current.numberYear ?? quotationNumberYear();
       const existingNumber = previous?.no ?? current.no;
       const no = existingNumber ?? await lockNextQuotationNumber(tx, officeBranchId, numberYear);
-      const numbered = await tx.quotation.update({ where: { id }, data: { no, numberYear }, include });
+      // Read the date after acquiring the sequence lock so approval order determines the date.
+      const date = existingNumber === null ? quotationDate() : previous?.date ?? current.date ?? quotationDate();
+      const numbered = await tx.quotation.update({ where: { id }, data: { no, numberYear, date }, include });
       const document = await storePdf(numbered);
       await tx.quotationPdf.create({ data: { ...document, approvedAt: new Date(document.approvedAt), quotationId: id } });
       if (existingNumber === null) await tx.quotationSequence.update({
@@ -142,7 +168,7 @@ export const quotationRepository = {
   },
 
   async update(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
-    const { version, items, companyId, ...data } = updateQuotationSchema.parse(input);
+    const { version, items, companyId, date: _clientDate, ...data } = updateQuotationSchema.parse(input);
     return prisma.$transaction(async (tx) => {
       await lockCompanyBranch(tx, officeBranchId);
       const now = new Date();

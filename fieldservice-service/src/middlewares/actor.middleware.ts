@@ -13,8 +13,13 @@ export async function requireActor(req: Request, res: Response, next: NextFuncti
     if (profile.id !== (req as AuthenticatedRequest).user?.sub) throw new HttpError('User identity mismatch', 401);
     if (!profile.isActive || !profile.officeBranchId) throw new HttpError('Active user and office branch assignment are required', 403);
     if ((req as AuthenticatedRequest).user?.officeBranchId !== profile.officeBranchId) throw new HttpError('Office branch assignment has changed; please sign in again', 401);
-    if (!['ADMIN', 'APP_MANAGER'].includes(profile.role) && !['FIELD_SERVICE'].includes(profile.section ?? '')) throw new HttpError('Access to this section is required', 403);
-    res.locals.documentActor = { id: profile.id, name: `${profile.firstName} ${profile.lastName}`.trim() || profile.username, officeBranchId: profile.officeBranchId } satisfies Actor;
+    if (!['ADMIN', 'APP_MANAGER'].includes(profile.role) && !['MARKETING', 'FIELD_SERVICE'].includes(profile.section ?? '')) throw new HttpError('Access to this section is required', 403);
+    res.locals.workOrderSection = profile.section;
+    res.locals.workOrderActor = { id: profile.id, name: `${profile.firstName} ${profile.lastName}`.trim() || profile.username, officeBranchId: profile.officeBranchId } satisfies Actor;
     next();
   } catch (error) { next(error); }
 }
+export const requireWorkOrderSection = (...sections: string[]) => (_req: Request, res: Response, next: NextFunction) => {
+  if (!sections.includes(res.locals.workOrderSection)) return next(new HttpError('Access to this section is required', 403));
+  next();
+};

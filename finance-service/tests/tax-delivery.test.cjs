@@ -4,14 +4,14 @@ const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const { withTaxDatabase } = require('./tax-fixture.cjs');
 
-test('master/outbox atomicity, HTTP retry, restart recovery, and invoice tax authority', async () => {
+test('master/outbox atomicity, HTTP retry, restart recovery, and proforma tax authority', async () => {
   process.env.TAX_DELIVERY_TARGETS = JSON.stringify([{ name: 'marketing-service', url: 'http://localhost:5003/internal/taxes/events' }]);
   process.env.TAX_SYNC_SECRET = 'test-secret-with-at-least-32-characters';
   await withTaxDatabase(path.resolve(__dirname, '..'), async prisma => {
     const { taxRepository } = require('../dist/modules/taxes/tax.repository.js');
     const { deliverTax, startTaxDelivery, retryDelay } = require('../dist/modules/taxes/tax-delivery.js');
     const { documentRepository } = require('../dist/modules/documents/document.repository.js');
-    const { createSchema } = require('../dist/modules/documents/document.schemas.js');
+    const { createProformaSchema: createSchema } = require('../dist/modules/documents/document.schemas.js');
     const actor = { id: randomUUID(), officeBranchId: randomUUID(), name: 'Finance test' };
     const old = await taxRepository.create({ percentage: '11', effectiveFrom: '2026-01-01' }, actor.officeBranchId, actor);
     const newest = await taxRepository.create({ percentage: '12', effectiveFrom: '2026-09-01' }, actor.officeBranchId, actor);
@@ -28,19 +28,19 @@ test('master/outbox atomicity, HTTP retry, restart recovery, and invoice tax aut
     await prisma.$executeRawUnsafe('ALTER TABLE tax_events DROP CONSTRAINT test_version_limit');
 
     const quote = { id: randomUUID(), officeBranchId: actor.officeBranchId, version: 1, isActive: true, subTotal: '100.25', taxAmount: '11.03', total: '111.28', items: [] };
-    const input = createSchema.parse({ number: 'tax-test', title: 'Test', quotationId: quote.id, quotationVersion: 1, date: '2026-09-13' });
-    const invoice = await documentRepository.create('INVOICE', input, quote, actor);
+    const input = createSchema.parse({ title: 'Test', quotationId: quote.id, quotationVersion: 1, date: '2026-09-13' });
+    const invoice = await documentRepository.create('PROFORMA_INVOICE', input, quote, actor);
     assert.equal(invoice.taxSourceId, newest.id);
     assert.equal(invoice.tax.toString(), '12');
     assert.equal(invoice.taxAmount.toString(), '12.03');
     assert.equal(invoice.total.toString(), '112.28');
     assert.equal(invoice.quotationSnapshot.taxAmount, '11.03');
-    await assert.rejects(documentRepository.create('INVOICE', { ...input, number: 'missing', date: new Date('2025-01-01') }, quote, actor), e => e.statusCode === 409);
-    const revised = await documentRepository.mutate('INVOICE', invoice.id, { version: 0, date: new Date('2026-08-01') }, actor);
+    await assert.rejects(documentRepository.create('PROFORMA_INVOICE', { ...input, date: new Date('2025-01-01') }, quote, actor), e => e.statusCode === 409);
+    const revised = await documentRepository.mutate('PROFORMA_INVOICE', invoice.id, { version: 0, date: new Date('2026-08-01') }, actor);
     assert.equal(revised.tax.toString(), '11');
-    const final = await documentRepository.mutate('INVOICE', invoice.id, { version: 1, status: 'FINAL' }, actor);
+    const final = await documentRepository.mutate('PROFORMA_INVOICE', invoice.id, { version: 1, status: 'FINAL' }, actor);
     assert.equal(final.tax.toString(), '11');
-    await assert.rejects(documentRepository.mutate('INVOICE', invoice.id, { version: 2, title: 'Changed' }, actor), e => e.statusCode === 409);
+    await assert.rejects(documentRepository.mutate('PROFORMA_INVOICE', invoice.id, { version: 2, title: 'Changed' }, actor), e => e.statusCode === 409);
 
     const job = await prisma.taxDelivery.findFirst();
     const originalFetch = global.fetch;

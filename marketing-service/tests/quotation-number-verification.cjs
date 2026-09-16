@@ -7,6 +7,8 @@ const { quotationStorage: storage } = require('../dist/modules/quotations/quotat
 const numbering = require('../dist/modules/quotations/quotation-number.js');
 async function main() {
   const originalYear = numbering.quotationNumberYear;
+  assert.equal(numbering.quotationDate(new Date('2026-12-31T16:59:59Z')).toISOString(), '2026-12-31T00:00:00.000Z');
+  assert.equal(numbering.quotationDate(new Date('2026-12-31T17:00:00Z')).toISOString(), '2027-01-01T00:00:00.000Z');
   assert.equal(originalYear(new Date('2026-12-31T16:59:59Z')), 2026);
   assert.equal(originalYear(new Date('2026-12-31T17:00:00Z')), 2027);
   const branches = [randomUUID(), randomUUID()], actor = { id: randomUUID(), name: 'Number test' };
@@ -23,6 +25,7 @@ async function main() {
   try {
     for (const branch of branches) {
       const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Number test', normalizeName: branch, type: 'PT', npwp: '123', address: 'Jakarta' } });
+      const staff = await prisma.companyStaff.create({ data: { companyId: company.id, name: 'Test Contact', normalizeName: 'test contact', title: 'mrs' } });
       const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', ...audit,
         itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', ...audit,
           sizes: { create: { size: 'Large', ...audit, price: { create: { priceServicePrimary: '10', priceServiceSisterCompany: '8', ...audit } } } } } },
@@ -31,7 +34,7 @@ async function main() {
       fixtures.push({ branch, companyId: company.id, serviceId: service.id, input: {
         date: '2020-01-01', inquiryMethod: 'EMAIL', inquiryDate: '2020-01-01', subject: 'Inspection', termOfPayment: '30 days', validity: '30 days',
         supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF',
-        companyId: company.id, items: [{ itemSizeId: service.itemCatalog[0].sizes[0].id, quantityInspection: '1' }],
+        companyId: company.id, staffId: staff.id, items: [{ itemSizeId: service.itemCatalog[0].sizes[0].id, quantityInspection: '1' }],
       } });
     }
     const [a,b] = fixtures;
@@ -41,12 +44,20 @@ async function main() {
     numbering.quotationNumberYear = () => 2026;
     await assert.rejects(repo.create({...a.input,tax:99},a.branch,actor));
     const drafts = await Promise.all(Array.from({ length: 5 }, () => create(a)));
+    assert(drafts.every(q => q.companySnapshot.staffTitle === 'mrs' && q.customerSnapshot === 'Test Contact'));
+    assert(drafts.every(q => q.date.toISOString() === numbering.quotationDate().toISOString()));
     assert.equal(drafts[0].tax.toString(),'11.25'); assert.equal(drafts[0].taxAmount.toString(),'1.13'); assert(drafts[0].taxSourceId);
     assert(drafts.every(q => q.no === null && q.numberYear === null && q.revision === 0 && q.pdfDocument === null));
     assert.equal(await prisma.quotationSequence.count({ where: { officeBranchId: a.branch } }), 0);
-    const draftEdit = await repo.update(drafts[0].id, { version: 0, subject: 'Draft edit' }, a.branch, actor);
+    const draftEdit = await repo.update(drafts[0].id, { version: 0, date: '2000-01-01', subject: 'Draft edit' }, a.branch, actor);
+    assert.equal(draftEdit.date.toISOString(), drafts[0].date.toISOString());
     assert.equal(draftEdit.no, null); assert.equal(draftEdit.revision, 0);
+    await prisma.quotation.update({ where: { id: drafts[1].id }, data: { date: new Date('2000-01-01') } });
+    const { staffTitle: _legacyTitle, ...legacyCompany } = drafts[1].companySnapshot;
+    await prisma.quotation.update({ where: { id: drafts[1].id }, data: { companySnapshot: legacyCompany } });
     const concurrent = await Promise.all(drafts.slice(1,4).reverse().map(approve));
+    assert(concurrent.every(q => q.companySnapshot.staffTitle === 'mrs'));
+    assert(concurrent.every(q => q.date.toISOString() === numbering.quotationDate().toISOString()));
     assert.deepEqual(concurrent.map(q=>q.no).sort((x,y)=>x-y), [1,2,3]);
     assert(concurrent.every(q => q.numberYear === 2026));
     assert.equal((await counter(a.branch, 2026)).lastNumber, 3);
@@ -77,6 +88,7 @@ async function main() {
       assert.notEqual(draft.items[0].id,source.items[0].id);
       assert.deepEqual((await repo.find(source.id,a.branch)).items,source.items);
       const approved = await approve(draft);
+      assert.equal(approved.date.toISOString(), source.date.toISOString());
       assert.equal(approved.no,source.no); assert.equal(approved.numberYear,2026); assert.equal(approved.revision,revision);
       assert.equal((await repo.find(source.id,a.branch)).pdfDocument.key,source.pdf.key);
       source=approved;

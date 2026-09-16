@@ -30,6 +30,19 @@ const ensureNoActiveContract = async (tx: Prisma.TransactionClient, companyId: s
   if (active) throw new HttpError('The company already has an active contract', 409);
 };
 export const contractRepository = {
+  resolveCompanyReference: (companyId: string, branch: string) => prisma.$transaction(async tx => {
+    await company(tx, companyId, branch);
+    const today = currentBusinessDate();
+    const contracts = await tx.companyContract.findMany({
+      where: { companyId, isActive: true, status: 'ACTIVE', effectiveFrom: { lte: today }, effectiveUntil: { gt: today },
+        company: { officeBranchId: branch, revoked: false } },
+      include: { company: true, prices: { where: { isActive: true } } },
+      take: 2,
+    });
+    if (!contracts.length) throw new HttpError('Company has no ACTIVE contract within its effective period', 409);
+    if (contracts.length !== 1) throw new HttpError('Company has multiple effective contracts; resolve the conflict before creating a work order', 409);
+    return contracts[0];
+  }, { isolationLevel: 'RepeatableRead' }),
   list: async (input: ListContractsInput, branch: string) => prisma.$transaction(async tx => {
     if (input.companyId) await company(tx, input.companyId, branch);
     const where = { ...(input.companyId ? { companyId: input.companyId } : {}), isActive: input.isActive, status: input.status, company: { officeBranchId: branch, revoked: false } } satisfies Prisma.CompanyContractWhereInput;

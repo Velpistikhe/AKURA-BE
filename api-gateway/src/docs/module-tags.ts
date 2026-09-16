@@ -21,7 +21,7 @@ const modules = [
   ['Proforma Invoices', 'Proforma invoices linked to quotations.'],
   ['Invoices', 'Invoices linked to quotations.'],
   ['Taxes', 'Finance master tax and cache delivery status.'],
-  ['Reports', 'Field service reports linked to quotations.'],
+  ['Work Order', 'Field service work orders, inspectors, and change history.'],
   ['Quotations', 'Quotation documents and item lists.'],
 ] as const;
 
@@ -37,6 +37,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/office-branches')) return 'Office Branches';
   if (path.includes('/company-staffs') || path.endsWith('/staff-history')) return 'Company Staff';
   if (path.includes('/company-contract-prices') || path.includes('/contract-prices') || path.endsWith('/prices/import')) return 'Company Contract Prices';
+  if (path.includes('/contract-references') || path.includes('/company-contract-references')) return 'Company Contracts';
   if (path.includes('/company-contracts')) return 'Company Contracts';
   if (path.includes('/companies')) return 'Companies';
   if (path.includes('/inspection/scopes')) return 'Inspection Scopes';
@@ -48,7 +49,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/items')) return 'Items';
   if (path.includes('/proforma-invoices')) return 'Proforma Invoices';
   if (path.startsWith('/api/v1/finance/invoices')) return 'Invoices';
-  if (path.startsWith('/api/v1/fieldservice/reports')) return 'Reports';
+  if (path.startsWith('/api/v1/fieldservice/work-orders')) return 'Work Order';
   if (path.includes('/quotation-references')) return 'Quotations';
   if (path.includes('/quotations')) return 'Quotations';
   throw new Error(`Assign a Swagger module for ${path}`);

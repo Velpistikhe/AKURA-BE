@@ -8,10 +8,11 @@
     "build": "prisma generate && rimraf dist && tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/service.test.cjs",
+    "test": "npm run build && node --test tests/service.test.cjs tests/work-order.test.cjs",
+    "work-order:schema": "node scripts/apply-work-order-schema.cjs",
+    "test:work-order": "tsc && node --test tests/work-order.test.cjs",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "test:documents": "npm run build && node --test tests/documents.test.cjs tests/documents-http.test.cjs"
+    "db:push": "prisma db push"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

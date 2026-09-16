@@ -120,6 +120,11 @@ async function main() {
     const reused = await ok('POST', '/sizes', { itemId: item.id, itemVersion: parent.version, size: 'Large' }, 201);
     assert.notEqual(reused.id, large.id);
     let history = await ok('GET', `/sizes/${large.id}/price/history`);
+    assert(history.history.every(entry => entry.entityType === 'ITEM_PRICE'));
+    const sizeHistory = await ok('GET', `/sizes/${large.id}/history?limit=100`);
+    assert(sizeHistory.history.some(entry => entry.entityType === 'ITEM_SIZE'));
+    assert(sizeHistory.history.some(entry => entry.entityType === 'ITEM_PRICE'));
+    assert(sizeHistory.history.every(entry => ['ITEM_SIZE', 'ITEM_PRICE', 'COMPANY_CONTRACT_PRICE'].includes(entry.entityType)));
     assert.equal(history.history[0].action, 'DEACTIVATE');
     assert.equal(history.history[0].actionLabel, 'Deactivated');
     assert.equal(history.history[0].changedBy.name, 'Catalog Test');
@@ -157,6 +162,9 @@ async function main() {
     assert.equal(await prisma.itemPrice.count({ where: { itemSize: { itemId: item.id }, isActive: true } }), 0);
     assert.equal(await prisma.companyContractPrice.count({ where: { itemSize: { itemId: item.id }, isActive: true } }), 2);
     history = await ok('GET', `/${item.id}/history?limit=100`);
+    assert(history.history.length > 0);
+    assert(history.history.every(entry => entry.entityType === 'ITEM' && entry.action !== 'CHILD_UPDATE'));
+    assert.equal(history.pagination.total, await prisma.catalogAuditLog.count({ where: { officeBranchId: branch, entityType: 'ITEM', entityId: item.id, action: { not: 'CHILD_UPDATE' } } }));
     assert.equal(history.history.some(entry => entry.entityType === 'COMPANY_CONTRACT_PRICE' && entry.action === 'DEACTIVATE'), false);
     assert.deepEqual((await ok('GET', `/${item.id}/history?page=9999`)).history, []);
     const recreated = await ok('POST', '', input, 201);

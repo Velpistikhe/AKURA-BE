@@ -44,7 +44,9 @@ async function main() {
       priceMaintenance: '20', subTotal: '275.63', createdById: actor.id } },
   }, include: { items: true, pdfDocument: true } });
   try {
-    service = await prisma.service.create({ data: { officeBranchId: branch, name: 'PDF test', type: 'TUBULAR', ...audit,
+    service = await prisma.service.create({ data: { officeBranchId: branch, name: 'PDF test', type: 'TUBULAR', hasMaintenance: true, ...audit,
+      inspectionScopes: { create: [{ inspectionScope: 'Visual Inspection' }, { inspectionScope: 'Old Scope', revoked: true }] },
+      maintenanceScopes: { create: { scope: 'Cleaning' } },
       itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', ...audit, sizes: { create: { size: '4 inch', ...audit } } } },
     }, include: { itemCatalog: { include: { sizes: true } } } });
     size = service.itemCatalog[0].sizes[0];
@@ -57,6 +59,12 @@ async function main() {
     await request(quote.id, { version: 3 }, 409);
     assert.equal(uploadCount, 0);
     const approved = await request(quote.id, { version: 0 });
+    const approvedSnapshot = await quotationRepository.find(quote.id, branch);
+    assert.equal(approvedSnapshot.items[0].priceSelection.serviceId, service.id);
+    assert.equal(approvedSnapshot.items[0].priceSelection.serviceScopes, 'Visual Inspection, Cleaning');
+    assert.equal(approvedSnapshot.items[0].priceSelection.inspectionScopes, 'Visual Inspection');
+    assert.equal(approvedSnapshot.items[0].priceSelection.maintenanceScopes, 'Cleaning');
+    await prisma.inspectionScope.updateMany({ where: { serviceId: service.id, revoked: false }, data: { inspectionScope: 'Changed Scope' } });
     assert.equal(approved.status, 'APPROVED'); assert.equal(approved.version, 1); assert.equal(approved.revision, 0);
     assert.equal(approved.pdfDocument.quotationId, quote.id);
     assert.equal(approved.no, 1); assert.match(approved.pdf.key, /^quotation\//);
@@ -81,7 +89,7 @@ async function main() {
     const historical = await quotationRepository.find(quote.id, branch);
     assert.equal(historical.isActive, false); assert.equal(historical.status, 'APPROVED');
     assert.equal(historical.subject, quote.subject); assert.equal(historical.pdfDocument.id, approved.pdfDocument.id);
-    assert.deepEqual(historical.items, quote.items);
+    assert.deepEqual(historical.items, approvedSnapshot.items);
     await request(quote.id, { version: 3 }, 404);
     const detailResponse = await fetch(`http://127.0.0.1:${server.address().port}/quotations/${quote.id}`);
     assert.equal(detailResponse.status, 200);

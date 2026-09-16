@@ -1,6 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { HttpError } from '../../utils/httpError.js';
 
+// PostgreSQL DATE and PDF rendering use UTC midnight to represent the Jakarta calendar day.
+export const quotationDate = (now = new Date()): Date => new Date(`${
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+}T00:00:00.000Z`);
+
 export const quotationNumberYear = (now = new Date()): number => Number(
   new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jakarta', year: 'numeric' }).format(now),
 );

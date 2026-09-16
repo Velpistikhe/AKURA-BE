@@ -4,7 +4,6 @@ const timestamp = { type: 'string', format: 'date-time' };
 const text = { type: 'string', minLength: 1, maxLength: 255 };
 const money = { type: 'string', format: 'decimal', example: '100.25' };
 const header = {
-  date: { type: 'string', format: 'date', nullable: true },
   inquiryMethod: ref('InquiryMethod'),
   inquiryDate: { type: 'string', format: 'date' },
   subject: text, termOfPayment: text, validity: text,
@@ -99,7 +98,7 @@ export const quotationSchemas = {
     },
   },
   Quotation: {
-    type: 'object', required: [...Object.keys(header).filter(key=>key!=='companyId'), 'no', 'numberYear', 'id', 'officeBranchId', 'customerSnapshot', 'companySnapshot', 'status', 'invoiceStatus', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'items', ...Object.keys(audit)],
+    type: 'object', required: [...Object.keys(header).filter(key=>key!=='companyId'), 'date', 'no', 'numberYear', 'id', 'officeBranchId', 'customerSnapshot', 'companySnapshot', 'status', 'invoiceStatus', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'items', ...Object.keys(audit)],
     properties: {
       ...Object.fromEntries(Object.entries(header).filter(([key])=>key!=='companyId')),
       tax: { type: 'string', readOnly: true, example: '11.25', description: 'Snapshot percentage selected from synchronized branch tax on creation.' },
@@ -111,7 +110,7 @@ export const quotationSchemas = {
       invoiceStatus: { allOf: [ref('InvoiceStatus')], nullable: true, readOnly: true },
       no: { type: 'integer', nullable: true, minimum: 1, maximum: 2147483647, readOnly: true, description: 'Null for drafts. Assigned only on approval; approved revisions reuse the previous number.' },
       numberYear: { type: 'integer', nullable: true, readOnly: true, description: 'Null for drafts. First approval year in Asia/Jakarta; revisions retain the original year.' },
-      date: { ...timestamp, nullable: true, description: 'Stored date serialized as an ISO timestamp at UTC midnight.' },
+      date: { ...timestamp, nullable: true, readOnly: true, description: 'Server-managed Asia/Jakarta calendar date serialized at UTC midnight. Set on creation and refreshed when the first number is assigned at approval; revisions retain the original numbered quotation date.' },
       inquiryDate: timestamp, id: uuid, officeBranchId: { ...uuid, readOnly: true },
       companySnapshot: { type: 'object', readOnly: true, description: 'Company id, version, name, type, address and npwp captured at creation or contact replacement. Profile edits do not alter this snapshot.' },
       customerSnapshot: { type: 'string', readOnly: true, example: 'Budi Santoso', description: 'Company staff name captured when the quotation is created or its contact is replaced.' },
@@ -161,7 +160,7 @@ export const quotationPaths = {
     },
     post: {
       ...common, summary: 'Create a quotation with items',
-      description: 'Creates the quotation, 1–100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date may be omitted for drafts. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective on date (or today in Asia/Jakarta); missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal × tax / 100, total = subTotal + taxAmount.',
+      description: 'Creates the quotation, 1–100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal × tax / 100, total = subTotal + taxAmount.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationRequest') } } },
       responses: { ...commonErrors, 201: response('Quotation created with items', 'QuotationResponse'), 404: response('Company staff or catalog size not found or inactive in this branch', 'ErrorResponse'), 409: response('Number limit reached or quotation numbering conflict', 'ErrorResponse') },
     },

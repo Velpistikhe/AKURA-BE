@@ -22,15 +22,17 @@ Domain routes belong in `src/modules` and are registered in `src/routes/index.ts
 
 Each module supports GET/POST at its collection, GET/PATCH/DELETE at `/:id`, and GET `/:id/history`. Lists support page, limit, quotationId, status and search (number/title). History supports page and limit, newest first, and remains accessible after soft deletion.
 
-Create fields: `quotationId`, `quotationVersion`, `number`, `title`, `date` (YYYY-MM-DD), optional `notes` and `status` (DRAFT default or FINAL). Finance additionally accepts optional nullable `dueDate`; totals come from the quotation and cannot be supplied by clients.
+Invoice create fields: `quotationId`, `quotationVersion`, `title`, optional `notes` and `status` (DRAFT default or FINAL). Finance additionally accepts optional nullable `dueDate`; totals come from the quotation and cannot be supplied by clients.
 
-The quotation ID and snapshot are immutable after creation. One quotation may have multiple documents. Finance uses the full quotation amount, not partial billing. Document numbers are supplied by the user, uppercased, and unique per branch and document kind even after deletion. FINAL is a document label in this CRUD module, not an accounting posting or approval workflow.
+The quotation ID and snapshot are immutable after creation. One quotation may have multiple documents. Finance uses the full quotation amount, not partial billing. Invoice numbers and dates are server-generated and rejected in POST/PATCH bodies. Numbers use `INV/YYYY/000001`, with an atomic `invoice_sequences` counter keyed by officeBranchId and year. The sequence restarts at 1 each January 1 in Asia/Jakarta. Invoice date uses the same Jakarta calendar day, captured after acquiring the counter lock. Counter, document, and history commit together; failures roll back allocation and soft deletion never frees a number. A missing counter is seeded from existing invoice numbers matching `INV/YYYY/<digits>`, including deleted invoices. Other legacy number formats are preserved. Proforma invoices require client-supplied `date`, while `number` is generated as `PI/YYYY/000001` using the separate `proforma_invoice_sequences` table keyed by officeBranchId and year. POST/PATCH reject number. The counter uses the Jakarta calendar year at creation, resets annually, and is independent of invoice; changing the proforma date does not change its number. Allocation, document and history share one transaction. Existing documents keep their numbers. FINAL is a document label in this CRUD module, not an accounting posting or approval workflow.
 
 PATCH and DELETE require the latest `version`; stale or competing mutations return 409. Both accept an optional `reason`. Writes and append-only history share a local transaction. History contains English action labels, actor ID/name, timestamps, field labels, before/after values, reason and full snapshots.
 
 The service verifies the current active Auth profile through Gateway and derives officeBranchId from that profile. It never trusts client-supplied branch or user headers. Quotation lookup is branch scoped, verifies the requested quotationVersion and fails closed on upstream errors. No foreign key or direct query crosses databases. The saved quotation snapshot is the state observed at validation time, not a distributed lock; later quotation edits/deletion preserve existing documents.
 
 No invoiceStatus updates are sent automatically to Marketing. No automatic invoice, proforma, report, contract or payment is generated.
+
+For an existing database, run `npm run invoice:schema` and `npm run proforma:schema` to add the respective counter tables, then `npm run build` (stop the service first on Windows if its Prisma engine is locked).
 
 Run `npm test` and `npm run test:documents` after setting up the database. Document tests use isolated random branches and remove only their fixtures. They exercise cross-branch rejection, snapshot persistence, 12 competing updates, atomic history, soft deletion and upstream validation.
 
@@ -53,7 +55,7 @@ After commit, the Finance process wakes the delivery worker. HTTP requests have 
 
 The in-process wakeup assumes each Finance process is supervised and automatically restarted after failure. A surviving replica does not receive another process's in-memory wakeup. Deploy with process restart guarantees; use a durable queue or database change-stream wakeup for independent multi-instance worker failover. Timers alone are not a durable notification mechanism. Monitor pending delivery age/attempts and worker error logs. After restoring a consumer database, queue a resync for each branch.
 
-Invoice/proforma creation reads Finance master tax effective on document date, serializes with branch tax writes, computes tax with Decimal half-up rounding to two decimals and saves taxSourceId/tax alongside amounts. A missing period returns 409. Draft date changes and finalization revalidate tax. Final documents cannot be edited; existing documents are not automatically repriced. Legacy tax snapshots remain null rather than guessing from historical amounts.
+Invoice/proforma creation reads Finance master tax effective on document date, serializes with branch tax writes, computes tax with Decimal half-up rounding to two decimals and saves taxSourceId/tax alongside amounts. A missing period returns 409. Proforma draft date changes and document finalization revalidate tax. Final documents cannot be edited; existing documents are not automatically repriced. Legacy tax snapshots remain null rather than guessing from historical amounts.
 
 ### Cutover from App Manager
 

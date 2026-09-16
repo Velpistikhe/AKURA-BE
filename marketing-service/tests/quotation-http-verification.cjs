@@ -105,7 +105,7 @@ async function main() {
     assert.equal(headerEdit.status, 200, JSON.stringify(headerEdit.body));
     assert.equal(headerEdit.body.data.version, 1);
     assert.equal(headerEdit.body.data.revision, 1);
-    assert.equal(headerEdit.body.data.date, '2027-01-02T00:00:00.000Z');
+    assert.equal(headerEdit.body.data.date, editable.date);
     assert.equal(headerEdit.body.data.items.length, 2);
     assert.equal(headerEdit.body.data.no, editable.no);
     const retained = { id: editable.items[0].id, itemSizeId, quantity: '3', unitPrice: '100.25' };

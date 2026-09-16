@@ -45,6 +45,16 @@ model Document {
   @@index([quotationId])
   @@map("billing_documents")
 }
+model InvoiceSequence {
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  year Int
+  lastNumber Int @default(0) @map("last_number")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@id([officeBranchId, year])
+  @@map("invoice_sequences")
+}
+
 model DocumentHistory {
   id String @id @default(uuid()) @db.Uuid
   documentId String @map("document_id") @db.Uuid
@@ -121,4 +131,14 @@ model TaxDelivery {
   @@unique([eventId, targetService])
   @@index([deliveredAt, nextRetryAt])
   @@map("tax_deliveries")
+}
+
+model ProformaInvoiceSequence {
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  year Int
+  lastNumber Int @default(0) @map("last_number")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@id([officeBranchId, year])
+  @@map("proforma_invoice_sequences")
 }

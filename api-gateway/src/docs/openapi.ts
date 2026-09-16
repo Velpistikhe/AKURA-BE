@@ -1,3 +1,4 @@
+import { workOrderSchemas, workOrderPaths } from './work-orders.js';
 import { operationalPaths, operationalSchemas } from './operational-documents.js';
 import { catalogPaths, catalogSchemas } from './catalog.js';
 import { quotationPaths, quotationSchemas } from './quotation.js';
@@ -101,6 +102,7 @@ export const openApiDocument = groupByModule({
     schemas: {
       ...quotationSchemas,
       ...operationalSchemas,
+      ...workOrderSchemas,
       ...catalogSchemas,
       UserSection: {
         type: 'string',
@@ -1252,6 +1254,7 @@ export const openApiDocument = groupByModule({
     ...quotationPaths,
     ...taxPaths,
     ...operationalPaths,
+    ...workOrderPaths,
     ...catalogPaths,
     '/health': {
       get: {

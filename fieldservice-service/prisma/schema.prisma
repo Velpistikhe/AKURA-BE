@@ -5,52 +5,77 @@ datasource db {
   provider = "postgresql"
   url = env("DATABASE_URL")
 }
-enum DocumentKind {
-  REPORT
-}
-enum DocumentStatus {
+enum WorkOrderStatus {
   DRAFT
-  FINAL
+  IN_PROGRESS
+  COMPLETED
+  CANCELED
+  @@map("WorkOrderStatus")
 }
-model Document {
+
+model WorkOrder {
   id String @id @default(uuid()) @db.Uuid
   officeBranchId String @map("office_branch_id") @db.Uuid
-  kind DocumentKind
   number String @db.VarChar(100)
-  quotationId String @map("quotation_id") @db.Uuid
-  quotationVersion Int @map("quotation_version")
-  quotationSnapshot Json @map("quotation_snapshot") @db.JsonB
-  title String @db.VarChar(255)
   date DateTime @db.Date
-  notes String? @db.Text
-  content String? @db.Text
-  status DocumentStatus @default(DRAFT)
+  contractId String? @map("contract_id") @db.Uuid
+  contractVersion Int? @map("contract_version")
+  contractSnapshot Json? @map("contract_snapshot") @db.JsonB
+  quotationId String? @map("quotation_id") @db.Uuid
+  quotationVersion Int? @map("quotation_version")
+  quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
+  startDate DateTime @map("start_date") @db.Date
+  endDate DateTime? @map("end_date") @db.Date
+  status WorkOrderStatus @default(DRAFT)
+  revoked Boolean @default(false)
+  summary String @db.Text
   version Int @default(0)
-  isActive Boolean @default(true) @map("is_active")
   createdById String @map("created_by_id") @db.Uuid
   createdByName String @map("created_by_name")
   updatedById String? @map("updated_by_id") @db.Uuid
   updatedByName String? @map("updated_by_name")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  history DocumentHistory[]
-  @@unique([officeBranchId, kind, number])
-  @@index([officeBranchId, kind, isActive, createdAt, id])
+  inspectors WorkOrderInspector[]
+  history WorkOrderHistory[]
+  @@unique([officeBranchId, number])
+  @@index([officeBranchId, revoked, createdAt, id])
   @@index([quotationId])
-  @@map("reports")
+  @@map("work_order")
 }
-model DocumentHistory {
+
+model WorkOrderInspector {
   id String @id @default(uuid()) @db.Uuid
-  documentId String @map("document_id") @db.Uuid
-  document Document @relation(fields:[documentId], references:[id], onDelete: Restrict)
+  workOrderId String @map("work_order_id") @db.Uuid
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  name String @db.VarChar(255)
+  position Int
+  @@unique([workOrderId, position], map: "work_order_inspectors_work_order_id_position_key")
+  @@map("work_order_inspectors")
+}
+
+model WorkOrderSequence {
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  year Int
+  lastNumber Int @default(0) @map("last_number")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@id([officeBranchId, year])
+  @@map("work_order_sequences")
+}
+
+model WorkOrderHistory {
+  id String @id @default(uuid()) @db.Uuid
+  workOrderId String @map("work_order_id") @db.Uuid
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
   version Int
   action String @db.VarChar(20)
+  beforeSnapshot Json? @map("before_snapshot") @db.JsonB
   snapshot Json @db.JsonB
   changes Json @db.JsonB
-  reason String? @db.VarChar(1000)
   createdById String @map("created_by_id") @db.Uuid
   createdByName String @map("created_by_name")
   createdAt DateTime @default(now()) @map("created_at")
-  @@unique([documentId, version])
-  @@map("reports_histories")
+  @@unique([workOrderId, version], map: "work_order_histories_work_order_id_version_key")
+  @@map("work_order_histories")
 }

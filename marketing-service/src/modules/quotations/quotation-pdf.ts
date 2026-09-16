@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import { Prisma } from '@prisma/client';
 import { resolve } from 'node:path';
 import { AuditActor } from '../../types/auth.types.js';
+import { groupQuotationItems } from './quotation-service-groups.js';
 
 type PdfQuotation = Prisma.QuotationGetPayload<{ include: { items: true } }>;
 const assets = resolve(__dirname, '../../../assets/quotation');
@@ -49,8 +50,8 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
       }
       return lines;
     };
-    const row = (values: string[], widths: number[], bold = false, shaded = false, repeat?: () => void) => {
-      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+    const row = (values: string[], widths: number[], bold = false, shaded = false, repeat?: () => void, style: { center?: boolean; alignments?: Array<'left' | 'center' | 'right'>; boldPrefixes?: string[] } = {}) => {
+      doc.font(bold || style.boldPrefixes?.length ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
       const lines = values.map((value, index) => wrap(value, widths[index] - 10));
       const count = Math.max(...lines.map(cell => cell.length));
       let offset = 0;
@@ -64,50 +65,84 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
           if (shaded) doc.rect(x, y, widths[cell], height).fill('#eeeeee');
           doc.lineWidth(0.4).strokeColor('#777777').rect(x, y, widths[cell], height).stroke();
           doc.fillColor('black').font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
-          lines[cell].slice(offset, offset + take).forEach((line, index) => {
-            doc.text(line, x + 5, y + 6 + index * 11, { width: widths[cell] - 10, lineBreak: false });
+          const alignment = style.alignments?.[cell] ?? (style.center ? 'center' : 'left');
+          const visible = lines[cell].slice(offset, offset + take);
+          const textTop = y + 6 + (style.center ? (take - visible.length) * 11 / 2 : 0);
+          visible.forEach((line, index) => {
+            const textX = alignment === 'center' ? x + (widths[cell] - doc.widthOfString(line)) / 2
+              : alignment === 'right' ? x + widths[cell] - 5 - doc.widthOfString(line) : x + 5;
+            const textY = textTop + index * 11;
+            const prefix = style.boldPrefixes?.find(value => line.startsWith(value));
+            if (prefix) {
+              doc.font('Helvetica-Bold').text(prefix, textX, textY, { lineBreak: false });
+              const prefixWidth = doc.widthOfString(prefix);
+              doc.font('Helvetica').text(line.slice(prefix.length), textX + prefixWidth, textY, { lineBreak: false });
+            } else doc.text(line, textX, textY, { width: widths[cell] - 10, lineBreak: false });
           });
           x += widths[cell];
         }
         y += height; offset += take;
       }
     };
-    const paragraph = (text: string, bold = false) => {
+    const paragraph = (text: string, bold = false, paragraphWidth = width) => {
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
-      for (const line of wrap(text, width)) {
+      for (const line of wrap(text, paragraphWidth)) {
         if (y + 13 > bottom) newPage();
-        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).text(line, left, y, { width, lineBreak: false });
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).text(line, left, y, { width: paragraphWidth, lineBreak: false });
         y += 12;
       }
       y += 8;
     };
     doc.font('Helvetica-Bold').fontSize(15).text('QUOTATION', left, y, { width, align: 'center' }); y += 35;
     const company = quote.companySnapshot as Record<string, unknown>;
-    paragraph(`To: ${company.type ?? ''}. ${company.name ?? ''}\n${company.address ?? ''}`);
-    if (quote.customerSnapshot) paragraph(`Attn: ${quote.customerSnapshot}`);
+    paragraph(`To: ${company.type ?? ''}. ${company.name ?? ''}\n${company.address ?? ''}`, false, width / 2);
+    const staffTitle = company.staffTitle === 'mr' ? 'Mr.' : company.staffTitle === 'mrs' ? 'Mrs.' : '';
+    if (quote.customerSnapshot) paragraph(`Attn: ${[staffTitle, quote.customerSnapshot].filter(Boolean).join(' ')}`, false, width / 2);
     const documentDate = quote.date ?? approvedAt;
     const number = `ABC / Q - ${quote.no}${quote.revision ? ` R${quote.revision}` : ''} / ${months[documentDate.getUTCMonth()]} / ${quote.numberYear}`;
     const thirds = [width * 0.39, width * 0.34, width * 0.27];
-    row(['Subject', 'Inquiry Date', 'Inquiry Method'], thirds, true, true);
-    row([quote.subject, dateText(quote.inquiryDate), quote.inquiryMethod.replaceAll('_', ' ')], thirds);
-    row(['Terms of Payment', 'Quotation No.', 'Validity of Quotation'], thirds, true, true);
-    row([quote.termOfPayment, number, quote.validity], thirds); y += 16;
+    row(['Subject', 'Inquiry Date', 'Inquiry Method'], thirds, true, true, undefined, { center: true });
+    row([quote.subject, dateText(quote.inquiryDate), quote.inquiryMethod.replaceAll('_', ' ')], thirds, false, false, undefined, { center: true });
+    row(['Terms of Payment', 'Quotation No.', 'Validity of Quotation'], thirds, true, true, undefined, { center: true });
+    row([quote.termOfPayment, number, quote.validity], thirds, false, false, undefined, { center: true }); y += 16;
     paragraph('Dear Sir / Madam,');
     paragraph('Thank you for your valuable inquiry. We are pleased to submit our quotation for your consideration as below:');
     const columns = [32, width - 267, 65, 80, 90];
-    const lineHeader = () => row(['Item No.', 'Part Description', 'Qty', 'Price Per Unit (IDR)', 'Line Total (IDR)'], columns, true, true);
+    const lineHeader = () => row(['Item No.', 'Part Description', 'Qty', 'Price Per Unit\n(IDR)', 'Line Total\n(IDR)'], columns, true, true, undefined, { center: true });
     lineHeader();
     let lineNo = 0;
-    for (const item of quote.items.filter(item => item.isActive)) {
-      const charges = [
-        { name: 'Inspection', qty: item.quantityInspection, price: item.priceInspection },
-        { name: 'Maintenance', qty: item.quantityMaintenance, price: item.priceMaintenance },
-      ];
-      for (const charge of charges) {
-        if (!charge.qty.greaterThan(0)) continue;
-        if (charge.price === null) throw new Error('Missing quotation price');
-        row([String(++lineNo), `${item.serviceName} (${item.serviceType})\n${item.itemName} - ${item.size}\n${charge.name}`,
-          charge.qty.toString(), money(charge.price), money(charge.qty.mul(charge.price).toDecimalPlaces(2))], columns, false, false, lineHeader);
+    for (const group of groupQuotationItems(quote.items)) {
+      const serviceLabel = `Type of service: ${group.type.replaceAll('_', ' ')} - ${group.name}`;
+      const groupLabel = serviceLabel;
+      const groupStyle = { boldPrefixes: ['Type of service:', 'Scope of works:'] };
+      const groupHeader = () => row([groupLabel], [width], false, false, lineHeader, groupStyle);
+      groupHeader();
+      const repeatGroup = () => { lineHeader(); row([serviceLabel], [width], false, false, lineHeader, groupStyle); };
+      for (const chargeType of ['Inspection', 'Maintenance'] as const) {
+        const charges = group.items.map(item => ({
+          item,
+          qty: chargeType === 'Inspection' ? item.quantityInspection : item.quantityMaintenance,
+          price: chargeType === 'Inspection' ? item.priceInspection : item.priceMaintenance,
+        })).filter(charge => charge.qty.greaterThan(0));
+        if (!charges.length) continue;
+        // Keep the subgroup heading with at least its first item.
+        doc.font('Helvetica').fontSize(9);
+        const firstDescription = `${charges[0].item.itemName} - ${charges[0].item.size}`;
+        const firstHeight = wrap(firstDescription, columns[1] - 10).length * 11 + 12;
+        const scopeLabel = 'Scope of works:';
+        const scopes = chargeType === 'Inspection' ? group.inspectionScopes : group.maintenanceScopes;
+        const scopeText = `${scopeLabel} ${scopes || '-'}`;
+        doc.font('Helvetica-Bold');
+        const scopeHeight = wrap(scopeText, width - 10).length * 11 + 12;
+        if (y + scopeHeight + Math.min(firstHeight, 100) > bottom && scopeHeight + firstHeight < bottom - 200) { newPage(); repeatGroup(); }
+        const chargeHeader = () => row([scopeText], [width], false, false, repeatGroup, { boldPrefixes: [scopeLabel] });
+        chargeHeader();
+        const repeatCharge = () => { repeatGroup(); row([scopeLabel], [width], true, false, repeatGroup); };
+        for (const { item, qty, price } of charges) {
+          if (price === null) throw new Error('Missing quotation price');
+          row([String(++lineNo), `${item.itemName} - ${item.size}`,
+            qty.toString(), money(price), money(qty.mul(price).toDecimalPlaces(2))], columns, false, false, repeatCharge, { alignments: ['left', 'left', 'center', 'right', 'right'] });
+        }
       }
     }
     row([`Job Location: ${quote.location}`], [width]);
@@ -115,15 +150,27 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
       row([label, money(value)], [width - 130, 130], true);
     }
     y += 18;
-    paragraph('The proposed price(s) applied with the following conditions:');
-    row(['Supplied by Akura', 'Supplied by Customer'], [width / 2, width / 2], true, true);
-    row([quote.supplyAkura, quote.supplyCustomer], [width / 2, width / 2]); y += 18;
+    const supplyIntro = 'The proposed price(s) applied with the following conditions:';
+    const supplyHeaders = ['Supplied by Akura', 'Supplied by Customer'];
+    const supplyValues = [quote.supplyAkura, quote.supplyCustomer];
+    const supplyWidths = [width / 2, width / 2];
+    doc.font('Helvetica-Bold').fontSize(9);
+    const supplyHeaderHeight = Math.max(...supplyHeaders.map(value => wrap(value, width / 2 - 10).length)) * 11 + 12;
+    doc.font('Helvetica').fontSize(9);
+    const supplyBodyHeight = Math.max(...supplyValues.map(value => wrap(value, width / 2 - 10).length)) * 11 + 12;
+    const supplyBlockHeight = wrap(supplyIntro, width).length * 12 + 8 + supplyHeaderHeight + supplyBodyHeight;
+    // Keep the introduction, header and both supply cells together on one page.
+    if (y + supplyBlockHeight > bottom) newPage();
+    paragraph(supplyIntro);
+    const supplyHeader = () => row(supplyHeaders, supplyWidths, true, true);
+    supplyHeader();
+    row(supplyValues, supplyWidths, false, false, supplyHeader); y += 18;
     paragraph('The good(s) or service(s) will be provided after we receive confirmation of order. Please give attention to the estimation of job / report below:');
-    row(['Job Accomplishment', 'Delivery Inspection Report(s)'], [width / 2, width / 2], true, true);
-    row([quote.accomplished, quote.deliveryReports], [width / 2, width / 2]); y += 18;
+    row(['Job Accomplishment', 'Delivery Inspection Report(s)'], [width / 2, width / 2], true, true, undefined, { center: true });
+    row([quote.accomplished, quote.deliveryReports], [width / 2, width / 2], false, false, undefined, { center: true }); y += 18;
     paragraph('Thank you for doing business with us. We look forward to rendering service to your company.');
-    row(['Reviewed and Approved By', 'Date Submitted'], [width / 2, width / 2], true, true);
-    row([actor.name, dateText(documentDate)], [width / 2, width / 2]); y += 12;
+    row(['Reviewed and Approved By', 'Date Submitted'], [width / 2, width / 2], true, true, undefined, { center: true });
+    row([actor.name, dateText(documentDate)], [width / 2, width / 2], false, false, undefined, { center: true }); y += 12;
     paragraph('Electronic Copy, no need signature. Save the Earth - go Paperless.');
     newPage();
     // Preserve the supplied template's general terms verbatim, without customer-specific data.

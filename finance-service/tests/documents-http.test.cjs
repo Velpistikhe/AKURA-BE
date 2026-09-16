@@ -38,7 +38,11 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
   const modules=['/proforma-invoices','/invoices'];
   let first;
   for(const module of modules){
-   const raw={number:'HTTP-001',quotationId:quoteId,quotationVersion:0,title:'HTTP Document',date:'2026-09-12',dueDate:'2026-10-12'};
+   const raw={quotationId:quoteId,quotationVersion:0,title:'HTTP Document',...(module==='/invoices'?{}:{date:'2026-09-12',dueDate:'2026-10-12'})};
+   await request('POST',module,{...raw,number:'CUSTOM'},400);
+   if(module==='/invoices') {
+    await request('POST',module,{...raw,date:'2020-01-01'},400);
+   }
    await request('POST',module,{...raw,officeBranchId:otherBranch},400);
    await request('POST',module,{...raw,quotationVersion:1},409);
    await request('POST',module,raw,404,'other');
@@ -46,6 +50,13 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
    assert.equal(row.officeBranchId,branch);assert.equal(row.createdByName,'Test User');
    if(first)await request('GET',module+'/'+first,undefined,404);
    first=row.id;
+   await request('PATCH',module+'/'+row.id,{version:0,number:'CUSTOM'},400);
+   if(module==='/proforma-invoices') assert.match(row.number,/^PI\/\d{4}\/000001$/);
+   if(module==='/invoices') {
+    assert.match(row.number,/^INV\/\d{4}\/000001$/);
+    await request('PATCH',module+'/'+row.id,{version:0,number:'CUSTOM'},400);
+    await request('PATCH',module+'/'+row.id,{version:0,date:'2020-01-01'},400);
+   }
    assert.equal((await request('GET',module+'?quotationId='+quoteId)).pagination.total,1);
    await request('GET',module+'/'+row.id,undefined,404,'other');
    await request('GET',module+'/'+row.id+'/history',undefined,404,'other');
@@ -66,6 +77,6 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
   }
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
-  const where={officeBranchId:branch};await prisma.documentHistory.deleteMany({where:{document:where}});await prisma.document.deleteMany({where});await prisma.taxDelivery.deleteMany({where:{event:where}});await prisma.taxEvent.deleteMany({where});await prisma.taxRevision.deleteMany({where});await prisma.tax.deleteMany({where});await prisma.$disconnect();
+  const where={officeBranchId:branch};await prisma.documentHistory.deleteMany({where:{document:where}});await prisma.document.deleteMany({where});await prisma.$executeRaw`DELETE FROM proforma_invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.taxDelivery.deleteMany({where:{event:where}});await prisma.taxEvent.deleteMany({where});await prisma.taxRevision.deleteMany({where});await prisma.tax.deleteMany({where});await prisma.$disconnect();
  }
 });

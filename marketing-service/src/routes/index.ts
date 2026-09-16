@@ -1,3 +1,9 @@
+import { prisma } from '../config/db.js';
+import { getOfficeBranchId } from '../utils/officeBranch.js';
+import { contractIdSchema } from '../modules/contracts/contract.schemas.js';
+import { companyIdSchema } from '../modules/companies/company.schemas.js';
+import { contractRepository } from '../modules/contracts/contract.repository.js';
+import { HttpError } from '../utils/httpError.js';
 import { validate } from '../middlewares/validate.middleware.js';
 import { quotationIdSchema } from '../modules/quotations/quotation.schemas.js';
 import { quotationController } from '../modules/quotations/quotation.controller.js';
@@ -13,7 +19,17 @@ import { requireMarketingAccess, requireQuotationReferenceAccess } from '../midd
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+router.get('/company-contract-references/:companyId', asyncHandler(requireQuotationReferenceAccess), validate('params', companyIdSchema), asyncHandler(async (req, res) => {
+  const contract = await contractRepository.resolveCompanyReference(res.locals.params.companyId, getOfficeBranchId(res));
+  res.json({ status: 200, success: true, data: contract, requestId: req.headers['x-request-id'] });
+}));
 router.get('/quotation-references/:quotationId', asyncHandler(requireQuotationReferenceAccess), validate('params', quotationIdSchema), asyncHandler(quotationController.getReference));
+router.get('/contract-references/:contractId', asyncHandler(requireQuotationReferenceAccess), validate('params', contractIdSchema), asyncHandler(async (req, res) => {
+  const contract = await prisma.companyContract.findFirst({ where: { id: res.locals.params.contractId, company: { officeBranchId: getOfficeBranchId(res), revoked: false } },
+    include: { company: true, prices: { where: { isActive: true } } } });
+  if (!contract) throw new HttpError('Contract not found', 404);
+  res.json({ status: 200, success: true, data: contract, requestId: req.headers['x-request-id'] });
+}));
 router.use(asyncHandler(requireMarketingAccess));
 router.use('/companies', companyRoutes);
 router.use('/company-staffs', companyStaffRoutes);

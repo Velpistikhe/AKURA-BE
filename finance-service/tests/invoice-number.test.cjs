@@ -1,0 +1,67 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {randomUUID}=require('node:crypto');
+require('dotenv').config();
+const {prisma}=require('../dist/config/db.js');
+const {documentRepository:repo}=require('../dist/modules/documents/document.repository.js');
+const {invoiceDate,nextInvoiceIdentity}=require('../dist/modules/invoices/invoice-number.js');
+
+test('invoice numbering: concurrent creation, annual reset, branch isolation, rollback and recovery',async()=>{
+ const actor={id:randomUUID(),name:'Number test',officeBranchId:randomUUID()};
+ const rolloverBranch=randomUUID();
+ const q={id:randomUUID(),officeBranchId:actor.officeBranchId,version:0,isActive:true,subTotal:'100',items:[]};
+ const input={quotationId:q.id,quotationVersion:0,title:'Number test'};
+ const year=invoiceDate().getUTCFullYear();
+ let failHistory=false;
+ prisma.$use(async(params,next)=>{
+  if(failHistory && params.model==='DocumentHistory' && params.action==='create' && params.args.data.createdById===actor.id) throw Error('Simulated history failure');
+  return next(params);
+ });
+ const create=()=>repo.create('INVOICE',input,q,actor);
+ const last=async()=> (await prisma.$queryRaw`SELECT last_number FROM invoice_sequences WHERE office_branch_id=${actor.officeBranchId}::uuid AND year=${year}`)[0]?.last_number;
+ const allocate=clock=>prisma.$transaction(tx=>nextInvoiceIdentity(tx,rolloverBranch,clock));
+ try {
+  assert.equal(invoiceDate(new Date('2026-12-31T16:59:59Z')).toISOString(),'2026-12-31T00:00:00.000Z');
+  assert.equal(invoiceDate(new Date('2026-12-31T17:00:00Z')).toISOString(),'2027-01-01T00:00:00.000Z');
+  // Missing tax must also roll back first counter creation.
+  await assert.rejects(create,e=>e.statusCode===409);
+  assert.equal(await last(),undefined);
+  await prisma.tax.create({data:{officeBranchId:actor.officeBranchId,percentage:'12',effectiveFrom:new Date('2000-01-01'),createdById:actor.id,createdByName:actor.name}});
+  const rows=await Promise.all(Array.from({length:8},create));
+  assert.deepEqual(rows.map(r=>r.number).sort(),Array.from({length:8},(_,i)=>`INV/${year}/${String(i+1).padStart(6,'0')}`));
+  assert(rows.every(r=>r.date.toISOString()===invoiceDate().toISOString()));
+  assert.equal(await last(),8);
+  assert.equal(await prisma.documentHistory.count({where:{document:{officeBranchId:actor.officeBranchId}}}),8);
+  failHistory=true;
+  await assert.rejects(create,/Simulated history failure/);
+  failHistory=false;
+  assert.equal(await last(),8);
+  assert.equal(await prisma.document.count({where:{officeBranchId:actor.officeBranchId}}),8);
+  await assert.rejects(repo.create('INVOICE',{...input,dueDate:new Date('2000-01-01')},q,actor),e=>e.statusCode===400);
+  assert.equal(await last(),8);
+  await repo.mutate('INVOICE',rows[0].id,{version:0},actor,true);
+  assert.equal((await create()).number,`INV/${year}/000009`);
+  // Seed a missing counter from a deleted historical invoice.
+  await prisma.document.update({where:{id:rows[0].id},data:{number:`INV/${year}/000040`}});
+  await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id=${actor.officeBranchId}::uuid`;
+  assert.equal((await create()).number,`INV/${year}/000041`);
+  const end=()=>new Date('2026-12-31T16:59:59Z');
+  const start=()=>new Date('2026-12-31T17:00:00Z');
+  assert.equal((await allocate(end)).number,'INV/2026/000001');
+  assert.equal((await allocate(end)).number,'INV/2026/000002');
+  assert.equal((await allocate(start)).number,'INV/2027/000001');
+  // Simulate crossing midnight while acquiring the old-year lock.
+  let reads=0;
+  const crossed=await allocate(()=>++reads===1?end():start());
+  assert.equal(crossed.number,'INV/2027/000002');
+  assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
+ } finally {
+  failHistory=false;
+  const where={officeBranchId:actor.officeBranchId};
+  await prisma.documentHistory.deleteMany({where:{document:where}});
+  await prisma.document.deleteMany({where});
+  await prisma.tax.deleteMany({where});
+  await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id IN (${actor.officeBranchId}::uuid,${rolloverBranch}::uuid)`;
+  await prisma.$disconnect();
+ }
+});
