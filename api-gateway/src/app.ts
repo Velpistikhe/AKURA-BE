@@ -1,6 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import { readFileSync } from 'node:fs';
-import cors from 'cors';
+import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import swaggerUi from 'swagger-ui-express';
@@ -16,6 +16,22 @@ import { authenticateServiceCaller } from './middlewares/serviceCaller.middlewar
 
 const app: Express = express();
 const swaggerCss = readFileSync(require.resolve('swagger-ui-dist/swagger-ui.css'), 'utf8');
+const allowedCorsOrigins = env.CORS_ORIGIN.split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+const corsOptions: CorsOptions = {
+  origin: env.CORS_ORIGIN === '*'
+    ? true
+    : (origin, callback) => {
+      if (!origin || allowedCorsOrigins.includes(origin.replace(/\/$/, ''))) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+  credentials: true,
+  exposedHeaders: ['Content-Disposition'],
+};
 
 // Vercel overwrites X-Forwarded-For with the public client IP before invoking
 // the Express function. Trust only the direct Vercel proxy hop so req.ip and
@@ -26,11 +42,8 @@ if (process.env.VERCEL === '1') {
 }
 
 app.use(helmet());
-app.use(cors({
-  origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
-  credentials: true,
-  exposedHeaders: ['Content-Disposition'],
-}));
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(requestIdMiddleware);
 app.use(loggerMiddleware);
