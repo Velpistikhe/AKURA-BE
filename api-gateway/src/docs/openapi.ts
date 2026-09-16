@@ -793,8 +793,8 @@ export const openApiDocument = groupByModule({
         },
       },
       ServiceType: {
-        type: 'string', enum: ['TUBULAR', 'OCTG'], example: 'TUBULAR',
-        description: 'Service type. Only uppercase TUBULAR and OCTG are accepted.',
+        type: 'string', enum: ['TUBULAR', 'OCTG', 'OTHER'], example: 'TUBULAR',
+        description: 'Service type. Only uppercase TUBULAR, OCTG, and OTHER are accepted.',
       },
       Service: {
         type: 'object',
@@ -2036,7 +2036,7 @@ export const openApiDocument = groupByModule({
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
           { in: 'query', name: 'name', description: 'Case-insensitive partial match on name.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
           { in: 'query', name: 'isActive', schema: { type: 'string', enum: ['true', 'false'] } },
-          { in: 'query', name: 'type', description: 'Exact service type match: TUBULAR or OCTG.', schema: schemaRef('ServiceType') },
+          { in: 'query', name: 'type', description: 'Exact service type match: TUBULAR, OCTG, or OTHER.', schema: schemaRef('ServiceType') },
           ...listSortParameters(['name', 'type', 'isActive']),
         ],
         responses: {
