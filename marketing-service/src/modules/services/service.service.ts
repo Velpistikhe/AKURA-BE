@@ -7,7 +7,7 @@ export const serviceService = {
   list: (input: ListServicesInput, officeBranchId: string) => serviceRepository.list(input, officeBranchId),
   history: (id: string, officeBranchId: string, input: { page: number; limit: number }) => serviceRepository.history(id, officeBranchId, input),
   async get(id: string, officeBranchId: string) {
-    const service = await serviceRepository.findActiveById(id, officeBranchId);
+    const service = await serviceRepository.findById(id, officeBranchId);
     if (!service) throw new HttpError('Service not found', 404);
     return service;
   },

@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
 import { CreateServiceInput, CreateInspectionScopeInput, CreateMaintenanceScopeInput, ListServicesInput, UpdateServiceInput } from './service.schemas.js';
 import { serviceService } from './service.service.js';
-import { getAuditActor, getOfficeBranchId } from '../../utils/officeBranch.js';
+import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
 };
 export const serviceController = {
-  async list(req: Request, res: Response) { send(req, res, 200, 'Services retrieved successfully', await serviceService.list(res.locals.query as ListServicesInput, getOfficeBranchId(res))); },
+  async list(req: Request, res: Response) { send(req, res, 200, 'Services retrieved successfully', await serviceService.list(restrictListVisibility(res, res.locals.query as ListServicesInput), getOfficeBranchId(res))); },
   async history(req: Request, res: Response) { send(req, res, 200, 'Service history retrieved successfully', await serviceService.history((res.locals.params as { serviceId: string }).serviceId, getOfficeBranchId(res), res.locals.query)); },
   async get(req: Request, res: Response) {
     send(req, res, 200, 'Service retrieved successfully', await serviceService.get((res.locals.params as { serviceId: string }).serviceId, getOfficeBranchId(res)));

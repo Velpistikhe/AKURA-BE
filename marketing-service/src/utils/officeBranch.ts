@@ -16,3 +16,9 @@ export const getAuditActor = (res: Response): AuditActor => {
     name: `${user.firstName} ${user.lastName}`.trim() || user.username,
   };
 };
+
+export const restrictListVisibility = <T extends object>(res: Response, query: T): T & { isActive?: boolean } => {
+  const user = res.locals.authUser;
+  if (!user) throw new HttpError('Authenticated user is required', 401);
+  return user.role === 'ADMIN' ? query : { ...query, isActive: true };
+};

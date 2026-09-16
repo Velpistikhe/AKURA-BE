@@ -87,9 +87,6 @@ async function main() {
     assert.equal(price.priceServicePrimary, preserved);
     const resolved = await ok('GET', `/sizes/prices?companyId=${standardCompany.id}&itemId=${item.id}`);
     assert.equal(resolved.sizes.find(size => size.id === large.id).priceService, preserved);
-    await ok('DELETE', `/sizes/${large.id}/price`, { version: price.version });
-    price = await ok('PATCH', `/sizes/${large.id}/price`, { version: price.version + 1, isActive: true });
-    assert.equal(price.isActive, true);
     // Audit failure rolls back the price and ancestor versions in the same transaction.
     const beforeItem = await ok('GET', `/${item.id}`);
     const injected = await prisma.catalogAuditLog.create({ data: { officeBranchId: branch, entityType: 'ITEM_PRICE', entityId: price.id, version: price.version + 1, action: 'TEST_CONFLICT', after: {}, ...createdBy } });
@@ -108,6 +105,9 @@ async function main() {
     // Branch isolation and history remain valid after deactivation.
     for (const path of [`/${item.id}`, `/${item.id}/history`, `/sizes/${large.id}`, `/sizes/${large.id}/history`, `/sizes/${large.id}/price/history`]) assert.equal((await request('GET', path, undefined, foreignBranch)).status, 404);
     assert.equal((await request('PATCH', `/${item.id}`, { version: 0, name: 'Attack' }, foreignBranch)).status, 404);
+    await ok('DELETE', `/sizes/${large.id}/price`, { version: price.version });
+    assert.equal((await request('PATCH', `/sizes/${large.id}/price`, { version: price.version + 1, isActive: true })).status, 409);
+    assert.equal((await ok('GET', `/sizes/${large.id}/price`)).isActive, false);
     let currentSize = await ok('GET', `/sizes/${large.id}`);
     const deletedSize = await ok('DELETE', `/sizes/${large.id}`, { version: currentSize.version });
     assert.equal(deletedSize.isActive, false);

@@ -82,7 +82,7 @@ export const catalogSchemas = {
   CatalogPriceRequest: { ...input(standard, ['priceServicePrimary', 'priceServiceSisterCompany']), description: 'Both service prices are required. Both maintenance prices are required when the service hasMaintenance=true.' },
   UpsertContractPriceRequest: input({ contractId: uuid, version, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
-  UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'Use true with the current version to reactivate a price while the item and size are active.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. Stale versions return 409.' },
+  UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'An active price may be deactivated. Inactive prices cannot be modified or reactivated.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. Inactive service, item, size, price, or stale versions return 409.' },
   CreateContractPriceRequest: input({ contractId: uuid, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   CreateCompanyContractRequest: { ...input({ companyId: uuid, contractNumber: { type: 'string', minLength: 1, maxLength: 255 }, contractDate: date, ...contractPeriods }, ['companyId', 'contractNumber', 'contractDate', 'effectiveFrom', 'effectiveUntil']), description: 'Status is not accepted. User creation sets CREATE; ADMIN/APP_MANAGER creation sets ACTIVE. The company must not already have an ACTIVE contract. All contract dates use YYYY-MM-DD and effectiveUntil must follow effectiveFrom.' },
   UpdateCompanyContractRequest: { ...input({ version, contractNumber: { type: 'string', minLength: 1, maxLength: 255 }, contractDate: date, ...contractPeriods }, ['version', 'effectiveFrom', 'effectiveUntil']), description: 'Admin-only revision. It terminates the previous contract with effectiveUntil = new effectiveFrom minus one day, then creates an ACTIVE replacement. Status is not accepted.' },
@@ -131,7 +131,9 @@ const filters = [parameter('itemId', uuid), ...['size', 'itemName', 'serviceName
   parameter('sortBy', { type: 'string', enum: ['size'], description: 'Omit for createdAt descending.' }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination];
 const content = (schema: object) => ({ content: { 'application/json': { schema } } });
 const operation = (summary: string, response: string, parameters: object[] = [], body?: string, status = 200, description = '') => ({
-  tags: ['Marketing'], summary, description, security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
+  tags: ['Marketing'], summary, description: body && ['UpdateItemRequest', 'CreateItemRequest', 'AddItemSizeRequest', 'CatalogPriceRequest', 'UpdateCatalogPriceRequest', 'CreateContractPriceRequest', 'UpsertContractPriceRequest', 'UpdateContractPriceRequest', 'CatalogVersionRequest'].includes(body)
+    ? `${description} Catalog mutations require an active service and active existing item, size, and price where applicable. Inactive catalog records cannot be modified or reactivated; attempts return 409.`.trim()
+    : description, security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
   ...(body ? { requestBody: { required: true, ...content(ref(body)) } } : {}),
   responses: { [status]: { description: 'Success', ...content(ref(response)) }, ...Object.fromEntries([
     [400, 'Invalid parameters, missing required prices, or invalid contract period'], [401, 'Authentication required'], [403, 'Marketing access and branch assignment required'], [404, 'Resource not found in the current branch'], [409, 'Stale version, inactive resource, duplicate size/price, or overlapping contract'], [429, 'Rate limit exceeded'], [500, 'Internal server error'],
@@ -208,7 +210,7 @@ export const catalogPaths = {
   [`${root}/items/sizes/{itemSizeId}/price`]: {
     get: operation('Get standard price including inactive state and version', 'CatalogItemPriceResponse', [path('itemSizeId')]),
     post: operation('Create missing standard price', 'CatalogItemPriceResponse', [path('itemSizeId')], 'CatalogPriceRequest', 201),
-    patch: operation('Update or reactivate standard price using its version', 'CatalogItemPriceResponse', [path('itemSizeId')], 'UpdateCatalogPriceRequest'),
+    patch: operation('Update active standard price using its version', 'CatalogItemPriceResponse', [path('itemSizeId')], 'UpdateCatalogPriceRequest'),
     delete: operation('Deactivate standard price using its version', 'CatalogItemPriceResponse', [path('itemSizeId')], 'CatalogVersionRequest'),
   },
   [`${root}/items/sizes/{itemSizeId}/contract-prices`]: {
@@ -216,18 +218,18 @@ export const catalogPaths = {
     put: { ...operation('Create or update a company contract price', 'CompanyContractPriceResponse', [path('itemSizeId')], 'UpsertContractPriceRequest', 200, 'Lookup and write are atomic. Creation requires no version; existing prices require the current version.'), responses: { ...operation('', 'CompanyContractPriceResponse').responses, 201: { description: 'Created', ...content(ref('CompanyContractPriceResponse')) } } },
   },
   [`${root}/items/contract-prices/{contractPriceId}`]: {
-    patch: operation('Update or reactivate contract price using its version', 'CompanyContractPriceResponse', [path('contractPriceId')], 'UpdateContractPriceRequest'),
+    patch: operation('Update active contract price using its version', 'CompanyContractPriceResponse', [path('contractPriceId')], 'UpdateContractPriceRequest'),
     delete: operation('Deactivate contract price using its version', 'CompanyContractPriceResponse', [path('contractPriceId')], 'CatalogVersionRequest'),
   },
   [`${root}/company-contract-prices`]: {
     get: operation('List company contract prices in the current branch', 'CompanyContractPriceListResponse', [
       parameter('contractId', uuid), parameter('companyId', uuid), parameter('itemSizeId', uuid), parameter('isActive', { type: 'string', enum: ['true', 'false'] }), parameter('search', { type: 'string' }),
       parameter('sortBy', { type: 'string', enum: ['priceService', 'priceMaintenance', 'effectiveFrom', 'effectiveUntil', 'createdAt', 'updatedAt'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination,
-    ], undefined, 200, 'Returns all contract price lists belonging to the authenticated user branch, including inactive, future, terminated, and expired contracts unless filtered.'),
+    ], undefined, 200, 'Returns contract prices belonging to the authenticated user branch. Only ADMIN may view inactive prices; other roles always use isActive=true, overriding isActive=false. ADMIN may omit isActive for both states. Pagination counts follow the enforced filter. Contract date and status filters are independent of price activity.'),
   },
   [`${root}/items/sizes/prices`]: { get: operation('Resolve prices for a company', 'ResolvedPriceListResponse', [parameter('companyId', uuid, true), { ...parameter('exclude', { type: 'array', minItems: 1, maxItems: 100, items: uuid }), style: 'form', explode: false, description: 'Comma-separated itemSizeId UUIDs already selected in the quotation. Excluded from options and pagination totals after excluding current-contract sizes. Omit when no sizes are selected. Combined with notIn when both are provided.' }, ...filters], undefined, 200, 'Quotation options include only active catalog sizes absent from the selected company current ACTIVE contract in the authenticated branch. Membership excludes even inactive contract-price rows. Other companies and branches do not affect membership. Expired/future/inactive contracts do not exclude sizes. Search and pagination use live catalog labels after exclusion. Prices are exclusively PRIMARY or SISTER_COMPANY according to company.isSisterCompany. Contract prices are never used for quotation creation or item repricing. Missing normal/sister prices are UNAVAILABLE. Submit itemSizeId, quantityInspection and optional quantityMaintenance; client prices are rejected.') },
   [`${root}/company-contracts`]: {
-    get: operation('List company contracts in the current branch', 'CompanyContractListResponse', [parameter('companyId', uuid), parameter('isActive', { type: 'string', enum: ['true', 'false'] }), parameter('status', contractStatus), ...pagination]),
+    get: operation('List company contracts in the current branch', 'CompanyContractListResponse', [parameter('companyId', uuid), parameter('isActive', { type: 'string', enum: ['true', 'false'] }), parameter('status', contractStatus), ...pagination], undefined, 200, 'Only ADMIN may view inactive contracts. All other roles always use isActive=true, overriding isActive=false. ADMIN may omit isActive for both states or filter either state. Branch restrictions and pagination counts follow the enforced filter.'),
     post: operation('Create company contract', 'CompanyContractResponse', [], 'CreateCompanyContractRequest', 201),
   },
   [`${root}/company-contracts/{contractId}`]: {

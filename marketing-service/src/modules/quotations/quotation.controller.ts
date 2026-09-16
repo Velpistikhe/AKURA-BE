@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
 import { ListQuotationsInput } from './quotation.schemas.js';
-import { getAuditActor, getOfficeBranchId } from '../../utils/officeBranch.js';
+import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
@@ -12,7 +12,7 @@ export const quotationController = {
     send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
   },
   async list(req: Request, res: Response) {
-    send(req, res, 200, 'Quotations retrieved successfully', await quotationRepository.list(res.locals.query as ListQuotationsInput, getOfficeBranchId(res)));
+    send(req, res, 200, 'Quotations retrieved successfully', await quotationRepository.list(restrictListVisibility(res, res.locals.query as ListQuotationsInput), getOfficeBranchId(res)));
   },
   async get(req: Request, res: Response) {
     send(req, res, 200, 'Quotation retrieved successfully', await quotationApproval.get(res.locals.params.quotationId, getOfficeBranchId(res)));

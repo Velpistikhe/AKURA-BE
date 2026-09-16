@@ -35,8 +35,9 @@ const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before:
   return after;
 };
 const itemInBranch = async (tx: Tx, id: string, branch: string) => {
-  const item = await tx.item.findFirst({ where: { id, officeBranchId: branch, service: { officeBranchId: branch, isActive: true } }, include: { service: true } });
+  const item = await tx.item.findFirst({ where: { id, officeBranchId: branch, service: { officeBranchId: branch } }, include: { service: true } });
   if (!item) throw new HttpError('Item not found', 404);
+  if (!item.service.isActive) throw new HttpError('Service is inactive', 409);
   if (!item.isActive) throw new HttpError('Item is inactive', 409);
   return item;
 };
@@ -127,7 +128,7 @@ const changeContract = async (tx: Tx, id: string, data: { version: number; price
     const before = await tx.companyContractPrice.findFirst({ where: { id, contract: { company: { officeBranchId: branch, revoked: false } } } });
     if (!before) throw new HttpError('Contract price not found', 404);
     const { size, item } = await sizeInBranch(tx, before.itemSizeId, branch);
-    requireCatalogVersion(before, data.version, !remove);
+    requireCatalogVersion(before, data.version);
     const contract = await contractInBranch(tx, before.contractId, branch);
     const prices = remove ? {} : contractPrices({ contractId: before.contractId, priceService: data.priceService!, priceMaintenance: data.priceMaintenance }, item.service.hasMaintenance);
     const active = remove ? false : data.isActive ?? before.isActive;
@@ -195,7 +196,7 @@ export const itemWriteRepository = {
       await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, result, actor, 'CREATE');
     } else {
       if (!before) throw new HttpError('Item price not found', 404);
-      requireCatalogVersion(before, version!, true);
+      requireCatalogVersion(before, version!);
       const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany.toString(), priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service.hasMaintenance);
       result = await change(tx, branch, 'ITEM_PRICE', before, { ...prices, ...(isActive === undefined ? {} : { isActive, effectiveUntil: isActive ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())), ...(!before.isActive && isActive ? { effectiveFrom: new Date() } : {}) }) }, actor);
     }

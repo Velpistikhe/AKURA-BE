@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { getAuditActor, getOfficeBranchId } from '../../utils/officeBranch.js';
+import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 import { versionSchema } from '../items/item.schemas.js';
 import { contractIdSchema, createContractSchema, listContractsSchema, terminateContractSchema, updateContractSchema } from './contract.schemas.js';
 import { contractRepository as repository } from './contract.repository.js';
@@ -11,7 +11,7 @@ import { HttpError } from '../../utils/httpError.js';
 const router = Router();
 const send = (req: Request, res: Response, data: unknown, status = 200) => { res.status(status).json({ status, success: true, data, requestId: req.headers['x-request-id'] }); };
 const requireAdmin = (res: Response) => { if (!['ADMIN', 'APP_MANAGER'].includes(res.locals.authUser?.role ?? '')) throw new HttpError('Admin role is required', 403); };
-router.get('/', validate('query', listContractsSchema), asyncHandler(async (req, res) => { send(req, res, await repository.list(res.locals.query, getOfficeBranchId(res))); }));
+router.get('/', validate('query', listContractsSchema), asyncHandler(async (req, res) => { send(req, res, await repository.list(restrictListVisibility(res, res.locals.query), getOfficeBranchId(res))); }));
 router.post('/', validate('body', createContractSchema), asyncHandler(async (req, res) => { const admin = ['ADMIN', 'APP_MANAGER'].includes(res.locals.authUser?.role ?? ''); send(req, res, await repository.create(res.locals.body, getOfficeBranchId(res), getAuditActor(res), admin), 201); }));
 router.post('/:contractId/prices/import', validate('params', contractIdSchema), uploadContractWorkbook, validate('body', importContractExcelSchema), asyncHandler(contractExcelController.upload));
 router.get('/:contractId', validate('params', contractIdSchema), asyncHandler(async (req, res) => { send(req, res, await repository.get(res.locals.params.contractId, getOfficeBranchId(res))); }));

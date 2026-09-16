@@ -151,8 +151,9 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations': {
     get: {
       ...common, summary: 'List all quotations in the current branch',
-      description: 'Returns active and soft-deleted quotations, including active and inactive item rows, exclusively within the authenticated user office branch. Use isActive on each quotation and item to distinguish their state. Stored totals represent the document totals, not a sum of historical inactive lines. Pagination totals include both quotation states. Ordered by createdAt descending, then ID descending.',
+      description: 'Returns quotations exclusively within the authenticated user office branch. Only ADMIN may view inactive quotations; other roles always use isActive=true, overriding isActive=false. ADMIN may omit isActive for both states or filter either state. Pagination counts follow the enforced filter. Nested historical item rows retain their original state. Stored totals represent the document totals, not a sum of historical inactive lines. Ordered by createdAt descending, then ID descending.',
       parameters: [
+        { in: 'query', name: 'isActive', description: 'ADMIN may select either state; all other roles always receive active quotations.', schema: { type: 'string', enum: ['true', 'false'] } },
         { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
         { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
       ],

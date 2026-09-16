@@ -2030,7 +2030,7 @@ export const openApiDocument = groupByModule({
     },
     '/api/v1/marketing/services': {
       get: {
-        tags: ['Marketing'], summary: 'List services', description: 'Returns only services owned by the office branch in the access token.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'List services', description: 'Returns only services owned by the office branch in the access token. Only ADMIN may view inactive services. All other roles always use isActive=true, overriding isActive=false. ADMIN may omit isActive for both states or filter either state. Pagination counts follow the enforced filter.', security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
@@ -2058,7 +2058,7 @@ export const openApiDocument = groupByModule({
     },
     '/api/v1/marketing/services/{serviceId}': {
       get: {
-        tags: ['Marketing'], summary: 'Get a service', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Get a service', description: 'Returns active and inactive services in the authenticated branch. Inactive services and their catalog children cannot be modified. A missing ID or a service in another branch returns 404.', security: protectedSecurity,
         parameters: [
           { in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } },
         ],
@@ -2070,11 +2070,12 @@ export const openApiDocument = groupByModule({
         },
       },
       patch: {
-        tags: ['Marketing'], summary: 'Update a service', description: 'Scopes are managed only through the dedicated add and soft-delete endpoints. Submit the current version to prevent lost updates.', security: protectedSecurity,
+        tags: ['Marketing'], summary: 'Update a service', description: 'Requires an active service; inactive services return 409. Scopes are managed only through the dedicated add and soft-delete endpoints. Submit the current version to prevent lost updates.', security: protectedSecurity,
         parameters: [{ in: 'path', name: 'serviceId', required: true, schema: { type: 'string', format: 'uuid' } }],
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateServiceRequest')) },
         responses: {
           200: { description: 'Service updated', ...jsonContent(schemaRef('ServiceResponse')) },
+          409: errorResponse('Service is inactive or version mismatch'),
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),

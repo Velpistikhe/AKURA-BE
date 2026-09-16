@@ -140,6 +140,7 @@ export const serviceRepository = {
     await lockCompanyBranch(tx, officeBranchId);
     const before = await tx.service.findFirst({ where: { id, officeBranchId }, select: detailSelect });
     if (!before || before.version !== data.version) throw new HttpError('Data has changed; reload before retrying', 409);
+    if (!before.isActive) throw new HttpError('Service is inactive', 409);
     const { version, ...serviceData } = data;
     await tx.service.update({ where: { id, version }, data: { ...serviceData, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
 
@@ -156,6 +157,7 @@ export const serviceRepository = {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id, officeBranchId }, select: detailSelect });
       if (!before || before.version !== version) throw new HttpError('Data has changed; reload before retrying', 409);
+      if (!before.isActive) throw new HttpError('Service is inactive', 409);
       // Standard prices leave the catalog; contract prices and contracts remain untouched.
       const standardPrices = await tx.itemPrice.findMany({ where: { isActive: true, itemSize: { item: { serviceId: id, officeBranchId } } } });
       for (const price of standardPrices) {

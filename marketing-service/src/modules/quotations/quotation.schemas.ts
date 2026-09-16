@@ -3,6 +3,7 @@ import { InquiryMethod } from '@prisma/client';
 
 export const quotationIdSchema = z.object({ quotationId: z.string().uuid() }).strict();
 export const listQuotationsSchema = z.object({
+  isActive: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 }).strict();

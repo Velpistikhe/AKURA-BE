@@ -83,8 +83,8 @@ export const quotationRepository = {
     return quote;
   },
   findPdf: (bucket: string, key: string) => prisma.quotationPdf.findUnique({ where: { bucket_key: { bucket, key } } }),
-  async list({ page, limit }: ListQuotationsInput, officeBranchId: string) {
-    const where = { officeBranchId };
+  async list({ page, limit, isActive }: ListQuotationsInput, officeBranchId: string) {
+    const where = { officeBranchId, isActive };
     const [quotations, total] = await prisma.$transaction([
       prisma.quotation.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit,
         include }),
