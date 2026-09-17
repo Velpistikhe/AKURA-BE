@@ -7,6 +7,10 @@ import { createTaxSchema } from './tax.schemas.js';
 
 export const taxRepository = {
   async create(input: unknown, officeBranchId: string, actor: AuditActor) {
+    const { tax } = await this.createWithEvent(input, officeBranchId, actor);
+    return tax;
+  },
+  async createWithEvent(input: unknown, officeBranchId: string, actor: AuditActor) {
     const { percentage, effectiveFrom } = createTaxSchema.parse(input);
     return prisma.$transaction(async tx => {
       // Also serializes the first insertion, when no tax row exists yet.
@@ -22,8 +26,8 @@ export const taxRepository = {
         officeBranchId, percentage: new Prisma.Decimal(percentage), effectiveFrom,
         createdById: actor.id, createdByName: actor.name,
       } });
-      await enqueueTaxSnapshot(tx, officeBranchId);
-      return tax;
+      const event = await enqueueTaxSnapshot(tx, officeBranchId);
+      return { tax, event };
     }, { maxWait: 10000, timeout: 20000 });
   },
 };

@@ -37,6 +37,26 @@ export async function deliverTax(id: string) {
   }, { timeout: 20000, maxWait: 5000 });
 }
 
+// Run a bounded batch inside the HTTP invocation. This also works when the
+// Express app is imported without server.ts (and no timer worker is started).
+export async function processDueTaxDeliveries(officeBranchId: string, eventId?: string): Promise<void> {
+  try {
+    const jobs = await prisma.taxDelivery.findMany({
+      where: { deliveredAt: null, nextRetryAt: { lte: new Date() }, event: { officeBranchId },
+        ...(eventId ? { eventId } : {}) },
+      orderBy: { nextRetryAt: 'asc' }, ...(eventId ? {} : { take: 5 }), select: { id: true },
+    });
+    const results = await Promise.allSettled(jobs.map(job => deliverTax(job.id)));
+    if (results.some(result => result.status === 'rejected')) {
+      logger.error('Tax delivery batch interrupted; pending entries will be retried on the next invocation');
+    }
+  } catch {
+    // The tax and outbox are already committed. Do not turn a successful write
+    // into an HTTP error that could cause the client to submit the tax again.
+    logger.error('Tax delivery batch unavailable; pending entries remain queued');
+  }
+}
+
 function schedule(delay: number) {
   if (stopped) return;
   if (timer) clearTimeout(timer);

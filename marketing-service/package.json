@@ -25,6 +25,7 @@
     "test:company-contract-response": "tsc && node tests/company-contract-response-verification.cjs",
     "test:quotation-standard-prices": "tsc && node tests/quotation-standard-prices.cjs",
     "test:tax-events": "tsc && node --test tests/tax-events.test.cjs",
+    "test:tax-events-http": "tsc && node --test tests/tax-events-http.test.cjs",
     "tax:schema": "node scripts/apply-tax-schema.cjs"
   },
   "dependencies": {
