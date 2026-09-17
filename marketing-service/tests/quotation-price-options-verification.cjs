@@ -26,7 +26,7 @@ async function main() {
     const staff = await prisma.companyStaff.create({ data: { companyId: company.id, name: 'Buyer', normalizeName: 'buyer', title: 'mr' } });
     const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: 'SIGNED', contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'ACTIVE', createdById: actor } });
     const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Original Service', type: 'TUBULAR', hasMaintenance: true, ...audit } });
-    const item = await request('POST', '/items', { serviceId: service.id, name: 'Original Pipe', sizes: ['Contract', 'Normal', 'Imported', 'Incomplete', 'Missing'].map(size => ({ size })) }, 201);
+    const item = await request('POST', '/items', { serviceId: service.id, uom: 'JOINT', name: 'Original Pipe', sizes: ['Contract', 'Normal', 'Imported', 'Incomplete', 'Missing'].map(size => ({ size })) }, 201);
     const [contractSize, normalSize, importedSize, incompleteSize] = item.sizes;
     const prices = { priceServicePrimary: '100', priceServiceSisterCompany: '80', priceMaintenancePrimary: '20', priceMaintenanceSisterCompany: '10' };
     for (const size of item.sizes.slice(0, 4)) await request('POST', `/items/sizes/${size.id}/price`, prices, 201);
@@ -146,7 +146,7 @@ async function main() {
     assert.equal((await options()).pagination.total, 0);
     // A different active catalog falls back to sister-company prices despite an unrelated contract.
     const otherService = await prisma.service.create({ data: { officeBranchId: branch, name: 'Other', type: 'OCTG', ...audit } });
-    const otherItem = await request('POST', '/items', { serviceId: otherService.id, name: 'Other Item', sizes: [{ size: 'One' }] }, 201);
+    const otherItem = await request('POST', '/items', { serviceId: otherService.id, uom: 'JOINT', name: 'Other Item', sizes: [{ size: 'One' }] }, 201);
     await request('POST', `/items/sizes/${otherItem.sizes[0].id}/price`, prices, 201);
     await prisma.company.update({ where: { id: company.id }, data: { isSisterCompany: true, version: { increment: 1 } } });
     const fallback = (await request('GET', `/items/sizes/prices?companyId=${company.id}`)).sizes[0];

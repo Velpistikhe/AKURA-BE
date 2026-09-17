@@ -78,7 +78,7 @@ export const catalogSchemas = {
   CatalogMoney: money,
   CatalogNullableMoney: optionalMoney,
   CatalogVersionRequest: input({ version }, ['version']),
-  UpdateItemRequest: input({ version, name: { type: 'string', minLength: 1, maxLength: 200 } }, ['version', 'name']),
+  UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name or uom. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected.' },
   CatalogPriceRequest: { ...input(standard, ['priceServicePrimary', 'priceServiceSisterCompany']), description: 'Both service prices are required. Both maintenance prices are required when the service hasMaintenance=true.' },
   UpsertContractPriceRequest: input({ contractId: uuid, version, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
@@ -99,7 +99,7 @@ export const catalogSchemas = {
   }, ['contractPriceId', 'history', 'pagination'])),
   CatalogContractSizeListResponse: paginated('sizes', sizeRow),
   CatalogSizeDetailResponse: envelope(object({ id: uuid, itemId: uuid, size: { type: 'string' }, ...audit, ...periods, isActive: { type: 'boolean' }, price: { ...price, nullable: true }, item: ref('ItemListRow') }, ['id', 'itemId', 'version', 'size', 'price', 'item'])),
-  CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: uuid, name: { type: 'string' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'version'])),
+  CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: uuid, name: { type: 'string' }, uom: { type: 'string', example: 'JOINT' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'uom', 'version'])),
   QuotationSizeOption: object({
     id: uuid, itemId: uuid, size: {type:'string'}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
     item: object({id:uuid,name:{type:'string'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
@@ -154,7 +154,7 @@ const historyOperation = (summary: string, response: string, idField: string, de
 });
 const root = '/api/v1/marketing';
 export const catalogPaths = {
-  [`${root}/items/{itemId}/history`]: { get: historyOperation('Read item history', 'ItemCatalogHistoryResponse', 'itemId', 'Includes only direct ITEM audit entries. CHILD_UPDATE entries caused by size or price changes are excluded. English field labels, before/after values, actor and action labels. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
+  [`${root}/items/{itemId}/history`]: { get: historyOperation('Read item history', 'ItemCatalogHistoryResponse', 'itemId', 'Includes only direct ITEM audit entries, including uom changes labeled Unit of measure with before/after values. CHILD_UPDATE entries caused by size or price changes are excluded. English field labels, before/after values, actor and action labels. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
   [`${root}/items/sizes/{itemSizeId}/history`]: { get: historyOperation('Read size and price history', 'ItemCatalogHistoryResponse', 'itemSizeId', 'Includes size, standard price and company contract price changes. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
   [`${root}/items/sizes/{itemSizeId}/price/history`]: { get: historyOperation('Read standard price history', 'ItemCatalogHistoryResponse', 'itemSizeId', 'Includes only the standard price audit trail. Decimal values are strings. Available after soft deletion.', 'Sorted by creation time descending, then ID descending.') },
   [`${root}/company-staffs/{companyStaffId}/history`]: { get: historyOperation('Read company staff history', 'CompanyStaffHistoryResponse', 'companyStaffId', 'Includes CREATE, UPDATE and DEACTIVATE, including deactivation through the company. Available after staff or company soft deletion. Access follows the current parent company branch.') },
@@ -192,11 +192,11 @@ export const catalogPaths = {
   },
   [`${root}/items`]: {
     get: operation('List active items', 'ItemListResponse', [...['name', 'serviceName'].map(name => parameter(name, { type: 'string', minLength: 1, maxLength: 200 })), parameter('sortBy', { type: 'string', enum: ['name', 'serviceName'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination]),
-    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
+    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
   },
   [`${root}/items/{itemId}`]: {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),
-    patch: operation('Update item name using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest'),
+    patch: operation('Update item name or unit of measure using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest'),
     delete: operation('Deactivate item, active sizes and standard prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Contract prices and contract versions remain unchanged; no contract is created automatically. Historical inactive records remain unchanged.'),
   },
   [`${root}/items/sizes`]: {

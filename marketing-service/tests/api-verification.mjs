@@ -122,6 +122,7 @@ try {
       officeBranchId: foreignOfficeBranchId,
       serviceId: foreignService.id,
       name: `Foreign Item ${runId}`,
+      uom: 'JOINT',
       createdById: tokenPayload.sub,
       createdByName: 'Marketing API Test',
     },
@@ -295,6 +296,7 @@ try {
     json: {
       serviceId,
       name: `Endpoint Item ${runId}`,
+      uom: 'JOINT',
       sizes: [{
         size: `Size ${runId}`,
         priceServicePrimary: 100,

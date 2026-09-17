@@ -11,7 +11,7 @@ async function main() {
   try {
     service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Size reuse test', type: 'TUBULAR', createdById: actor.id, createdByName: actor.name } });
     const item = await itemRepository.create({
-      serviceId: service.id, name: 'Pipe',
+      serviceId: service.id, uom: 'JOINT', name: 'Pipe',
       sizes: [{ size: 'Large' }],
     }, branch, actor);
     const input = { itemVersion: 0, itemId: item.id, size: 'Large' };

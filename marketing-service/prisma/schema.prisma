@@ -169,6 +169,7 @@ model Item {
   id             String     @id @default(uuid()) @db.Uuid
   officeBranchId String     @map("office_branch_id") @db.Uuid
   name           String
+  uom            String
   serviceId      String     @map("service_id") @db.Uuid
   service        Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   isActive       Boolean    @default(true) @map("is_active")

@@ -47,7 +47,7 @@ async function main() {
     service = await prisma.service.create({ data: { officeBranchId: branch, name: 'PDF test', type: 'TUBULAR', hasMaintenance: true, ...audit,
       inspectionScopes: { create: [{ inspectionScope: 'Visual Inspection' }, { inspectionScope: 'Old Scope', revoked: true }] },
       maintenanceScopes: { create: { scope: 'Cleaning' } },
-      itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', ...audit, sizes: { create: { size: '4 inch', ...audit } } } },
+      itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', uom: 'JOINT', ...audit, sizes: { create: { size: '4 inch', ...audit } } } },
     }, include: { itemCatalog: { include: { sizes: true } } } });
     size = service.itemCatalog[0].sizes[0];
     const quote = await fixture();

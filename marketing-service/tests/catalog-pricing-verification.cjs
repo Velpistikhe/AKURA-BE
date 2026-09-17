@@ -51,7 +51,7 @@ async function main() {
     const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Customer', normalizeName: 'customer', npwp: '1', type: 'PT', address: 'Test', createdById: actor } });
     const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: randomUUID(), contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'ACTIVE', createdById: actor } });
     const standardCompany = await prisma.company.create({ data: { officeBranchId: branch, name: 'Standard Customer', normalizeName: 'standardcustomer', npwp: '2', type: 'PT', address: 'Test', createdById: actor } });
-    const input = { serviceId: service.id, name: 'Pipe', sizes: [{ size: 'Large' }, { size: 'Small' }] };
+    const input = { serviceId: service.id, uom: 'JOINT', name: 'Pipe', sizes: [{ size: 'Large' }, { size: 'Small' }] };
     const item = await ok('POST', '', input, 201), [large, small] = item.sizes;
     assert.equal(large.priceId, null);
     assert.equal(large.priceStatus, 'UNAVAILABLE');
@@ -60,7 +60,7 @@ async function main() {
     assert.equal((await request('POST', '', { ...input, name: 'Rollback', sizes: [{ size: 'X' }, { size: ' x ' }] })).status, 409);
     assert.equal(await prisma.item.count({ where: { officeBranchId: branch, name: 'Rollback' } }), 0);
     // Normalized database key and transaction lock prevent concurrent duplicates.
-    const duplicateCreates = await pool(Array.from({ length: 16 }, (_, i) => () => request('POST', '', { serviceId: service.id, name: i % 2 ? '  Race   Item ' : 'race item' })));
+    const duplicateCreates = await pool(Array.from({ length: 16 }, (_, i) => () => request('POST', '', { serviceId: service.id, uom: 'JOINT', name: i % 2 ? '  Race   Item ' : 'race item' })));
     assert.equal(duplicateCreates.filter(r => r.status === 201).length, 1);
     assert.equal(duplicateCreates.filter(r => r.status === 409).length, 15);
     assert.equal(await prisma.item.count({ where: { serviceId: service.id, activeKey: 'race item' } }), 1);
@@ -174,7 +174,7 @@ async function main() {
     assert.ok(Number.isInteger(stressCount) && stressCount > 0 && stressCount <= 200);
     const stressStart = samples.length;
     const stressRows = await pool(Array.from({ length: stressCount }, (_, i) => async () => {
-      const row = await ok('POST', '', { serviceId: service.id, name: `Stress ${i}`, sizes: [{ size: 'A' }, { size: 'B' }] }, 201);
+      const row = await ok('POST', '', { serviceId: service.id, uom: 'JOINT', name: `Stress ${i}`, sizes: [{ size: 'A' }, { size: 'B' }] }, 201);
       for (const size of row.sizes) {
         await ok('POST', `/sizes/${size.id}/price`, prices, 201);
         await ok('POST', `/sizes/${size.id}/contract-prices`, { contractId: contract.id, priceService: '40', priceMaintenance: '4' }, 201);

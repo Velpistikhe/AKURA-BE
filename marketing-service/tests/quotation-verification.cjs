@@ -16,7 +16,7 @@ async function main() {
     service = await prisma.service.create({ data: {
       officeBranchId: branch, name: 'Inspection', type: 'TUBULAR',
       itemCatalog: { create: {
-        officeBranchId: branch, name: 'Pipe', createdById: actor.id, createdByName: actor.name,
+        officeBranchId: branch, name: 'Pipe', uom: 'JOINT', createdById: actor.id, createdByName: actor.name,
         sizes: { create: { size: 'Large', createdById: actor.id, createdByName: actor.name } },
       } },
     }, include: { itemCatalog: { include: { sizes: true } } } });

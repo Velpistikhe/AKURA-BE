@@ -27,7 +27,7 @@ async function main() {
       const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Number test', normalizeName: branch, type: 'PT', npwp: '123', address: 'Jakarta' } });
       const staff = await prisma.companyStaff.create({ data: { companyId: company.id, name: 'Test Contact', normalizeName: 'test contact', title: 'mrs' } });
       const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', ...audit,
-        itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', ...audit,
+        itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', uom: 'JOINT', ...audit,
           sizes: { create: { size: 'Large', ...audit, price: { create: { priceServicePrimary: '10', priceServiceSisterCompany: '8', ...audit } } } } } },
       }, include: { itemCatalog: { include: { sizes: true } } } });
       await prisma.taxCache.create({data:{id:randomUUID(),officeBranchId:branch,percentage:'11.25',effectiveFrom:new Date('2000-01-01'),sourceUpdatedAt:new Date()}});

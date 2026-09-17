@@ -30,7 +30,7 @@ async function main() {
   try {
     const company = await json('POST', '/companies', { name: randomUUID(), type: 'PT', npwp: '0012345678901234', address: 'Test' }, 201); companies.push(company.id);
     const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Normal Service', type: 'TUBULAR', hasMaintenance: true } }); services.push(service.id);
-    const item = await json('POST', '/items', { serviceId: service.id, name: 'Pipe', sizes: [
+    const item = await json('POST', '/items', { serviceId: service.id, uom: 'JOINT', name: 'Pipe', sizes: [
       { size: 'Large', priceServicePrimary: '100.25', priceServiceSisterCompany: '70', priceMaintenancePrimary: '20', priceMaintenanceSisterCompany: '10' },
       { size: 'Small', priceServicePrimary: '90', priceServiceSisterCompany: '60', priceMaintenancePrimary: '15', priceMaintenanceSisterCompany: '5' },
     ] }, 201);

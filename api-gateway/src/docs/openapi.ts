@@ -839,13 +839,14 @@ export const openApiDocument = groupByModule({
         },
       },
       Item: {
-        type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'isActive', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt', 'sizes'],
+        type: 'object', required: ['id', 'officeBranchId', 'serviceId', 'name', 'uom', 'isActive', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt', 'sizes'],
         properties: {
           version: { type: 'integer', minimum: 0 },
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true, description: 'Owning branch, derived from the authenticated user.' },
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
+          uom: { type: 'string', maxLength: 50, example: 'JOINT', description: 'Unit of measure. Existing items were initialized to JOINT.' },
           isActive: { type: 'boolean' },
           createdById: { type: 'string', format: 'uuid', readOnly: true },
           createdByName: { type: 'string', readOnly: true, description: 'Snapshot of the current user name when the item was created.' },
@@ -914,13 +915,14 @@ export const openApiDocument = groupByModule({
       ItemListRow: {
         type: 'object',
         description: 'Active Item row with its service summary. Item sizes are intentionally not loaded.',
-        required: ['id', 'officeBranchId', 'serviceId', 'name', 'isActive', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt', 'service'],
+        required: ['id', 'officeBranchId', 'serviceId', 'name', 'uom', 'isActive', 'createdById', 'createdByName', 'updatedById', 'updatedByName', 'createdAt', 'updatedAt', 'service'],
         properties: {
           version: { type: 'integer', minimum: 0 },
           id: { type: 'string', format: 'uuid' },
           officeBranchId: { type: 'string', format: 'uuid', readOnly: true },
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
+          uom: { type: 'string', maxLength: 50, example: 'JOINT', description: 'Unit of measure. Existing items were initialized to JOINT.' },
           isActive: { type: 'boolean', enum: [true] },
           createdById: { type: 'string', format: 'uuid', readOnly: true },
           createdByName: { type: 'string', readOnly: true },
@@ -1227,11 +1229,12 @@ export const openApiDocument = groupByModule({
         },
       },
       CreateItemRequest: {
-        type: 'object', additionalProperties: false, required: ['serviceId', 'name'],
+        type: 'object', additionalProperties: false, required: ['serviceId', 'name', 'uom'],
         description: 'Creates reusable item references without prices. Optional sizes are created atomically. Active item names are unique per service after Unicode, whitespace and case normalization.',
         properties: {
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
+          uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT', description: 'Required unit of measure; normalized and trimmed. Blank values are rejected.' },
           sizes: { type: 'array', maxItems: 100, default: [], items: schemaRef('ItemSizeInput') },
         },
       },

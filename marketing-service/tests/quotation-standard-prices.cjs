@@ -4,7 +4,7 @@ async function main(){const branch=randomUUID(),otherBranch=randomUUID(),actor={
 try{
 const companies=[];for(const b of [branch,branch,otherBranch])companies.push(await prisma.company.create({data:{officeBranchId:b,name:'Customer',normalizeName:randomUUID(),type:'PT',npwp:'1',address:'Jakarta'}}));const [company,otherCompany,foreign]=companies;
 const svc=await prisma.service.create({data:{officeBranchId:branch,name:'Inspection',type:'TUBULAR',hasMaintenance:true,...audit}});
-const item=await prisma.item.create({data:{officeBranchId:branch,serviceId:svc.id,name:'Pipe',...audit}});const sizes=[];
+const item=await prisma.item.create({data:{officeBranchId:branch,serviceId:svc.id,name:'Pipe',uom:'JOINT',...audit}});const sizes=[];
 for(const label of ['Contract','Standard','Other company','Other branch','Unavailable'])sizes.push(await prisma.itemSize.create({data:{itemId:item.id,size:label,...audit,price:label==='Unavailable'?undefined:{create:{priceServicePrimary:'100',priceServiceSisterCompany:'80',priceMaintenancePrimary:'20',priceMaintenanceSisterCompany:'10',...audit}}}}));
 const contracts=[];for(const c of companies)contracts.push(await prisma.companyContract.create({data:{companyId:c.id,contractNumber:randomUUID(),contractDate:new Date('2020-01-01'),effectiveFrom:new Date('2020-01-01'),effectiveUntil:new Date('2099-01-01'),status:'ACTIVE',createdById:actor.id}}));
 for(const [idx,size]of [[0,sizes[0]],[1,sizes[2]],[2,sizes[3]]])await prisma.companyContractPrice.create({data:{contractId:contracts[idx].id,itemSizeId:size.id,priceService:'7',priceMaintenance:'3',catalogSnapshot:{serviceName:'Contract identity',serviceType:'TUBULAR',itemName:'Old pipe',size:size.size,hasMaintenance:true},...audit}});

@@ -33,7 +33,7 @@ async function main() {
     }, include: { staffs: true } });
     service = await prisma.service.create({ data: {
       officeBranchId: branch, name: 'Inspection', type: 'TUBULAR',
-      itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', createdById: actor, createdByName: 'HTTP Test',
+      itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', uom: 'JOINT', createdById: actor, createdByName: 'HTTP Test',
         sizes: { create: { size: 'Large', createdById: actor, createdByName: 'HTTP Test' } } } },
     }, include: { itemCatalog: { include: { sizes: true } } } });
     const itemSizeId = service.itemCatalog[0].sizes[0].id;

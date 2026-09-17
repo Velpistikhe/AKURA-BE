@@ -4,7 +4,7 @@ import { HttpError } from '../../utils/httpError.js';
 
 type HistoryKind = 'ITEM' | 'ITEM_SIZE' | 'ITEM_PRICE';
 const labels: Record<string, string> = {
-  name: 'Item name', size: 'Size', isActive: 'Active status',
+  name: 'Item name', uom: 'Unit of measure', size: 'Size', isActive: 'Active status',
   priceServicePrimary: 'Primary company inspection price',
   priceServiceSisterCompany: 'Sister company inspection price',
   priceMaintenancePrimary: 'Primary company maintenance price',

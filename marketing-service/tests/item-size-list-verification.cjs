@@ -28,7 +28,7 @@ async function main() {
   const create = async (name, serviceName, officeBranchId = branch, serviceBranch = officeBranchId) => {
     const service = await prisma.service.create({ data: { officeBranchId: serviceBranch, name: serviceName, type: 'TUBULAR' } });
     services.push(service.id);
-    const created = await itemRepository.create({ serviceId: service.id, name,
+    const created = await itemRepository.create({ serviceId: service.id, uom: 'JOINT', name,
       sizes: [{ size: 'Large', priceServicePrimary: 100, priceServiceSisterCompany: 90 }],
     }, serviceBranch, actor);
     if (officeBranchId !== serviceBranch) await prisma.item.update({ where: { id: created.id }, data: { officeBranchId } });

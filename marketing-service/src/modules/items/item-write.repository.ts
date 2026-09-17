@@ -1,4 +1,5 @@
 import { catalogSnapshot } from './quotation-price.js';
+import { UpdateItemInput } from './item.schemas.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
@@ -147,7 +148,7 @@ export const itemWriteRepository = {
     if (!service) throw new HttpError('Service is inactive or not found', 409);
     const activeKey = referenceKey(data.name);
     if (await tx.item.findFirst({ where: { serviceId: data.serviceId, isActive: true, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
-    const item = await tx.item.create({ data: { officeBranchId: branch, serviceId: data.serviceId, name: data.name, activeKey, ...createdBy(actor) } });
+    const item = await tx.item.create({ data: { officeBranchId: branch, serviceId: data.serviceId, name: data.name, uom: data.uom, activeKey, ...createdBy(actor) } });
     await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];
     for (const size of data.sizes) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
@@ -161,13 +162,19 @@ export const itemWriteRepository = {
     const parent = await bumpItem(tx, branch, item, actor);
     return { ...size, itemVersion: parent.version };
   }),
-  updateItem: (id: string, data: { version: number; name: string }, branch: string, actor: AuditActor) => write(branch, async tx => {
+  updateItem: (id: string, data: UpdateItemInput, branch: string, actor: AuditActor) => write(branch, async tx => {
     const item = await itemInBranch(tx, id, branch);
     requireCatalogVersion(item, data.version);
     const { service, ...before } = item;
-    const activeKey = referenceKey(data.name);
-    if (await tx.item.findFirst({ where: { serviceId: item.serviceId, isActive: true, id: { not: id }, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
-    return change(tx, branch, 'ITEM', before, { name: data.name, activeKey }, actor);
+    const updates: Prisma.ItemUpdateInput = {};
+    if (data.name !== undefined) {
+      const activeKey = referenceKey(data.name);
+      if (await tx.item.findFirst({ where: { serviceId: item.serviceId, isActive: true, id: { not: id }, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
+      updates.name = data.name;
+      updates.activeKey = activeKey;
+    }
+    if (data.uom !== undefined) updates.uom = data.uom;
+    return change(tx, branch, 'ITEM', before, updates, actor);
   }),
   removeSize: (id: string, branch: string, actor: AuditActor, version: number) => write(branch, async tx => {
     const { size, item } = await sizeInBranch(tx, id, branch);
