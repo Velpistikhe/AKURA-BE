@@ -92,7 +92,7 @@ export const quotationSchemas = {
     type: 'object', required: ['id', 'quotationId', 'itemSizeId', 'position', 'serviceName', 'serviceType', 'itemName', 'size', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'subTotal', 'isActive', ...Object.keys(audit)],
     properties: {
       id: uuid, quotationId: uuid, itemSizeId: uuid, position: { type: 'integer', minimum: 0 },
-      serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string' },
+      serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for an item without a size.' },
       priceSelection: { ...ref('QuotationPriceSelection'), nullable: true, readOnly: true },
       quantityInspection: money, quantityMaintenance: money, priceInspection: money, priceMaintenance: {...money,nullable:true}, subTotal: money, isActive: { type: 'boolean' }, ...audit,
     },

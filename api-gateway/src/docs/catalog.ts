@@ -59,7 +59,7 @@ const historyResponse = (idField: string, entry: string, message: string) => obj
   data: object({ [idField]: uuid, history: { type: 'array', items: ref(entry) }, pagination: ref('Pagination') }, [idField, 'history', 'pagination']),
 }, ['status', 'success', 'message', 'data']);
 export const catalogSchemas = {
-  ContractCatalogSnapshot: { ...object({ serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string' }, hasMaintenance: { type: 'boolean' } }, ['serviceName', 'serviceType', 'itemName', 'size', 'hasMaintenance']), readOnly: true, description: 'Frozen catalog identity at contract-price creation/import. Catalog edits and soft deletion never refresh this snapshot.' },
+  ContractCatalogSnapshot: { ...object({ serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for an item variant without a size.' }, hasMaintenance: { type: 'boolean' } }, ['serviceName', 'serviceType', 'itemName', 'size', 'hasMaintenance']), readOnly: true, description: 'Frozen catalog identity at contract-price creation/import. Catalog edits and soft deletion never refresh this snapshot.' },
   CompanyHistorySnapshot: {
     ...object(companySnapshotFields, Object.keys(companySnapshotFields)),
     description: 'Company profile after this change. New snapshots contain profile fields only; imported legacy snapshots may include additional fields.',
@@ -98,10 +98,10 @@ export const catalogSchemas = {
     pagination: ref('Pagination'),
   }, ['contractPriceId', 'history', 'pagination'])),
   CatalogContractSizeListResponse: paginated('sizes', sizeRow),
-  CatalogSizeDetailResponse: envelope(object({ id: uuid, itemId: uuid, size: { type: 'string' }, ...audit, ...periods, isActive: { type: 'boolean' }, price: { ...price, nullable: true }, item: ref('ItemListRow') }, ['id', 'itemId', 'version', 'size', 'price', 'item'])),
+  CatalogSizeDetailResponse: envelope(object({ id: uuid, itemId: uuid, size: { type: 'string', nullable: true, description: 'Null for an item variant without a size.' }, ...audit, ...periods, isActive: { type: 'boolean' }, price: { ...price, nullable: true }, item: ref('ItemListRow') }, ['id', 'itemId', 'version', 'size', 'price', 'item'])),
   CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: uuid, name: { type: 'string' }, uom: { type: 'string', example: 'JOINT' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'uom', 'version'])),
   QuotationSizeOption: object({
-    id: uuid, itemId: uuid, size: {type:'string'}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
+    id: uuid, itemId: uuid, size: {type:'string',nullable:true}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
     item: object({id:uuid,name:{type:'string'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
     catalogSnapshot:ref('ContractCatalogSnapshot'),catalogActive:{type:'boolean'},
     priceSource:{type:'string',enum:['PRIMARY','SISTER_COMPANY']},
@@ -165,7 +165,7 @@ export const catalogPaths = {
       tags: ['Marketing'], summary: 'Download Excel template with service, item, size and normal primary prices',
       security: [{ bearerAuth: [] }, { accessTokenCookie: [] }],
       parameters: [parameter('companyId', uuid), ...filters.filter(field => !['page', 'limit'].includes(field.name))],
-      description: 'Returns up to 2000 active sizes in the token branch. Optional companyId must belong to the same branch and must not be revoked; otherwise 404. Item and service are both restricted to the token branch. Edit Harga Service/Harga Maintenance and select YA for rows to import into a company contract. Hidden IDs and versions must remain unchanged. Missing normal prices are blank; sister-company and contract prices are not exported.',
+      description: 'Returns up to 2000 active sizes in the token branch. Optional companyId must belong to the same branch and must not be revoked; otherwise 404. Item and service are both restricted to the token branch. Edit Harga Service/Harga Maintenance and select YA for rows to import into a company contract. Hidden IDs and versions must remain unchanged. Variants without a size have a blank Size cell and retain their hidden ID for import. Missing normal prices are blank; sister-company and contract prices are not exported.',
       responses: {
         200: { description: 'Excel contract-price template', content: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { schema: { type: 'string', format: 'binary' } } } },
         400: { description: 'Invalid filters or export exceeds 2000 rows' },
@@ -192,7 +192,7 @@ export const catalogPaths = {
   },
   [`${root}/items`]: {
     get: operation('List active items', 'ItemListResponse', [...['name', 'serviceName'].map(name => parameter(name, { type: 'string', minLength: 1, maxLength: 200 })), parameter('sortBy', { type: 'string', enum: ['name', 'serviceName'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination]),
-    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
+    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. Omitted or empty sizes creates one variant with size=null; use its returned ID for normal, sister-company and contract prices. No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
   },
   [`${root}/items/{itemId}`]: {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),
@@ -200,8 +200,8 @@ export const catalogPaths = {
     delete: operation('Deactivate item, active sizes and standard prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Contract prices and contract versions remain unchanged; no contract is created automatically. Historical inactive records remain unchanged.'),
   },
   [`${root}/items/sizes`]: {
-    get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
-    post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
+    get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Includes variants without a size as size=null; hide the size selector for these variants. A size text filter matches only named sizes. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
+    post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'Send size=null to add a variant without a size, including for existing items. Only one active variant without a size is allowed per item; duplicates return 409. itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
   },
   [`${root}/items/sizes/{itemSizeId}`]: {
     get: operation('Get size including raw price and current versions', 'CatalogSizeDetailResponse', [path('itemSizeId')]),

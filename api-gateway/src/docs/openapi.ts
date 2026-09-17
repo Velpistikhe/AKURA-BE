@@ -897,7 +897,7 @@ export const openApiDocument = groupByModule({
           version: { type: 'integer', minimum: 0 },
           id: { type: 'string', format: 'uuid' },
           itemId: { type: 'string', format: 'uuid' },
-          size: { type: 'string', maxLength: 100 },
+          size: { type: 'string', nullable: true, maxLength: 100, description: 'Null identifies a variant without a size; use its ID for normal, sister-company and contract prices.' },
           effectiveFrom: { type: 'string', format: 'date-time', readOnly: true, description: 'Start of the item size validity period.' },
           effectiveUntil: { type: 'string', format: 'date-time', nullable: true, readOnly: true, description: 'End of the validity period; null while active.' },
           priceServicePrimary: { type: 'string', format: 'decimal', nullable: true, description: 'Service price for a primary company.' },
@@ -1230,12 +1230,12 @@ export const openApiDocument = groupByModule({
       },
       CreateItemRequest: {
         type: 'object', additionalProperties: false, required: ['serviceId', 'name', 'uom'],
-        description: 'Creates reusable item references without prices. Optional sizes are created atomically. Active item names are unique per service after Unicode, whitespace and case normalization.',
+        description: 'Creates reusable item references without prices. Sizes are created atomically. Omitting sizes or sending an empty array creates one variant with size=null. Use the returned sizes[0].id for prices; the UI can hide the size selector for this variant. Active item names are unique per service after Unicode, whitespace and case normalization.',
         properties: {
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
           uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT', description: 'Required unit of measure; normalized and trimmed. Blank values are rejected.' },
-          sizes: { type: 'array', maxItems: 100, default: [], items: schemaRef('ItemSizeInput') },
+          sizes: { type: 'array', maxItems: 100, default: [], description: 'Empty or omitted creates one variant without a size. At most one active size=null variant per item.', items: schemaRef('ItemSizeInput') },
         },
       },
       AddItemSizeRequest: {
@@ -1243,13 +1243,13 @@ export const openApiDocument = groupByModule({
         properties: {
           itemVersion: { type: 'integer', minimum: 0 },
           itemId: { type: 'string', format: 'uuid' },
-          size: { type: 'string', minLength: 1, maxLength: 100 },
+          size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for a variant without a size. Blank strings are rejected.' },
         },
       },
       ItemSizeInput: {
         type: 'object', additionalProperties: false, required: ['size'],
         description: 'Reusable size reference. Active size labels are unique per item after normalization. Prices are created separately using itemSizeId.',
-        properties: { size: { type: 'string', minLength: 1, maxLength: 100 } },
+        properties: { size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for a variant without a size. Blank strings are rejected.' } },
       },
     },
   },

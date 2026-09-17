@@ -194,7 +194,7 @@ model ItemSize {
   id             String                 @id @default(uuid()) @db.Uuid
   itemId         String                 @map("item_id") @db.Uuid
   item           Item                   @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  size           String
+  size           String?
   isActive       Boolean                @default(true) @map("is_active")
   createdById    String                 @map("created_by_id") @db.Uuid
   createdByName  String                 @map("created_by_name")
@@ -461,7 +461,7 @@ model QuotationItem {
   serviceName    String    @map("service_name")
   serviceType    ServiceType @map("service_type")
   itemName       String    @map("item_name")
-  size           String
+  size           String?
   quantityInspection Decimal @map("quantity") @db.Decimal(18, 3)
   quantityMaintenance Decimal @default(0) @map("quantity_maintenance") @db.Decimal(18, 3)
   priceInspection Decimal @map("unit_price") @db.Decimal(18, 2)

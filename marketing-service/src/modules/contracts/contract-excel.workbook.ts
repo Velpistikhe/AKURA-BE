@@ -53,6 +53,7 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
   const help = workbook.addWorksheet('Petunjuk'); help.columns = [{ width: 7 }, { width: 105 }];
   help.mergeCells('A1:B1'); help.getCell('A1').value = 'PETUNJUK TEMPLATE HARGA KONTRAK'; help.getCell('A1').font = { bold: true, size: 16, color: { argb: ink } }; help.getRow(1).height = 34;
   [
+    'Size kosong berarti item tanpa ukuran. Harga tetap dapat diisi dan diimpor menggunakan baris tersebut.',
     'File ini hanya memuat harga normal primary. Tidak memuat harga sister company atau harga kontrak lama.',
     'Edit Harga Service dan Harga Maintenance pada sheet Harga Normal. Nilai yang diisi akan menjadi harga kontrak.',
     'Pilih YA untuk baris yang akan disimpan, TIDAK untuk dilewati. Semua baris YA diimpor, termasuk harga yang tidak diubah.',

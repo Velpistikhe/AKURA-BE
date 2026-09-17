@@ -54,7 +54,7 @@ export const updateContractPriceSchema = versionSchema.extend({ priceService: pr
 export const upsertContractPriceSchema = createContractPriceSchema.extend({ version: z.number().int().nonnegative().optional() });
 export type PriceInput = z.infer<typeof createItemPriceSchema>;
 export type ContractPriceInput = z.infer<typeof createContractPriceSchema>;
-const size = z.object({ size: referenceLabel(100) }).strict();
+const size = z.object({ size: referenceLabel(100).nullable() }).strict();
 
 export const itemIdSchema = z.object({ itemId: z.string().uuid() }).strict();
 export const itemSizeIdSchema = z.object({ itemSizeId: z.string().uuid() }).strict();
@@ -70,7 +70,7 @@ export const createItemSchema = z
 export const addItemSizeSchema = z.object({
   itemId: z.string().uuid(),
   itemVersion: versionSchema.shape.version,
-  size: referenceLabel(100),
+  size: referenceLabel(100).nullable(),
 }).strict();
 export const itemHistorySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

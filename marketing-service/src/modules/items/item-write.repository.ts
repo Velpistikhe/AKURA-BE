@@ -79,7 +79,9 @@ const bumpSize = async (tx: Tx, branch: string, size: any, item: any, actor: Aud
 };
 const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemInput['sizes'][number], actor: AuditActor) => {
   const { size } = input;
-  const activeKey = referenceKey(size);
+  // Empty key is reserved for the single active variant without a size.
+  // Named sizes are normalized nonempty strings; null keys release inactive variants.
+  const activeKey = size === null ? '' : referenceKey(size);
   if (await tx.itemSize.findFirst({ where: { itemId: item.id, isActive: true, OR: [{ activeKey }, { size: { equals: size, mode: 'insensitive' } }] } })) throw new HttpError('Item size already exists', 409);
   const latest = await tx.itemSize.findFirst({ where: { itemId: item.id, size }, orderBy: { effectiveFrom: 'desc' } });
   const effectiveFrom = new Date(Math.max(Date.now(), latest ? latest.effectiveFrom.getTime() + 1 : 0));
@@ -151,7 +153,7 @@ export const itemWriteRepository = {
     const item = await tx.item.create({ data: { officeBranchId: branch, serviceId: data.serviceId, name: data.name, uom: data.uom, activeKey, ...createdBy(actor) } });
     await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];
-    for (const size of data.sizes) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
+    for (const size of data.sizes.length ? data.sizes : [{ size: null }]) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
     return { ...item, sizes };
   }),
   addSize: (data: AddItemSizeInput, branch: string, actor: AuditActor) => write(branch, async tx => {

@@ -18,6 +18,7 @@
     "test:item-size-reuse": "tsc && node tests/item-size-reuse-verification.cjs",
     "test:item-size-list": "tsc && node tests/item-size-list-verification.cjs",
     "test:item-uom": "tsc && node tests/item-uom-verification.cjs",
+    "test:item-without-size": "tsc && node tests/item-without-size-verification.cjs",
     "test:quotation-price-options": "tsc && node tests/quotation-price-options-verification.cjs",
     "test:catalog-pricing": "tsc && node tests/catalog-pricing-verification.cjs",
     "test:contract-excel": "tsc && node tests/contract-excel-verification.cjs",

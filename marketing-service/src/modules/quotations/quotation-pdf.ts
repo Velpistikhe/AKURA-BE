@@ -127,7 +127,7 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
         if (!charges.length) continue;
         // Keep the subgroup heading with at least its first item.
         doc.font('Helvetica').fontSize(9);
-        const firstDescription = `${charges[0].item.itemName} - ${charges[0].item.size}`;
+        const firstDescription = [charges[0].item.itemName, charges[0].item.size].filter(Boolean).join(' - ');
         const firstHeight = wrap(firstDescription, columns[1] - 10).length * 11 + 12;
         const scopeLabel = 'Scope of works:';
         const scopes = chargeType === 'Inspection' ? group.inspectionScopes : group.maintenanceScopes;
@@ -140,7 +140,7 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
         const repeatCharge = () => { repeatGroup(); row([scopeLabel], [width], true, false, repeatGroup); };
         for (const { item, qty, price } of charges) {
           if (price === null) throw new Error('Missing quotation price');
-          row([String(++lineNo), `${item.itemName} - ${item.size}`,
+          row([String(++lineNo), [item.itemName, item.size].filter(Boolean).join(' - '),
             qty.toString(), money(price), money(qty.mul(price).toDecimalPlaces(2))], columns, false, false, repeatCharge, { alignments: ['left', 'left', 'center', 'right', 'right'] });
         }
       }

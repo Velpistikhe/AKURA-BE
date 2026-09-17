@@ -24,7 +24,7 @@ type Size = Prisma.ItemSizeGetPayload<{ include: { price: true; item: { include:
 const validPrice = (price: { isActive: boolean; effectiveFrom: Date; effectiveUntil: Date | null } | null | undefined, now: Date) =>
   !!price && price.isActive && price.effectiveFrom <= now && (price.effectiveUntil === null || price.effectiveUntil > now);
 
-export const catalogSnapshot = (row: { size: string; item: { name: string; service: { name: string; type: string; hasMaintenance: boolean } } }) => ({
+export const catalogSnapshot = (row: { size: string | null; item: { name: string; service: { name: string; type: string; hasMaintenance: boolean } } }) => ({
   serviceName: row.item.service.name, serviceType: row.item.service.type, itemName: row.item.name,
   size: row.size, hasMaintenance: row.item.service.hasMaintenance,
 });
