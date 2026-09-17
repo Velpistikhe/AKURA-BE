@@ -897,7 +897,7 @@ export const openApiDocument = groupByModule({
           version: { type: 'integer', minimum: 0 },
           id: { type: 'string', format: 'uuid' },
           itemId: { type: 'string', format: 'uuid' },
-          size: { type: 'string', nullable: true, maxLength: 100, description: 'Null identifies a variant without a size; use its ID for normal, sister-company and contract prices.' },
+          size: { type: 'string', nullable: true, maxLength: 100, description: 'Null marks a direct-price item that cannot accept additional sizes; use its ID for normal, sister-company and contract prices.' },
           effectiveFrom: { type: 'string', format: 'date-time', readOnly: true, description: 'Start of the item size validity period.' },
           effectiveUntil: { type: 'string', format: 'date-time', nullable: true, readOnly: true, description: 'End of the validity period; null while active.' },
           priceServicePrimary: { type: 'string', format: 'decimal', nullable: true, description: 'Service price for a primary company.' },
@@ -1235,7 +1235,7 @@ export const openApiDocument = groupByModule({
           serviceId: { type: 'string', format: 'uuid' },
           name: { type: 'string', minLength: 1, maxLength: 200 },
           uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT', description: 'Required unit of measure; normalized and trimmed. Blank values are rejected.' },
-          sizes: { type: 'array', maxItems: 100, default: [], description: 'Empty or omitted creates one variant without a size. At most one active size=null variant per item.', items: schemaRef('ItemSizeInput') },
+          sizes: { type: 'array', maxItems: 100, default: [], description: 'Empty or omitted creates one variant without a size. A size=null variant marks direct pricing and cannot coexist with additional sizes. Mixed null/named sizes return 409.', items: schemaRef('ItemSizeInput') },
         },
       },
       AddItemSizeRequest: {
@@ -1243,13 +1243,13 @@ export const openApiDocument = groupByModule({
         properties: {
           itemVersion: { type: 'integer', minimum: 0 },
           itemId: { type: 'string', format: 'uuid' },
-          size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for a variant without a size. Blank strings are rejected.' },
+          size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for direct pricing. Direct-price items cannot accept additional sizes; named-size items cannot accept size=null. Blank strings are rejected.' },
         },
       },
       ItemSizeInput: {
         type: 'object', additionalProperties: false, required: ['size'],
         description: 'Reusable size reference. Active size labels are unique per item after normalization. Prices are created separately using itemSizeId.',
-        properties: { size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for a variant without a size. Blank strings are rejected.' } },
+        properties: { size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for direct pricing. Direct-price items cannot accept additional sizes; named-size items cannot accept size=null. Blank strings are rejected.' } },
       },
     },
   },

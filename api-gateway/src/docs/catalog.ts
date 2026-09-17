@@ -192,7 +192,7 @@ export const catalogPaths = {
   },
   [`${root}/items`]: {
     get: operation('List active items', 'ItemListResponse', [...['name', 'serviceName'].map(name => parameter(name, { type: 'string', minLength: 1, maxLength: 200 })), parameter('sortBy', { type: 'string', enum: ['name', 'serviceName'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination]),
-    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. Omitted or empty sizes creates one variant with size=null; use its returned ID for normal, sister-company and contract prices. No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
+    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. Omitted or empty sizes creates one direct-price variant with size=null; additional sizes are prohibited and mixed null/named sizes return 409; use its returned ID for normal, sister-company and contract prices. No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
   },
   [`${root}/items/{itemId}`]: {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),
@@ -201,7 +201,7 @@ export const catalogPaths = {
   },
   [`${root}/items/sizes`]: {
     get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Includes variants without a size as size=null; hide the size selector for these variants. A size text filter matches only named sizes. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
-    post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'Send size=null to add a variant without a size, including for existing items. Only one active variant without a size is allowed per item; duplicates return 409. itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
+    post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'Send size=null to add a variant without a size, including for existing items. A size=null variant marks a direct-price item. Additional sizes are rejected with 409. Direct-price and named-size variants cannot be mixed, including at creation. Soft deletion does not allow switching modes; an inactive direct-price variant can only be replaced by another size=null variant. itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
   },
   [`${root}/items/sizes/{itemSizeId}`]: {
     get: operation('Get size including raw price and current versions', 'CatalogSizeDetailResponse', [path('itemSizeId')]),

@@ -26,7 +26,7 @@ async function main() {
     });
     const result = await response.json();
     if (status !== null) assert.equal(response.status, status, JSON.stringify(result));
-    return status === null ? response.status : result.data;
+    return status === null ? response.status : status >= 400 ? result : result.data;
   }
   try {
     const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', hasMaintenance: true, ...audit } });
@@ -43,6 +43,16 @@ async function main() {
     }
     const named = await request('POST', '', { ...input, name: 'Named', sizes: [{ size: 'Large' }, { size: 'Small' }] }, 201);
     assert.deepEqual(named.sizes.map(row => row.size), ['Large', 'Small']);
+    const directError = await request('POST', '/sizes', { itemId: item.id, itemVersion: item.version, size: 'Large' }, 409);
+    assert.equal(directError.message, 'This item uses direct pricing and cannot have additional sizes');
+    const namedError = await request('POST', '/sizes', { itemId: named.id, itemVersion: named.version, size: null }, 409);
+    assert.equal(namedError.message, 'An item with named sizes cannot use direct pricing');
+    for (const sizes of [[{ size: null }, { size: 'Large' }], [{ size: 'Large' }, { size: null }]]) {
+      await request('POST', '', { ...input, name: 'Mixed rollback', sizes }, 409);
+      assert.equal(await prisma.item.count({ where: { officeBranchId: branch, name: 'Mixed rollback' } }), 0);
+    }
+    assert.equal((await request('GET', `/${item.id}`)).version, item.version);
+    assert.equal(await prisma.itemSize.count({ where: { itemId: item.id } }), 1);
     await request('POST', '', { ...input, name: 'Rollback', sizes: [{ size: null }, { size: null }] }, 409);
     assert.equal(await prisma.item.count({ where: { officeBranchId: branch, name: 'Rollback' } }), 0);
     for (const invalid of ['', ' ', 123]) await request('POST', '/sizes', { itemId: item.id, itemVersion: item.version, size: invalid }, 400);
@@ -107,6 +117,7 @@ async function main() {
     const original = await prisma.itemSize.findFirst({ where: { itemId: legacy.id } });
     await request('DELETE', `/sizes/${original.id}`, { version: original.version });
     const latestItem = await request('GET', `/${legacy.id}`);
+    await request('POST', '/sizes', { itemId: legacy.id, itemVersion: latestItem.version, size: 'Large' }, 409);
     const replacement = await request('POST', '/sizes', { itemId: legacy.id, itemVersion: latestItem.version, size: null }, 201);
     assert.notEqual(replacement.id, original.id);
     assert.equal(await prisma.itemSize.count({ where: { itemId: legacy.id, isActive: true, size: null } }), 1);

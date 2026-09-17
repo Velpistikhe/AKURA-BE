@@ -79,6 +79,14 @@ const bumpSize = async (tx: Tx, branch: string, size: any, item: any, actor: Aud
 };
 const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemInput['sizes'][number], actor: AuditActor) => {
   const { size } = input;
+  // Keep direct-price items separate from items with named sizes. Retain this
+  // distinction after soft deletion so removing a variant cannot bypass it.
+  if (await tx.itemSize.findFirst({ where: { itemId: item.id, size: null, ...(size === null ? { isActive: true } : {}) } })) {
+    throw new HttpError('This item uses direct pricing and cannot have additional sizes', 409);
+  }
+  if (size === null && await tx.itemSize.findFirst({ where: { itemId: item.id, size: { not: null } } })) {
+    throw new HttpError('An item with named sizes cannot use direct pricing', 409);
+  }
   // Empty key is reserved for the single active variant without a size.
   // Named sizes are normalized nonempty strings; null keys release inactive variants.
   const activeKey = size === null ? '' : referenceKey(size);
