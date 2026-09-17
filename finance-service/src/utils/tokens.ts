@@ -1,3 +1,4 @@
+import { serviceUrl, serviceHeaders } from './serviceUrl.js';
 import { env } from '../config/env.js';
 import { AccessTokenPayload } from '../types/auth.types.js';
 
@@ -7,8 +8,8 @@ let jwks: RemoteJwkSet | undefined;
 
 export const verifyAccessToken = async (token: string): Promise<AccessTokenPayload> => {
   const { createRemoteJWKSet, jwtVerify } = await import('jose');
-  jwks ??= createRemoteJWKSet(new URL(`${env.API_GATEWAY_URL}/api/v1/auth/.well-known/jwks.json`), {
-    headers: { 'x-service-name': 'finance-service', 'x-service-secret': env.GATEWAY_SECRET },
+  jwks ??= createRemoteJWKSet(new URL(serviceUrl('auth/.well-known/jwks.json')), {
+    headers: serviceHeaders('auth/.well-known/jwks.json'),
     timeoutDuration: 5_000,
     cooldownDuration: 30_000,
     cacheMaxAge: 10 * 60 * 1_000,

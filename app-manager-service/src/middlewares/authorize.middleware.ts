@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { UserRole, UserSection } from '@prisma/client';
-import { env } from '../config/env.js';
+import { serviceUrl, serviceHeaders } from '../utils/serviceUrl.js';
 import { getAccessToken } from '../utils/requestTokens.js';
 import { verifyAccessToken } from '../utils/tokens.js';
 
@@ -32,11 +32,10 @@ const fetchAuthUserProfile = async (token: string, requestId?: string): Promise<
   officeBranchId?: string | null; firstName?: string; lastName?: string; username?: string;
 } | null> => {
   try {
-    const res = await fetch(`${env.API_GATEWAY_URL}/api/v1/auth/me`, {
+    const res = await fetch(serviceUrl('auth/me'), {
       headers: {
         Authorization: `Bearer ${token}`,
-        'x-service-name': 'app-manager-service',
-        'x-service-secret': env.GATEWAY_SECRET,
+        ...serviceHeaders('auth/me'),
         ...(requestId ? { 'x-request-id': requestId } : {}),
       },
     });

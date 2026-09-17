@@ -4,10 +4,15 @@ import { z } from 'zod';
 dotenv.config();
 
 const schema = z.object({
-  PORT: z.string().default('5005').transform((value) => Number.parseInt(value, 10)),
+  PORT: z.string().default('5003').transform((value) => Number.parseInt(value, 10)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  LOCAL_DIRECT_ACCESS: z.enum(['true', 'false']).default('true').transform(value => value === 'true'),
   GATEWAY_SECRET: z.string().min(1),
   DATABASE_URL: z.string().min(1),
+  AUTH_SERVICE_GATEWAY_SECRET: z.string().min(1),
+  MARKETING_SERVICE_GATEWAY_SECRET: z.string().min(1).optional(),
+  AUTH_SERVICE_URL: z.string().url().default('https://akura-auth-service.vercel.app'),
+  MARKETING_SERVICE_URL: z.string().url().default('https://akura-marketing-service.vercel.app'),
   API_GATEWAY_URL: z.string({ required_error: 'API_GATEWAY_URL is required' })
     .url('API_GATEWAY_URL must be a valid URL')
     .transform((value) => value.replace(/\/$/, '')),

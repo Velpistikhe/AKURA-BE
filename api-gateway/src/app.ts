@@ -13,6 +13,7 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import proxyRoutes from './routes/proxy.routes.js';
 import { servicesConfig } from './config/services.config.js';
 import { authenticateServiceCaller } from './middlewares/serviceCaller.middleware.js';
+import { isLocalOrigin } from './utils/localOrigin.js';
 
 const app: Express = express();
 const swaggerCss = readFileSync(require.resolve('swagger-ui-dist/swagger-ui.css'), 'utf8');
@@ -23,7 +24,8 @@ const corsOptions: CorsOptions = {
   origin: env.CORS_ORIGIN === '*'
     ? true
     : (origin, callback) => {
-      if (!origin || allowedCorsOrigins.includes(origin.replace(/\/$/, ''))) {
+      if (!origin || allowedCorsOrigins.includes(origin.replace(/\/$/, ''))
+        || (env.NODE_ENV === 'development' && process.env.VERCEL !== '1' && isLocalOrigin(origin))) {
         callback(null, true);
         return;
       }

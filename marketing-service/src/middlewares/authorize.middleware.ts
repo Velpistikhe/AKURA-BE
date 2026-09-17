@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { env } from '../config/env.js';
+import { serviceUrl, serviceHeaders } from '../utils/serviceUrl.js';
 import { AuthenticatedRequest, AuthUser } from '../types/auth.types.js';
 import { getAccessToken } from '../utils/requestTokens.js';
 
@@ -15,11 +15,11 @@ const requireSectionAccess = (sections: readonly string[]) => async (req: Reques
   const gatewayUserId = req.headers['x-user-id'];
   const gatewayUserRole = req.headers['x-user-role'];
   const gatewayOfficeBranchId = req.headers['x-office-branch-id'];
-  if (
+  if (!res.locals.localDirectAccess && (
     gatewayUserId !== tokenPayload.sub
     || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)
     || (tokenPayload.officeBranchId && gatewayOfficeBranchId !== tokenPayload.officeBranchId)
-  ) {
+  )) {
     res.status(401).json({
       status: 401,
       success: false,
@@ -30,11 +30,10 @@ const requireSectionAccess = (sections: readonly string[]) => async (req: Reques
   }
 
   try {
-    const response = await fetch(`${env.API_GATEWAY_URL}/api/v1/auth/me`, {
+    const response = await fetch(serviceUrl('auth/me'), {
       headers: {
         Authorization: `Bearer ${token}`,
-        'x-service-name': 'marketing-service',
-        'x-service-secret': env.GATEWAY_SECRET,
+        ...serviceHeaders('auth/me'),
         ...(requestId ? { 'x-request-id': requestId } : {}),
       },
     });

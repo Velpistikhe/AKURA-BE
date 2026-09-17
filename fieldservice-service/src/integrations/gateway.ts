@@ -1,16 +1,22 @@
 import { Request } from 'express';
+import { AuthenticatedRequest } from '../types/auth.types.js';
 import { z } from 'zod';
-import { env } from '../config/env.js';
+import { serviceUrl, serviceHeaders } from '../utils/serviceUrl.js';
 import { getAccessToken } from '../utils/requestTokens.js';
 import { HttpError } from '../utils/httpError.js';
 
 export async function gatewayGet(path: string, req: Request): Promise<unknown> {
   const token = getAccessToken(req);
   if (!token) throw new HttpError('Access token is required', 401);
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) throw new HttpError('Verified user is required', 401);
   let response: globalThis.Response;
   try {
-    response = await fetch(`${env.API_GATEWAY_URL}/api/v1/${path}`, {
-      headers: { Authorization: `Bearer ${token}`, 'x-service-name': 'fieldservice-service', 'x-service-secret': env.GATEWAY_SECRET,
+    response = await fetch(serviceUrl(path), {
+      headers: { Authorization: `Bearer ${token}`, ...serviceHeaders(path),
+        'x-user-id': user.sub,
+        ...(user.role ? { 'x-user-role': user.role } : {}),
+        ...(user.officeBranchId ? { 'x-office-branch-id': user.officeBranchId } : {}),
         'x-request-id': String(req.headers['x-request-id'] ?? '') },
       signal: AbortSignal.timeout(5000),
     });

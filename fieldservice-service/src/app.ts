@@ -11,7 +11,7 @@ import routes from './routes/index.js';
 const app: Express = express();
 
 app.use(helmet());
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({ origin: true, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
