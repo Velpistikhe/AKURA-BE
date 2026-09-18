@@ -163,8 +163,14 @@ async function main() {
     assert.equal(await prisma.companyContractPrice.count({ where: { itemSize: { itemId: item.id }, isActive: true } }), 2);
     history = await ok('GET', `/${item.id}/history?limit=100`);
     assert(history.history.length > 0);
-    assert(history.history.every(entry => entry.entityType === 'ITEM' && entry.action !== 'CHILD_UPDATE'));
-    assert.equal(history.pagination.total, await prisma.catalogAuditLog.count({ where: { officeBranchId: branch, entityType: 'ITEM', entityId: item.id, action: { not: 'CHILD_UPDATE' } } }));
+    assert(history.history.some(entry => entry.entityType === 'ITEM'));
+    assert(history.history.some(entry => entry.entityType === 'ITEM_SIZE' && entry.action === 'CREATE'));
+    assert(history.history.some(entry => entry.entityType === 'ITEM_SIZE' && entry.action === 'DEACTIVATE'));
+    assert(history.history.every(entry => ['ITEM', 'ITEM_SIZE'].includes(entry.entityType)));
+    assert.equal(history.pagination.total, await prisma.catalogAuditLog.count({ where: { officeBranchId: branch, OR: [
+      { entityType: 'ITEM', entityId: item.id, action: { not: 'CHILD_UPDATE' } },
+      { entityType: 'ITEM_SIZE', entityId: { in: await prisma.itemSize.findMany({ where: { itemId: item.id }, select: { id: true } }).then(rows => rows.map(row => row.id)) }, action: { in: ['CREATE', 'DEACTIVATE'] } },
+    ] } }));
     assert.equal(history.history.some(entry => entry.entityType === 'COMPANY_CONTRACT_PRICE' && entry.action === 'DEACTIVATE'), false);
     assert.deepEqual((await ok('GET', `/${item.id}/history?page=9999`)).history, []);
     const recreated = await ok('POST', '', input, 201);

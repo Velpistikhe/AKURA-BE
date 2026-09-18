@@ -29,13 +29,18 @@ export const itemHistoryRepository = {
       ? await tx.itemSize.findFirst({ where: { id, item: { officeBranchId } }, select: { id: true, itemId: true } })
       : null;
     if (!item && !size) throw new HttpError(kind === 'ITEM' ? 'Item not found' : 'Item size not found', 404);
-    const sizes = size ? [size] : [];
+    const sizes = size
+      ? [size]
+      : item
+        ? await tx.itemSize.findMany({ where: { itemId: item.id }, select: { id: true, itemId: true } })
+        : [];
     const sizeIds = sizes.map(row => row.id);
     const prices = kind === 'ITEM' ? [] : await tx.itemPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
     // A size may exist before its standard price is created, so an empty price history is valid.
     const contractPrices = kind !== 'ITEM_SIZE' ? [] : await tx.companyContractPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
     const where: Prisma.CatalogAuditLogWhereInput = { officeBranchId, OR: [
       ...(item ? [{ entityType: 'ITEM', entityId: item.id, action: { not: 'CHILD_UPDATE' } }] : []),
+      ...(item ? [{ entityType: 'ITEM_SIZE', entityId: { in: sizeIds }, action: { in: ['CREATE', 'DEACTIVATE'] } }] : []),
       ...(kind === 'ITEM_SIZE' ? [{ entityType: 'ITEM_SIZE', entityId: { in: sizeIds } }] : []),
       { entityType: 'ITEM_PRICE', entityId: { in: prices.map(row => row.id) } },
       { entityType: 'COMPANY_CONTRACT_PRICE', entityId: { in: contractPrices.map(row => row.id) } },
