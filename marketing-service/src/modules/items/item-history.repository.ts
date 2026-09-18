@@ -32,7 +32,7 @@ export const itemHistoryRepository = {
     const sizes = size ? [size] : [];
     const sizeIds = sizes.map(row => row.id);
     const prices = kind === 'ITEM' ? [] : await tx.itemPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
-    if (kind === 'ITEM_PRICE' && !prices.length) throw new HttpError('Item price not found', 404);
+    // A size may exist before its standard price is created, so an empty price history is valid.
     const contractPrices = kind !== 'ITEM_SIZE' ? [] : await tx.companyContractPrice.findMany({ where: { itemSizeId: { in: sizeIds } }, select: { id: true } });
     const where: Prisma.CatalogAuditLogWhereInput = { officeBranchId, OR: [
       ...(item ? [{ entityType: 'ITEM', entityId: item.id, action: { not: 'CHILD_UPDATE' } }] : []),
@@ -43,7 +43,7 @@ export const itemHistoryRepository = {
     const records = await tx.catalogAuditLog.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (input.page - 1) * input.limit, take: input.limit });
     const total = await tx.catalogAuditLog.count({ where });
     return {
-      entityType: kind, entityId: kind === 'ITEM_PRICE' ? prices[0].id : id,
+      entityType: kind, entityId: kind === 'ITEM_PRICE' ? (prices[0]?.id ?? id) : id,
       history: records.map(record => {
         const before = snapshot(record.before), after = snapshot(record.after);
         const fields = Object.keys(labels).filter(field => field in before || field in after);
