@@ -34,7 +34,7 @@ const price = z.union([z.number().finite().nonnegative().max(Number.MAX_SAFE_INT
   .refine((value) => typeof value === 'string' || /^\d+(\.\d{1,2})?$/.test(String(value)), 'Price must have at most two decimal places');
 const priceFields = {
   priceServicePrimary: price,
-  priceServiceSisterCompany: price,
+  priceServiceSisterCompany: price.nullable().optional(),
   priceMaintenancePrimary: price.nullable().optional(),
   priceMaintenanceSisterCompany: price.nullable().optional(),
 };
@@ -61,8 +61,10 @@ export const itemSizeIdSchema = z.object({ itemSizeId: z.string().uuid() }).stri
 export const createItemSchema = z
   .object({
     serviceId: z.string().uuid().optional(),
-    inspectionScopes: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
-    maintenanceScopes: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
+  inspectionScopes: z.array(referenceLabel(500)).max(100).default([])
+    .refine(values => new Set(values.map(referenceKey)).size === values.length, 'Inspection scopes must be unique'),
+  maintenanceScopes: z.array(referenceLabel(500)).max(100).default([])
+    .refine(values => new Set(values.map(referenceKey)).size === values.length, 'Maintenance scopes must be unique'),
     name: referenceLabel(200),
     uom: referenceLabel(50),
     sizes: z.array(size).max(100).default([]),
@@ -79,8 +81,17 @@ export const addItemSizeSchema = z.object({
   itemVersion: versionSchema.shape.version,
   size: referenceLabel(100).nullable(),
 }).strict();
+
+export const createItemScopeSchema = z.object({
+  inspectionScope: referenceLabel(500).optional(),
+  scope: referenceLabel(500).optional(),
+}).strict().refine(value => (value.inspectionScope !== undefined) !== (value.scope !== undefined), 'Provide exactly one scope field');
+export const itemInspectionScopeIdSchema = z.object({ itemId: z.string().uuid(), inspectionScopeId: z.string().uuid() }).strict();
+export const itemMaintenanceScopeIdSchema = z.object({ itemId: z.string().uuid(), scopeId: z.string().uuid() }).strict();
+export type CreateItemScopeInput = z.infer<typeof createItemScopeSchema>;
+
 export const itemHistorySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+
   limit: z.coerce.number().int().min(1).max(100).default(20),
 }).strict();
 

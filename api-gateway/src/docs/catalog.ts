@@ -6,7 +6,7 @@ const date = { type: 'string', format: 'date', pattern: '^\\d{4}-\\d{2}-\\d{2}$'
 const money = { oneOf: [{ type: 'number', minimum: 0, maximum: Number.MAX_SAFE_INTEGER / 100, multipleOf: 0.01 }, { type: 'string', pattern: '^\\d{1,16}(\\.\\d{1,2})?$' }], description: 'Required nonnegative price. Explicit zero is allowed. No default; null, blank strings and booleans are rejected. Use decimal strings for large amounts.' };
 const optionalMoney = { ...money, nullable: true };
 const decimal = { type: 'string', format: 'decimal', example: '100.25' };
-const standard = { priceServicePrimary: money, priceServiceSisterCompany: money, priceMaintenancePrimary: optionalMoney, priceMaintenanceSisterCompany: optionalMoney };
+const standard = { priceServicePrimary: money, priceServiceSisterCompany: { ...optionalMoney, description: 'Optional sister-company price.' }, priceMaintenancePrimary: optionalMoney, priceMaintenanceSisterCompany: optionalMoney };
 const periods = { effectiveFrom: timestamp, effectiveUntil: { ...timestamp, nullable: true } };
 const contractPeriods = { effectiveFrom: date, effectiveUntil: date };
 const contractStatus = { type: 'string', enum: ['CREATE', 'ACTIVE', 'EXPIRED', 'TERMINATED'] };
@@ -79,7 +79,7 @@ export const catalogSchemas = {
   CatalogNullableMoney: optionalMoney,
   CatalogVersionRequest: input({ version }, ['version']),
   UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name or uom. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected.' },
-  CatalogPriceRequest: { ...input(standard, ['priceServicePrimary', 'priceServiceSisterCompany']), description: 'Both service prices are required. Both maintenance prices are required when the service hasMaintenance=true.' },
+  CatalogPriceRequest: { ...input({ ...standard }, ['priceServicePrimary']), description: 'Primary service price is required; sister-company price is optional. A size must retain at least one active primary price.' },
   UpsertContractPriceRequest: input({ contractId: uuid, version, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
   UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'An active price may be deactivated. Inactive prices cannot be modified or reactivated.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. Inactive service, item, size, price, or stale versions return 409.' },

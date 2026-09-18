@@ -51,11 +51,11 @@ const sizeInBranch = async (tx: Tx, id: string, branch: string) => {
 };
 const standardPrices = (input: PriceInput, hasMaintenance: boolean) => {
   const parsed = createItemPriceSchema.safeParse(input);
-  if (!parsed.success) throw new HttpError('Service prices are required and all prices must be nonnegative with at most two decimals', 400);
+  if (!parsed.success) throw new HttpError('Primary service price is required and all prices must be nonnegative with at most two decimals', 400);
   if (hasMaintenance && (input.priceMaintenancePrimary == null || input.priceMaintenanceSisterCompany == null)) {
     throw new HttpError('Both maintenance prices are required for a service with maintenance', 400);
   }
-  return parsed.data;
+  return { ...parsed.data, priceServiceSisterCompany: parsed.data.priceServiceSisterCompany ?? null, priceMaintenancePrimary: parsed.data.priceMaintenancePrimary ?? null, priceMaintenanceSisterCompany: parsed.data.priceMaintenanceSisterCompany ?? null };
 };
 const contractInBranch = async (tx: Tx, id: string, branch: string) => {
   const contract = await tx.companyContract.findFirst({ where: { id, isActive: true, company: { officeBranchId: branch, revoked: false } } });
@@ -81,10 +81,10 @@ const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemIn
   const { size } = input;
   // Keep direct-price items separate from items with named sizes. Retain this
   // distinction after soft deletion so removing a variant cannot bypass it.
-  if (await tx.itemSize.findFirst({ where: { itemId: item.id, size: null, ...(size === null ? { isActive: true } : {}) } })) {
+  if (await tx.itemSize.findFirst({ where: { itemId: item.id, size: null, isActive: true } })) {
     throw new HttpError('This item uses direct pricing and cannot have additional sizes', 409);
   }
-  if (size === null && await tx.itemSize.findFirst({ where: { itemId: item.id, size: { not: null } } })) {
+  if (size === null && await tx.itemSize.findFirst({ where: { itemId: item.id, size: { not: null }, isActive: true } })) {
     throw new HttpError('An item with named sizes cannot use direct pricing', 409);
   }
   // Empty key is reserved for the single active variant without a size.
@@ -185,7 +185,7 @@ export const itemWriteRepository = {
     const updates: Prisma.ItemUpdateInput = {};
     if (data.name !== undefined) {
       const activeKey = referenceKey(data.name);
-      if (await tx.item.findFirst({ where: { serviceId: item.serviceId, isActive: true, id: { not: id }, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
+      if (await tx.item.findFirst({ where: { officeBranchId: branch, activeKey, isActive: true, id: { not: id } } })) throw new HttpError('Item already exists in this branch', 409);
       updates.name = data.name;
       updates.activeKey = activeKey;
     }
@@ -219,8 +219,9 @@ export const itemWriteRepository = {
       await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, result, actor, 'CREATE');
     } else {
       if (!before) throw new HttpError('Item price not found', 404);
-      requireCatalogVersion(before, version!);
-      const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany.toString(), priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service?.hasMaintenance ?? false);
+      if (!before.isActive && isActive !== true) throw new HttpError('Inactive price can only be reactivated', 409);
+      requireCatalogVersion(before, version!, !before.isActive);
+      const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany?.toString() ?? null, priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service?.hasMaintenance ?? false);
       result = await change(tx, branch, 'ITEM_PRICE', before, { ...prices, ...(isActive === undefined ? {} : { isActive, effectiveUntil: isActive ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())), ...(!before.isActive && isActive ? { effectiveFrom: new Date() } : {}) }) }, actor);
     }
     await bumpSize(tx, branch, size, item, actor);
@@ -231,6 +232,9 @@ export const itemWriteRepository = {
     const before = await tx.itemPrice.findUnique({ where: { itemSizeId: id } });
     if (!before) throw new HttpError('Item price not found', 404);
     requireCatalogVersion(before, version);
+    if (!before.isActive) throw new HttpError('Item price is already inactive', 409);
+    const activePrimary = await tx.itemPrice.findFirst({ where: { itemSizeId: id, isActive: true }, select: { id: true } });
+    if (!activePrimary || activePrimary.id === before.id) throw new HttpError('A size must retain an active normal price', 409);
     const result = await change(tx, branch, 'ITEM_PRICE', before, { isActive: false, effectiveUntil: new Date(Math.max(Date.now(), before.effectiveFrom.getTime())) }, actor, 'DEACTIVATE');
     await bumpSize(tx, branch, size, item, actor);
     return result;

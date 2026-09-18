@@ -1231,7 +1231,7 @@ export const openApiDocument = groupByModule({
       },
       CreateItemRequest: {
         type: 'object', additionalProperties: false, required: ['name', 'uom'],
-        description: 'Creates an item with an optional service. Standalone items may define inspectionScopes and maintenanceScopes; an item with serviceId cannot define scopes. Prices are created separately using itemSizeId.',
+        description: 'Creates an item with an optional service. Standalone items may define inspectionScopes and maintenanceScopes; an item with serviceId cannot define scopes. Active item names are unique within the authenticated branch. Prices are created separately using itemSizeId.',
         properties: {
           serviceId: { type: 'string', format: 'uuid', nullable: true },
           name: { type: 'string', minLength: 1, maxLength: 200 },

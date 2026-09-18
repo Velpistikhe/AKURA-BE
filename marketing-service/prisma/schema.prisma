@@ -114,6 +114,7 @@ model Service {
   id                String             @id @default(uuid()) @db.Uuid
   officeBranchId    String             @map("office_branch_id") @db.Uuid
   name              String
+  activeKey         String?            @map("active_key")
   type              ServiceType
   hasMaintenance    Boolean            @default(false) @map("has_maintenance")
   isActive          Boolean            @default(true) @map("is_active")
@@ -128,6 +129,7 @@ model Service {
   maintenanceScopes MaintenanceScope[] @relation("ServiceMaintenanceScopes")
   itemCatalog       Item[]
 
+  @@unique([officeBranchId, activeKey])
   @@index([officeBranchId])
   @@map("services")
 }
@@ -231,7 +233,7 @@ model ItemPrice {
   itemSizeId                    String    @unique @map("item_size_id") @db.Uuid
   itemSize                      ItemSize  @relation(fields: [itemSizeId], references: [id], onDelete: Cascade)
   priceServicePrimary           Decimal   @map("price_service_primary") @db.Decimal(18, 2)
-  priceServiceSisterCompany     Decimal   @map("price_service_sister_company") @db.Decimal(18, 2)
+  priceServiceSisterCompany     Decimal?  @map("price_service_sister_company") @db.Decimal(18, 2)
   priceMaintenancePrimary       Decimal?  @map("price_maintenance_primary") @db.Decimal(18, 2)
   priceMaintenanceSisterCompany Decimal?  @map("price_maintenance_sister_company") @db.Decimal(18, 2)
   effectiveFrom                 DateTime  @default(now()) @map("effective_from")

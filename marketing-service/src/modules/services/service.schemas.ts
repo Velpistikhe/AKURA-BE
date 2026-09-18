@@ -6,7 +6,7 @@ import { versionSchema } from '../items/item.schemas.js';
 
 const fields = {
   type: z.nativeEnum(ServiceType),
-  name: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(200).transform(value => value.normalize('NFKC').replace(/\s+/g, ' ').trim()),
 };
 const inspectionScopeList = z.array(z.string().trim().min(1).max(500)).max(100)
   .refine((values) => new Set(values).size === values.length, 'Inspection scopes must be unique');

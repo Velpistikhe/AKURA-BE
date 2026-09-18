@@ -6,6 +6,7 @@ import { CreateServiceInput, ListServicesInput, UpdateServiceInput } from './ser
 import { AuditActor } from '../../types/auth.types.js';
 import { recordCatalogAudit } from '../../utils/catalogAudit.js';
 import { HttpError } from '../../utils/httpError.js';
+import { referenceKey } from '../items/item.schemas.js';
 
 const inspectionScopeSelect = {
   id: true, serviceId: true, inspectionScope: true, revoked: true, createdAt: true, updatedAt: true,
@@ -122,6 +123,7 @@ export const serviceRepository = {
     data: {
       officeBranchId,
       name: data.name,
+      activeKey: referenceKey(data.name),
       type: data.type,
       hasMaintenance: data.hasMaintenance,
       isActive: true,
@@ -142,6 +144,11 @@ export const serviceRepository = {
     if (!before || before.version !== data.version) throw new HttpError('Data has changed; reload before retrying', 409);
     if (!before.isActive) throw new HttpError('Service is inactive', 409);
     const { version, ...serviceData } = data;
+    if (data.name !== undefined) {
+      const activeKey = referenceKey(data.name);
+      if (await tx.service.findFirst({ where: { officeBranchId, activeKey, isActive: true, id: { not: id } }, select: { id: true } })) throw new HttpError('Service already exists in this branch', 409);
+      (serviceData as Prisma.ServiceUpdateInput).activeKey = activeKey;
+    }
     await tx.service.update({ where: { id, version }, data: { ...serviceData, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
 
     if (data.hasMaintenance === false) {
@@ -167,7 +174,7 @@ export const serviceRepository = {
         } });
         await recordCatalogAudit(tx, officeBranchId, 'ITEM_PRICE', price, closed, actor, 'DEACTIVATE');
       }
-      await tx.service.update({ where: { id, version }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      await tx.service.update({ where: { id, version }, data: { isActive: false, activeKey: null, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       const after = await tx.service.findUniqueOrThrow({ where: { id }, select: detailSelect });
       await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'DEACTIVATE');
       return after;
