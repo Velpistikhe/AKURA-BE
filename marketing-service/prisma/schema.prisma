@@ -25,21 +25,21 @@ enum CompanyType {
 }
 
 model Company {
-  id             String                 @id @default(uuid()) @db.Uuid
-  officeBranchId String                 @map("office_branch_id") @db.Uuid
-  name           String
-  normalizeName  String                 @map("normalize_name")
-  npwp           String
-  type           CompanyType
-  address        String
-  isSisterCompany Boolean               @default(false) @map("is_sister_company")
-  revoked        Boolean                @default(false)
-  version        Int                    @default(0)
-  createdAt      DateTime               @default(now()) @map("created_at")
-  updatedAt      DateTime               @updatedAt @map("updated_at")
-  staffs         CompanyStaff[]
-  contracts      CompanyContract[]
-  history        CompanyHistory[]
+  id              String            @id @default(uuid()) @db.Uuid
+  officeBranchId  String            @map("office_branch_id") @db.Uuid
+  name            String
+  normalizeName   String            @map("normalize_name")
+  npwp            String
+  type            CompanyType
+  address         String
+  isSisterCompany Boolean           @default(false) @map("is_sister_company")
+  revoked         Boolean           @default(false)
+  version         Int               @default(0)
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  staffs          CompanyStaff[]
+  contracts       CompanyContract[]
+  history         CompanyHistory[]
 
   createdById String? @map("created_by_id") @db.Uuid
   updatedById String? @map("updated_by_id") @db.Uuid
@@ -50,15 +50,15 @@ model Company {
 }
 
 model CompanyHistory {
-  id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  version     Int
-  action      String
-  snapshot    Json
-  createdById String   @map("created_by_id") @db.Uuid
-  createdByName String @map("created_by_name")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  version       Int
+  action        String
+  snapshot      Json
+  createdById   String   @map("created_by_id") @db.Uuid
+  createdByName String   @map("created_by_name")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   @@unique([companyId, version])
   @@map("company_histories")
@@ -67,20 +67,20 @@ model CompanyHistory {
 model CompanyStaff {
   history       CompanyStaffHistory[]
   quotations    Quotation[]
-  id            String     @id @default(uuid()) @db.Uuid
-  companyId     String     @map("company_id") @db.Uuid
-  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id            String                @id @default(uuid()) @db.Uuid
+  companyId     String                @map("company_id") @db.Uuid
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name          String
-  normalizeName String     @map("normalize_name")
+  normalizeName String                @map("normalize_name")
   title         StaffTitle
   telp          String?
   email         String?
-  revoked       Boolean    @default(false)
-  version       Int        @default(0)
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
-  createdById   String?    @map("created_by_id") @db.Uuid
-  updatedById   String?    @map("updated_by_id") @db.Uuid
+  revoked       Boolean               @default(false)
+  version       Int                   @default(0)
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  createdById   String?               @map("created_by_id") @db.Uuid
+  updatedById   String?               @map("updated_by_id") @db.Uuid
 
   @@index([companyId])
   @@index([revoked])
@@ -124,8 +124,8 @@ model Service {
   updatedByName     String?            @map("updated_by_name")
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
-  inspectionScopes  InspectionScope[]
-  maintenanceScopes MaintenanceScope[]
+  inspectionScopes  InspectionScope[]  @relation("ServiceInspectionScopes")
+  maintenanceScopes MaintenanceScope[] @relation("ServiceMaintenanceScopes")
   itemCatalog       Item[]
 
   @@index([officeBranchId])
@@ -134,14 +134,17 @@ model Service {
 
 model InspectionScope {
   id              String   @id @default(uuid()) @db.Uuid
-  serviceId       String   @map("service_id") @db.Uuid
-  service         Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId       String?  @map("service_id") @db.Uuid
+  itemId          String?  @map("item_id") @db.Uuid
+  service         Service? @relation("ServiceInspectionScopes", fields: [serviceId], references: [id], onDelete: Cascade)
+  item            Item?    @relation("ItemInspectionScopes", fields: [itemId], references: [id], onDelete: Cascade)
   inspectionScope String   @map("inspection_scope")
   revoked         Boolean  @default(false)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@unique([serviceId, inspectionScope])
+  @@unique([itemId, inspectionScope])
   @@index([serviceId])
   @@index([revoked])
   @@map("inspection_scopes")
@@ -149,46 +152,53 @@ model InspectionScope {
 
 model MaintenanceScope {
   id        String   @id @default(uuid()) @db.Uuid
-  serviceId String   @map("service_id") @db.Uuid
-  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId String?  @map("service_id") @db.Uuid
+  itemId    String?  @map("item_id") @db.Uuid
+  service   Service? @relation("ServiceMaintenanceScopes", fields: [serviceId], references: [id], onDelete: Cascade)
+  item      Item?    @relation("ItemMaintenanceScopes", fields: [itemId], references: [id], onDelete: Cascade)
   scope     String
   revoked   Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([serviceId, scope])
+  @@unique([itemId, scope])
   @@index([serviceId])
   @@index([revoked])
   @@map("maintenance_scopes")
 }
 
 model Item {
+  // An item with a service cannot own scopes; this is enforced by the API schema and service_id/item_id database check.
+  // An item without a service may own inspection and maintenance scopes.
   // Normalized active reference key; null releases the name after soft deletion.
-  activeKey      String? @map("active_key")
-  version        Int        @default(0)
-  id             String     @id @default(uuid()) @db.Uuid
-  officeBranchId String     @map("office_branch_id") @db.Uuid
-  name           String
-  uom            String
-  serviceId      String     @map("service_id") @db.Uuid
-  service        Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  isActive       Boolean    @default(true) @map("is_active")
-  createdById    String     @map("created_by_id") @db.Uuid
-  createdByName  String     @map("created_by_name")
-  updatedById    String?    @map("updated_by_id") @db.Uuid
-  updatedByName  String?    @map("updated_by_name")
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
-  sizes          ItemSize[]
+  activeKey         String?            @map("active_key")
+  version           Int                @default(0)
+  id                String             @id @default(uuid()) @db.Uuid
+  officeBranchId    String             @map("office_branch_id") @db.Uuid
+  name              String
+  uom               String
+  serviceId         String?            @map("service_id") @db.Uuid
+  service           Service?           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  inspectionScopes  InspectionScope[]  @relation("ItemInspectionScopes")
+  maintenanceScopes MaintenanceScope[] @relation("ItemMaintenanceScopes")
+  isActive          Boolean            @default(true) @map("is_active")
+  createdById       String             @map("created_by_id") @db.Uuid
+  createdByName     String             @map("created_by_name")
+  updatedById       String?            @map("updated_by_id") @db.Uuid
+  updatedByName     String?            @map("updated_by_name")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  sizes             ItemSize[]
 
-  @@index([officeBranchId])
   @@unique([serviceId, activeKey])
+  @@index([officeBranchId])
   @@map("items")
 }
 
 model ItemSize {
   // Normalized active reference key; null releases the name after soft deletion.
-  activeKey      String? @map("active_key")
+  activeKey      String?                @map("active_key")
   version        Int                    @default(0)
   quotationItems QuotationItem[]
   id             String                 @id @default(uuid()) @db.Uuid
@@ -205,18 +215,18 @@ model ItemSize {
   price          ItemPrice?
   contractPrices CompanyContractPrice[]
 
-  effectiveFrom  DateTime               @default(now()) @map("effective_from")
-  effectiveUntil DateTime?              @map("effective_until")
+  effectiveFrom  DateTime  @default(now()) @map("effective_from")
+  effectiveUntil DateTime? @map("effective_until")
 
   @@unique([itemId, size, effectiveFrom])
+  @@unique([itemId, activeKey])
   @@index([itemId])
   @@index([isActive])
-  @@unique([itemId, activeKey])
   @@map("item_sizes")
 }
 
 model ItemPrice {
-  version                      Int       @default(0)
+  version                       Int       @default(0)
   id                            String    @id @default(uuid()) @db.Uuid
   itemSizeId                    String    @unique @map("item_size_id") @db.Uuid
   itemSize                      ItemSize  @relation(fields: [itemSizeId], references: [id], onDelete: Cascade)
@@ -249,20 +259,20 @@ enum CompanyContractStatus {
 }
 
 model CompanyContract {
-  status         CompanyContractStatus   @default(CREATE)
-  id             String                  @id @default(uuid()) @db.Uuid
-  companyId      String                  @map("company_id") @db.Uuid
-  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contractNumber String                  @map("contract_number")
-  contractDate   DateTime                @map("contract_date") @db.Date
-  effectiveFrom  DateTime                @map("effective_from") @db.Date
-  effectiveUntil DateTime                @map("effective_until") @db.Date
-  isActive       Boolean                 @default(true) @map("is_active")
-  version        Int                     @default(0)
-  createdById    String                  @map("created_by_id") @db.Uuid
-  updatedById    String?                 @map("updated_by_id") @db.Uuid
-  createdAt      DateTime                @default(now()) @map("created_at")
-  updatedAt      DateTime                @updatedAt @map("updated_at")
+  status         CompanyContractStatus    @default(CREATE)
+  id             String                   @id @default(uuid()) @db.Uuid
+  companyId      String                   @map("company_id") @db.Uuid
+  company        Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractNumber String                   @map("contract_number")
+  contractDate   DateTime                 @map("contract_date") @db.Date
+  effectiveFrom  DateTime                 @map("effective_from") @db.Date
+  effectiveUntil DateTime                 @map("effective_until") @db.Date
+  isActive       Boolean                  @default(true) @map("is_active")
+  version        Int                      @default(0)
+  createdById    String                   @map("created_by_id") @db.Uuid
+  updatedById    String?                  @map("updated_by_id") @db.Uuid
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
   prices         CompanyContractPrice[]
   history        CompanyContractHistory[]
 
@@ -287,24 +297,24 @@ model CompanyContractHistory {
 
 model CompanyContractPrice {
   /// Catalog identity captured when this contract price is created; never refreshed from live catalog.
-  catalogSnapshot Json @map("catalog_snapshot")
-  version          Int       @default(0)
-  id               String    @id @default(uuid()) @db.Uuid
-  contractId       String    @map("contract_id") @db.Uuid
+  catalogSnapshot  Json            @map("catalog_snapshot")
+  version          Int             @default(0)
+  id               String          @id @default(uuid()) @db.Uuid
+  contractId       String          @map("contract_id") @db.Uuid
   contract         CompanyContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  itemSizeId       String    @map("item_size_id") @db.Uuid
-  itemSize         ItemSize  @relation(fields: [itemSizeId], references: [id], onDelete: Cascade)
-  priceService     Decimal   @map("price_service") @db.Decimal(18, 2)
-  priceMaintenance Decimal?  @map("price_maintenance") @db.Decimal(18, 2)
-  effectiveFrom    DateTime  @default(now()) @map("effective_from")
-  effectiveUntil   DateTime? @map("effective_until")
-  isActive         Boolean   @default(true) @map("is_active")
-  createdById      String    @map("created_by_id") @db.Uuid
-  createdByName    String    @map("created_by_name")
-  updatedById      String?   @map("updated_by_id") @db.Uuid
-  updatedByName    String?   @map("updated_by_name")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  itemSizeId       String          @map("item_size_id") @db.Uuid
+  itemSize         ItemSize        @relation(fields: [itemSizeId], references: [id], onDelete: Cascade)
+  priceService     Decimal         @map("price_service") @db.Decimal(18, 2)
+  priceMaintenance Decimal?        @map("price_maintenance") @db.Decimal(18, 2)
+  effectiveFrom    DateTime        @default(now()) @map("effective_from")
+  effectiveUntil   DateTime?       @map("effective_until")
+  isActive         Boolean         @default(true) @map("is_active")
+  createdById      String          @map("created_by_id") @db.Uuid
+  createdByName    String          @map("created_by_name")
+  updatedById      String?         @map("updated_by_id") @db.Uuid
+  updatedByName    String?         @map("updated_by_name")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
 
   @@unique([contractId, itemSizeId])
   @@index([contractId])
@@ -378,48 +388,48 @@ model QuotationSequence {
 }
 
 model Quotation {
-  id             String   @id @default(uuid()) @db.Uuid
-  officeBranchId String   @map("office_branch_id") @db.Uuid
-  no             Int?
-  numberYear     Int?     @map("number_year")
-  previousQuotationId String? @unique @map("previous_quotation_id") @db.Uuid
-  previousQuotation Quotation? @relation("QuotationRevisions", fields: [previousQuotationId], references: [id], onDelete: Restrict)
-  nextQuotation Quotation? @relation("QuotationRevisions")
-  date           DateTime? @db.Date
-  inquiryMethod  InquiryMethod @map("inquiry_method")
-  inquiryDate    DateTime @map("inquiry_date") @db.Date
-  subject        String   @db.VarChar(255)
-  termOfPayment  String   @map("term_of_payment") @db.VarChar(255)
-  validity       String   @db.VarChar(255)
-  tax            Decimal @db.Decimal(5, 2)
-  taxSourceId    String? @map("tax_source_id") @db.Uuid
-  supplyAkura    String   @map("supply_akura") @db.VarChar(255)
-  supplyCustomer String   @map("supply_customer") @db.VarChar(255)
-  location       String   @db.VarChar(255)
-  accomplished   String   @db.VarChar(255)
-  deliveryReports String  @map("delivery_reports") @db.VarChar(255)
-  staffId        String?  @map("staff_id") @db.Uuid
-  staff          CompanyStaff? @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  id                  String             @id @default(uuid()) @db.Uuid
+  officeBranchId      String             @map("office_branch_id") @db.Uuid
+  no                  Int?
+  numberYear          Int?               @map("number_year")
+  previousQuotationId String?            @unique @map("previous_quotation_id") @db.Uuid
+  previousQuotation   Quotation?         @relation("QuotationRevisions", fields: [previousQuotationId], references: [id], onDelete: Restrict)
+  nextQuotation       Quotation?         @relation("QuotationRevisions")
+  date                DateTime?          @db.Date
+  inquiryMethod       InquiryMethod      @map("inquiry_method")
+  inquiryDate         DateTime           @map("inquiry_date") @db.Date
+  subject             String             @db.VarChar(255)
+  termOfPayment       String             @map("term_of_payment") @db.VarChar(255)
+  validity            String             @db.VarChar(255)
+  tax                 Decimal            @db.Decimal(5, 2)
+  taxSourceId         String?            @map("tax_source_id") @db.Uuid
+  supplyAkura         String             @map("supply_akura") @db.VarChar(255)
+  supplyCustomer      String             @map("supply_customer") @db.VarChar(255)
+  location            String             @db.VarChar(255)
+  accomplished        String             @db.VarChar(255)
+  deliveryReports     String             @map("delivery_reports") @db.VarChar(255)
+  staffId             String?            @map("staff_id") @db.Uuid
+  staff               CompanyStaff?      @relation(fields: [staffId], references: [id], onDelete: Restrict)
   /// Company staff name captured independently of later staff edits.
-  customerSnapshot String @map("customer_snapshot")
-  companySnapshot Json @map("company_snapshot")
-  status         QuotationStatus @default(CREATED)
-  pdfDocument    QuotationPdf?
-  invoiceStatus  InvoiceStatus? @map("invoice_status")
-  subTotal       Decimal  @default(0) @map("sub_total") @db.Decimal(18, 2)
-  taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
-  total          Decimal  @default(0) @db.Decimal(18, 2)
+  customerSnapshot    String             @map("customer_snapshot")
+  companySnapshot     Json               @map("company_snapshot")
+  status              QuotationStatus    @default(CREATED)
+  pdfDocument         QuotationPdf?
+  invoiceStatus       InvoiceStatus?     @map("invoice_status")
+  subTotal            Decimal            @default(0) @map("sub_total") @db.Decimal(18, 2)
+  taxAmount           Decimal            @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  total               Decimal            @default(0) @db.Decimal(18, 2)
   /// Concurrency token for the entire quotation, including all item mutations.
-  version        Int      @default(0)
+  version             Int                @default(0)
   /// Increments only when an approved quotation is replaced by a new draft.
-  revision       Int      @default(0)
-  isActive       Boolean  @default(true) @map("is_active")
-  createdById    String   @map("created_by_id") @db.Uuid
-  updatedById    String?  @map("updated_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  items          QuotationItem[]
-  history        QuotationHistory[]
+  revision            Int                @default(0)
+  isActive            Boolean            @default(true) @map("is_active")
+  createdById         String             @map("created_by_id") @db.Uuid
+  updatedById         String?            @map("updated_by_id") @db.Uuid
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  items               QuotationItem[]
+  history             QuotationHistory[]
 
   @@unique([officeBranchId, numberYear, no, revision])
   @@index([officeBranchId, isActive, createdAt])
@@ -428,21 +438,21 @@ model Quotation {
 }
 
 model QuotationPdf {
-  id             String @id @default(uuid()) @db.Uuid
-  quotationId    String @unique @map("quotation_id") @db.Uuid
+  id             String    @id @default(uuid()) @db.Uuid
+  quotationId    String    @unique @map("quotation_id") @db.Uuid
   quotation      Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
   bucket         String
   key            String
-  fileName       String @map("file_name")
-  contentType    String @map("content_type")
+  fileName       String    @map("file_name")
+  contentType    String    @map("content_type")
   size           Int
-  sha256         String @db.VarChar(64)
+  sha256         String    @db.VarChar(64)
   revision       Int
   version        Int
-  approvedAt     DateTime @map("approved_at")
-  approvedById   String @map("approved_by_id") @db.Uuid
-  approvedByName String @map("approved_by_name")
-  createdAt      DateTime @default(now()) @map("created_at")
+  approvedAt     DateTime  @map("approved_at")
+  approvedById   String    @map("approved_by_id") @db.Uuid
+  approvedByName String    @map("approved_by_name")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@unique([bucket, key])
   @@unique([quotationId, version])
@@ -451,27 +461,27 @@ model QuotationPdf {
 }
 
 model QuotationItem {
-  priceSelection Json? @map("price_selection")
-  id             String    @id @default(uuid()) @db.Uuid
-  quotationId    String    @map("quotation_id") @db.Uuid
-  quotation      Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
-  itemSizeId     String    @map("item_size_id") @db.Uuid
-  itemSize       ItemSize  @relation(fields: [itemSizeId], references: [id], onDelete: Restrict)
-  position       Int
-  serviceName    String    @map("service_name")
-  serviceType    ServiceType @map("service_type")
-  itemName       String    @map("item_name")
-  size           String?
-  quantityInspection Decimal @map("quantity") @db.Decimal(18, 3)
-  quantityMaintenance Decimal @default(0) @map("quantity_maintenance") @db.Decimal(18, 3)
-  priceInspection Decimal @map("unit_price") @db.Decimal(18, 2)
-  priceMaintenance Decimal? @map("price_maintenance") @db.Decimal(18, 2)
-  subTotal       Decimal   @map("sub_total") @db.Decimal(18, 2)
-  isActive       Boolean   @default(true) @map("is_active")
-  createdById    String    @map("created_by_id") @db.Uuid
-  updatedById    String?   @map("updated_by_id") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  priceSelection      Json?       @map("price_selection")
+  id                  String      @id @default(uuid()) @db.Uuid
+  quotationId         String      @map("quotation_id") @db.Uuid
+  quotation           Quotation   @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  itemSizeId          String      @map("item_size_id") @db.Uuid
+  itemSize            ItemSize    @relation(fields: [itemSizeId], references: [id], onDelete: Restrict)
+  position            Int
+  serviceName         String      @map("service_name")
+  serviceType         ServiceType @map("service_type")
+  itemName            String      @map("item_name")
+  size                String?
+  quantityInspection  Decimal     @map("quantity") @db.Decimal(18, 3)
+  quantityMaintenance Decimal     @default(0) @map("quantity_maintenance") @db.Decimal(18, 3)
+  priceInspection     Decimal     @map("unit_price") @db.Decimal(18, 2)
+  priceMaintenance    Decimal?    @map("price_maintenance") @db.Decimal(18, 2)
+  subTotal            Decimal     @map("sub_total") @db.Decimal(18, 2)
+  isActive            Boolean     @default(true) @map("is_active")
+  createdById         String      @map("created_by_id") @db.Uuid
+  updatedById         String?     @map("updated_by_id") @db.Uuid
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
 
   @@index([quotationId, isActive, position])
   @@index([itemSizeId])
@@ -479,39 +489,43 @@ model QuotationItem {
 }
 
 model QuotationHistory {
-  id             String    @id @default(uuid()) @db.Uuid
-  quotationId    String    @map("quotation_id") @db.Uuid
-  quotation      Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
-  version        Int
-  action         String    @db.VarChar(20)
+  id          String    @id @default(uuid()) @db.Uuid
+  quotationId String    @map("quotation_id") @db.Uuid
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  version     Int
+  action      String    @db.VarChar(20)
   /// Complete quotation and item state after this revision. Append-only in the repository.
-  snapshot       Json
-  createdById    String    @map("created_by_id") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at")
+  snapshot    Json
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@unique([quotationId, version])
   @@map("quotation_histories")
 }
 
 model TaxCache {
-  id String @id @db.Uuid
-  officeBranchId String @map("office_branch_id") @db.Uuid
-  percentage Decimal @db.Decimal(5, 2)
-  effectiveFrom DateTime @map("effective_from") @db.Date
-  effectiveUntil DateTime? @map("effective_until") @db.Date
-  sourceUpdatedAt DateTime @map("source_updated_at")
+  id              String    @id @db.Uuid
+  officeBranchId  String    @map("office_branch_id") @db.Uuid
+  percentage      Decimal   @db.Decimal(5, 2)
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveUntil  DateTime? @map("effective_until") @db.Date
+  sourceUpdatedAt DateTime  @map("source_updated_at")
+
   @@index([officeBranchId, effectiveFrom])
   @@map("tax_cache")
 }
+
 model TaxSyncState {
-  id String @id
+  id            String    @id
   lastSuccessAt DateTime? @map("last_success_at")
+
   @@map("tax_sync_state")
 }
 
 model TaxCacheRevision {
   officeBranchId String @id @db.Uuid
-  version Int
-  eventId String @db.Uuid
+  version        Int
+  eventId        String @db.Uuid
+
   @@map("tax_cache_revisions")
 }

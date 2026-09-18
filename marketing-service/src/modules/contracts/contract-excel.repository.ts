@@ -14,7 +14,7 @@ export const contractExcelRepository = {
   exportSizes: async (input: ExportItemSizesInput, branch: string) => {
     const query = buildListQuery<'size', ExportItemSizesInput & { page: number; limit: number }, Prisma.ItemSizeWhereInput, Prisma.ItemSizeOrderByWithRelationInput>(
       { ...input, page: 1, limit: MAX_EXCEL_ROWS + 1 }, {
-        baseWhere: { isActive: true, item: { officeBranchId: branch, isActive: true, service: { officeBranchId: branch, isActive: true } } },
+        baseWhere: { isActive: true, item: { officeBranchId: branch, isActive: true } },
         filters: {
           itemId: value => ({ itemId: value }), notIn: value => ({ id: { notIn: value } }),
           size: value => ({ size: { contains: value, mode: 'insensitive' } }),
@@ -41,7 +41,7 @@ export const contractExcelRepository = {
     const today = currentBusinessDate(now);
     if (contract.status !== 'ACTIVE' || !contract.isActive || contract.effectiveFrom > today || contract.effectiveUntil <= today) throw new HttpError('Contract is not currently valid for price imports', 409);
     const ids = rows.map(row => row.itemSizeId);
-    const sizes = await tx.itemSize.findMany({ where: { id: { in: ids }, isActive: true, item: { officeBranchId: branch, isActive: true, service: { officeBranchId: branch, isActive: true } } }, include: { price: { select: { version: true } }, item: { include: { service: true } } } });
+    const sizes = await tx.itemSize.findMany({ where: { id: { in: ids }, isActive: true, item: { officeBranchId: branch, isActive: true } }, include: { price: { select: { version: true } }, item: { include: { service: true } } } });
     const byId = new Map(sizes.map(size => [size.id, size]));
     const existing = new Set((await tx.companyContractPrice.findMany({ where: { contractId, itemSizeId: { in: ids } }, select: { itemSizeId: true } })).map(price => price.itemSizeId));
     const errors: ExcelImportError['errors'] = [];
@@ -52,7 +52,8 @@ export const contractExcelRepository = {
       if (size.version !== row.sizeVersion || (size.price?.version ?? null) !== row.priceVersion) {
         stale = true; errors.push({ row: row.row, message: 'Size or normal price changed after export; download a new template' });
       }
-      if (size.item.service.hasMaintenance && row.priceMaintenance === null) errors.push({ row: row.row, field: 'Harga Maintenance', message: 'Maintenance price is required for this service' });
+      if (!size.item.service) { errors.push({ row: row.row, message: 'Item has no service and cannot have contract pricing' }); continue; }
+      if (size.item.service!.hasMaintenance && row.priceMaintenance === null) errors.push({ row: row.row, field: 'Harga Maintenance', message: 'Maintenance price is required for this service' });
       if (existing.has(row.itemSizeId)) { stale = true; errors.push({ row: row.row, message: 'This size already has a price in this contract; use the contract price PUT endpoint to update it' }); }
     }
     if (errors.length) throw new ExcelImportError(errors, stale ? 409 : 400);

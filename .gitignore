@@ -71,3 +71,6 @@ temp/
 *.bak
 *.orig
 *~
+
+# AI coding assistant local rules
+.clinerules/

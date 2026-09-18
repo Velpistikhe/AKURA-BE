@@ -24,7 +24,7 @@ export const itemService = {
   async validateSizeListItem(data: ListItemSizesInput, officeBranchId: string) {
     if (data.itemId) {
       const item = await prisma.item.findFirst({
-        where: { id: data.itemId, officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
+        where: { id: data.itemId, officeBranchId, isActive: true },
         select: { id: true },
       });
       if (!item) throw new HttpError('Item not found', 404);

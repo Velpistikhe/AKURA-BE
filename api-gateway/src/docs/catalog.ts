@@ -132,7 +132,7 @@ const filters = [parameter('itemId', uuid), ...['size', 'itemName', 'serviceName
 const content = (schema: object) => ({ content: { 'application/json': { schema } } });
 const operation = (summary: string, response: string, parameters: object[] = [], body?: string, status = 200, description = '') => ({
   tags: ['Marketing'], summary, description: body && ['UpdateItemRequest', 'CreateItemRequest', 'AddItemSizeRequest', 'CatalogPriceRequest', 'UpdateCatalogPriceRequest', 'CreateContractPriceRequest', 'UpsertContractPriceRequest', 'UpdateContractPriceRequest', 'CatalogVersionRequest'].includes(body)
-    ? `${description} Catalog mutations require an active service and active existing item, size, and price where applicable. Inactive catalog records cannot be modified or reactivated; attempts return 409.`.trim()
+    ? `${description} Catalog mutations require an active existing item, size, and price where applicable. A service is optional for items; standalone items may own scopes but an item linked to a service cannot own scopes. Inactive catalog records cannot be modified or reactivated; attempts return 409.`.trim()
     : description, security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
   ...(body ? { requestBody: { required: true, ...content(ref(body)) } } : {}),
   responses: { [status]: { description: 'Success', ...content(ref(response)) }, ...Object.fromEntries([

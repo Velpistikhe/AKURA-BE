@@ -35,7 +35,9 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
     const current = size.price?.isActive && size.price.effectiveFrom <= now && (size.price.effectiveUntil === null || size.price.effectiveUntil > now);
     const servicePrice = current ? numericCell(size.price?.priceServicePrimary) : null;
     const maintenance = current ? numericCell(size.price?.priceMaintenancePrimary) : null;
-    const row = sheet.addRow([servicePrice === null || (size.item.service.hasMaintenance && maintenance === null) ? 'TIDAK' : 'YA', size.item.service.name, size.item.name, size.size, servicePrice, maintenance, size.id, size.version, size.price?.version ?? 'NONE']);
+    const service = size.item.service;
+    if (!service) return;
+    const row = sheet.addRow([servicePrice === null || (service.hasMaintenance && maintenance === null) ? 'TIDAK' : 'YA', service.name, size.item.name, size.size, servicePrice, maintenance, size.id, size.version, size.price?.version ?? 'NONE']);
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       cell.font = { name: 'Calibri', size: 11, color: { argb: ink } };
       cell.alignment = { vertical: 'middle', horizontal: col === 5 || col === 6 ? 'right' : 'left' };
@@ -44,9 +46,9 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
     row.getCell(1).dataValidation = { type: 'list', allowBlank: false, formulae: ['"YA,TIDAK"'], showErrorMessage: true, errorTitle: 'Pilihan tidak valid', error: 'Pilih YA atau TIDAK.' };
     for (const col of [5, 6]) {
       row.getCell(col).numFmt = '#,##0.00;[Red](#,##0.00);0.00';
-      row.getCell(col).dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: col === 6 && !size.item.service.hasMaintenance, showErrorMessage: true, errorTitle: 'Harga tidak valid', error: 'Isi harga minimal 0, maksimal 2 desimal. Jangan gunakan formula.' };
+      row.getCell(col).dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: col === 6 && !service.hasMaintenance, showErrorMessage: true, errorTitle: 'Harga tidak valid', error: 'Isi harga minimal 0, maksimal 2 desimal. Jangan gunakan formula.' };
     }
-    row.getCell(6).note = size.item.service.hasMaintenance ? 'Harga maintenance wajib untuk service ini.' : 'Boleh kosong jika tidak ada harga maintenance.';
+    row.getCell(6).note = service.hasMaintenance ? 'Harga maintenance wajib untuk service ini.' : 'Boleh kosong jika tidak ada harga maintenance.';
   });
   sheet.autoFilter = { from: { row: HEADER_ROW, column: 1 }, to: { row: Math.max(HEADER_ROW, sheet.rowCount), column: 6 } };
   sheet.pageSetup.printTitlesRow = '1:5'; sheet.pageSetup.printArea = `A1:F${sheet.rowCount}`;

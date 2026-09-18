@@ -55,8 +55,8 @@ export const quotationSchemas = {
   },
   QuotationItemInput: {
     type:'object',additionalProperties:false,required:['itemSizeId','quantityInspection'],
-    description:'One row per size with two quantities. Maintenance may be omitted or zero; at least one quantity must be positive. Server fetches current company prices whenever items are submitted. Prices, source tokens and priceKind are rejected.',
-    properties:{  itemSizeId:uuid,
+    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server fetches current company prices whenever items are submitted. Prices, source tokens and priceKind are rejected.',
+    properties:{ itemSizeId:uuid,
       quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
       quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},
     },
@@ -73,7 +73,7 @@ export const quotationSchemas = {
   },
   UpdateQuotationItemInput: {
     type:'object',additionalProperties:false,required:['itemSizeId','quantityInspection'],
-    description:'One row per size with two quantities. Maintenance may be omitted or zero; at least one quantity must be positive. Server fetches current company prices whenever items are submitted. Prices, source tokens and priceKind are rejected.',
+    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server fetches current company prices whenever items are submitted. Prices, source tokens and priceKind are rejected.',
     properties:{ id:{...uuid,description:'Existing line ID. Omit for a new line.'}, itemSizeId:uuid,
       quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
       quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},

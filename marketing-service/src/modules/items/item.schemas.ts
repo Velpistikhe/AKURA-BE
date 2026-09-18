@@ -60,12 +60,19 @@ export const itemIdSchema = z.object({ itemId: z.string().uuid() }).strict();
 export const itemSizeIdSchema = z.object({ itemSizeId: z.string().uuid() }).strict();
 export const createItemSchema = z
   .object({
-    serviceId: z.string().uuid(),
+    serviceId: z.string().uuid().optional(),
+    inspectionScopes: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
+    maintenanceScopes: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
     name: referenceLabel(200),
     uom: referenceLabel(50),
     sizes: z.array(size).max(100).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.serviceId && (value.inspectionScopes.length || value.maintenanceScopes.length)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['serviceId'], message: 'An item with a service cannot have scopes' });
+    }
+  });
 
 export const addItemSizeSchema = z.object({
   itemId: z.string().uuid(),

@@ -36,7 +36,7 @@ export const itemRepository = {
     return prisma.$transaction(async tx => findAll<any, NonNullable<ListItemsInput['sortBy']>, ListItemsInput, Prisma.ItemWhereInput, Prisma.ItemOrderByWithRelationInput>(
       input,
       {
-      baseWhere: { officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
+      baseWhere: { officeBranchId, isActive: true },
       filters: {
         name: (value: string) => ({ name: { contains: value, mode: 'insensitive' } }),
         serviceName: (value: string) => ({ service: { name: { contains: value, mode: 'insensitive' } } }),
@@ -50,7 +50,7 @@ export const itemRepository = {
       (query) => tx.item.findMany({
         ...query,
         orderBy: [query.orderBy, { id: 'asc' }],
-        include: { service: { select: { id: true, name: true } } },
+        include: { service: { select: { id: true, name: true }, }, inspectionScopes: { where: { revoked: false } }, maintenanceScopes: { where: { revoked: false } } },
       }),
       (where) => tx.item.count({ where }),
     ), { isolationLevel: 'RepeatableRead' });
@@ -71,7 +71,7 @@ export const itemRepository = {
     }).then((item) => item ? flattenItemPrices(item) : null),
   findActive: (id: string, officeBranchId: string) =>
     prisma.item.findFirst({
-      where: { id, officeBranchId, isActive: true, service: { officeBranchId, isActive: true } },
+      where: { id, officeBranchId, isActive: true },
       include: {
         service: {
           select: {
@@ -87,14 +87,14 @@ export const itemRepository = {
     const now = new Date();
     const context = companyId ? await priceContext(tx, companyId, officeBranchId, now) : null;
     const contractWhere: Prisma.CompanyContractPriceWhereInput = { contractId: context?.contract?.id ?? '00000000-0000-0000-0000-000000000000' };
-    const activeCatalog: Prisma.ItemSizeWhereInput = { isActive: true, item: { isActive: true, service: { isActive: true } } };
+    const activeCatalog: Prisma.ItemSizeWhereInput = { isActive: true, item: { isActive: true } };
     if (input.itemId && !await tx.item.findFirst({ where: { id: input.itemId, officeBranchId }, select: { id: true } })) throw new HttpError('Item not found', 404);
     if (resolvePrices && context) return quotationOptions(tx, input, context, officeBranchId, now);
     const result = await findAll<any, NonNullable<ListItemSizesInput['sortBy']>, ListItemSizesInput, Prisma.ItemSizeWhereInput, Prisma.ItemSizeOrderByWithRelationInput>(
       input,
       {
         baseWhere: {
-          item: { officeBranchId, service: { officeBranchId } },
+          item: { officeBranchId },
           ...(companyId ? resolvePrices
             ? { OR: [activeCatalog, { contractPrices: { some: contractWhere } }] }
             : { contractPrices: { some: contractWhere } }

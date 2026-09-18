@@ -1,7 +1,7 @@
 import { applicableTax } from '../taxes/tax-sync.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { standardPriceContext, resolveQuotationPrice, quotationSizeInclude, PriceContext } from '../items/quotation-price.js';
-import { Prisma } from '@prisma/client';
+import { Prisma, ServiceType } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -37,10 +37,17 @@ async function customer(tx: Prisma.TransactionClient, companyId: string | undefi
 
 async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, officeBranchId: string, actor: AuditActor, position: number, context: PriceContext, now: Date) {
   const size = await tx.itemSize.findFirst({
-    where: { id: input.itemSizeId, item: { officeBranchId, service: { officeBranchId } } },
-    include: { ...quotationSizeInclude, contractPrices: false, item: { include: { service: { include: serviceScopeInclude } } } },
+    where: { id: input.itemSizeId, item: { officeBranchId } },
+    include: { ...quotationSizeInclude, contractPrices: false, item: { include: { service: { include: serviceScopeInclude }, inspectionScopes: { where: { revoked: false } }, maintenanceScopes: { where: { revoked: false } } } } },
   });
   if (!size) throw new HttpError('Item size not found', 404);
+  const service = size.item.service;
+  const scopeSnapshot = service ? serviceScopeSnapshot(service) : {
+    serviceId: null,
+    serviceScopes: size.item.inspectionScopes.map(scope => scope.inspectionScope).concat(size.item.maintenanceScopes.map(scope => scope.scope)).join(', '),
+    inspectionScopes: size.item.inspectionScopes.map(scope => scope.inspectionScope).join(', '),
+    maintenanceScopes: size.item.maintenanceScopes.map(scope => scope.scope).join(', '),
+  };
   const resolved = resolveQuotationPrice(size, context, now);
   const quantityInspection = new Prisma.Decimal(input.quantityInspection);
   const quantityMaintenance = new Prisma.Decimal(input.quantityMaintenance);
@@ -50,8 +57,8 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
   const priceMaintenance = resolved.catalogSnapshot.hasMaintenance ? resolved.priceMaintenance : null;
   return {
     itemSizeId: size.id, position, serviceName: resolved.catalogSnapshot.serviceName,
-    serviceType: resolved.catalogSnapshot.serviceType as typeof size.item.service.type, itemName: resolved.catalogSnapshot.itemName, size: resolved.catalogSnapshot.size,
-    priceSelection: json({ ...serviceScopeSnapshot(size.item.service), quantityModel: 'DUAL', priceSource: resolved.priceSource, priceId: resolved.priceId,
+    serviceType: resolved.catalogSnapshot.serviceType as ServiceType, itemName: resolved.catalogSnapshot.itemName, size: resolved.catalogSnapshot.size,
+    priceSelection: json({ ...scopeSnapshot, quantityModel: 'DUAL', priceSource: resolved.priceSource, priceId: resolved.priceId,
       priceVersion: resolved.priceVersion, contractId: resolved.contractId, contractVersion: resolved.contractVersion,
       sizeVersion: resolved.sizeVersion, itemVersion: resolved.itemVersion, serviceVersion: resolved.serviceVersion }),
     quantityInspection, quantityMaintenance, priceInspection, priceMaintenance,
@@ -138,7 +145,7 @@ export const quotationRepository = {
         return item.isActive && (typeof snapshot?.inspectionScopes !== 'string' || typeof snapshot?.maintenanceScopes !== 'string');
       });
       if (legacyItems.length) {
-        const sizes = await tx.itemSize.findMany({ where: { id: { in: legacyItems.map(item => item.itemSizeId) }, item: { officeBranchId, service: { officeBranchId } } },
+        const sizes = await tx.itemSize.findMany({ where: { id: { in: legacyItems.map(item => item.itemSizeId) }, item: { officeBranchId } },
           include: { item: { include: { service: { include: serviceScopeInclude } } } } });
         const bySize = new Map(sizes.map(size => [size.id, size.item.service]));
         for (const item of legacyItems) {

@@ -24,12 +24,16 @@ type Size = Prisma.ItemSizeGetPayload<{ include: { price: true; item: { include:
 const validPrice = (price: { isActive: boolean; effectiveFrom: Date; effectiveUntil: Date | null } | null | undefined, now: Date) =>
   !!price && price.isActive && price.effectiveFrom <= now && (price.effectiveUntil === null || price.effectiveUntil > now);
 
-export const catalogSnapshot = (row: { size: string | null; item: { name: string; service: { name: string; type: string; hasMaintenance: boolean } } }) => ({
-  serviceName: row.item.service.name, serviceType: row.item.service.type, itemName: row.item.name,
-  size: row.size, hasMaintenance: row.item.service.hasMaintenance,
-});
+export const catalogSnapshot = (row: { size: string | null; item: { name: string; service: { name: string; type: string; hasMaintenance: boolean } | null } }) => {
+  const service = row.item.service;
+  const serviceName = service?.name ?? row.item.name;
+  const serviceType = service?.type ?? 'OTHER';
+  const hasMaintenance = service?.hasMaintenance ?? false;
+  return { serviceName, serviceType, itemName: row.item.name, size: row.size, hasMaintenance };
+};
 export const resolveQuotationPrice = (row: Size, context: PriceContext, now: Date) => {
-  const catalogActive = row.isActive && row.item.isActive && row.item.service.isActive;
+  const service = row.item.service;
+  const catalogActive = row.isActive && row.item.isActive && (!service || service.isActive);
   const source = context.company.isSisterCompany ? 'SISTER_COMPANY' : 'PRIMARY';
   const selected = row.price;
   const available = catalogActive && validPrice(selected, now);
@@ -39,7 +43,7 @@ export const resolveQuotationPrice = (row: Size, context: PriceContext, now: Dat
   return {
     catalogSnapshot: snapshot, catalogActive, contractPrice: null, contractId: null, contractVersion: null,
     priceSource: source, priceId: selected?.id ?? null, priceVersion: selected?.version ?? null,
-    sizeVersion: row.version, itemVersion: row.item.version, serviceVersion: row.item.service.version,
+    sizeVersion: row.version, itemVersion: row.item.version, serviceVersion: service?.version ?? null,
     priceStatus: priceService === null ? 'UNAVAILABLE' : 'AVAILABLE',
     priceMessage: priceService === null ? 'Normal/sister price or active catalog is unavailable' : null,
     priceService, priceInspection: priceService, priceMaintenance: snapshot.hasMaintenance ? priceMaintenance : null,
@@ -50,18 +54,19 @@ export const quotationOptions = async (tx: Prisma.TransactionClient, input: List
   const contractId = context.contract?.id ?? '00000000-0000-0000-0000-000000000000';
   const sizeLabel = Prisma.sql`s.size`;
   const itemLabel = Prisma.sql`i.name`;
-  const serviceLabel = Prisma.sql`svc.name`;
+  const serviceLabel = Prisma.sql`COALESCE(svc.name, i.name)`;
+  const serviceNameFilter = input.serviceName ? Prisma.sql`AND strpos(lower(${serviceLabel}), lower(${input.serviceName})) > 0` : Prisma.empty;
   const from = Prisma.sql`FROM item_sizes s
     JOIN items i ON i.id = s.item_id
-    JOIN services svc ON svc.id = i.service_id
+    LEFT JOIN services svc ON svc.id = i.service_id
     LEFT JOIN company_contract_prices cp ON cp.item_size_id = s.id AND cp.contract_id = ${contractId}::uuid
-    WHERE i.office_branch_id = ${branch}::uuid AND svc.office_branch_id = ${branch}::uuid
-      AND s.is_active AND i.is_active AND svc.is_active AND cp.id IS NULL
+    WHERE i.office_branch_id = ${branch}::uuid
+      AND s.is_active AND i.is_active AND (svc.id IS NULL OR svc.is_active) AND cp.id IS NULL
       ${input.itemId ? Prisma.sql`AND i.id = ${input.itemId}::uuid` : Prisma.empty}
       ${input.notIn?.length ? Prisma.sql`AND s.id::text NOT IN (${Prisma.join(input.notIn)})` : Prisma.empty}
       ${input.size ? Prisma.sql`AND strpos(lower(${sizeLabel}), lower(${input.size})) > 0` : Prisma.empty}
       ${input.itemName ? Prisma.sql`AND strpos(lower(${itemLabel}), lower(${input.itemName})) > 0` : Prisma.empty}
-      ${input.serviceName ? Prisma.sql`AND strpos(lower(${serviceLabel}), lower(${input.serviceName})) > 0` : Prisma.empty}`;
+      ${serviceNameFilter}`;
   const order = input.sortBy === 'size'
     ? Prisma.sql`${sizeLabel} ${input.sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`}`
     : Prisma.sql`s.created_at DESC`;
@@ -80,8 +85,7 @@ export const quotationOptions = async (tx: Prisma.TransactionClient, input: List
       isActive: row.isActive, createdAt: row.createdAt, updatedAt: row.updatedAt,
       ...selected,
       item: { id: row.item.id, name: identity.itemName, version: row.item.version,
-        service: { id: row.item.service.id, name: identity.serviceName, type: identity.serviceType,
-          hasMaintenance: identity.hasMaintenance, version: row.item.service.version } },
+        service: row.item.service ? { id: row.item.service.id, name: identity.serviceName, type: identity.serviceType, hasMaintenance: identity.hasMaintenance, version: row.item.service.version } : null },
     };
   });
   const total = Number(count.total);

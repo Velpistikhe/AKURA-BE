@@ -36,9 +36,9 @@ const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before:
   return after;
 };
 const itemInBranch = async (tx: Tx, id: string, branch: string) => {
-  const item = await tx.item.findFirst({ where: { id, officeBranchId: branch, service: { officeBranchId: branch } }, include: { service: true } });
+  const item = await tx.item.findFirst({ where: { id, officeBranchId: branch }, include: { service: true } });
   if (!item) throw new HttpError('Item not found', 404);
-  if (!item.service.isActive) throw new HttpError('Service is inactive', 409);
+  if (item.service && !item.service.isActive) throw new HttpError('Service is inactive', 409);
   if (!item.isActive) throw new HttpError('Item is inactive', 409);
   return item;
 };
@@ -125,7 +125,7 @@ const closeSizes = async (tx: Tx, branch: string, sizes: Prisma.ItemSizeGetPaylo
 const createContract = async (tx: Tx, id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => {
     const { size, item } = await sizeInBranch(tx, id, branch);
     const contract = await contractInBranch(tx, data.contractId, branch);
-    const prices = contractPrices(data, item.service.hasMaintenance);
+    const prices = contractPrices(data, item.service?.hasMaintenance ?? false);
     if (await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id } })) {
       throw new HttpError('Contract price already exists; use PATCH with its version', 409);
     }
@@ -141,7 +141,7 @@ const changeContract = async (tx: Tx, id: string, data: { version: number; price
     const { size, item } = await sizeInBranch(tx, before.itemSizeId, branch);
     requireCatalogVersion(before, data.version);
     const contract = await contractInBranch(tx, before.contractId, branch);
-    const prices = remove ? {} : contractPrices({ contractId: before.contractId, priceService: data.priceService!, priceMaintenance: data.priceMaintenance }, item.service.hasMaintenance);
+    const prices = remove ? {} : contractPrices({ contractId: before.contractId, priceService: data.priceService!, priceMaintenance: data.priceMaintenance }, item.service?.hasMaintenance ?? false);
     const active = remove ? false : data.isActive ?? before.isActive;
     const result = await change(tx, branch, 'COMPANY_CONTRACT_PRICE', before, {
       ...prices, isActive: active, effectiveUntil: active ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())),
@@ -154,11 +154,17 @@ const changeContract = async (tx: Tx, id: string, data: { version: number; price
 
 export const itemWriteRepository = {
   create: (data: CreateItemInput, branch: string, actor: AuditActor) => write(branch, async tx => {
-    const service = await tx.service.findFirst({ where: { id: data.serviceId, officeBranchId: branch, isActive: true } });
-    if (!service) throw new HttpError('Service is inactive or not found', 409);
+    const service = data.serviceId
+      ? await tx.service.findFirst({ where: { id: data.serviceId, officeBranchId: branch, isActive: true } })
+      : null;
+    if (data.serviceId && !service) throw new HttpError('Service is inactive or not found', 409);
     const activeKey = referenceKey(data.name);
-    if (await tx.item.findFirst({ where: { serviceId: data.serviceId, isActive: true, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists for this service', 409);
-    const item = await tx.item.create({ data: { officeBranchId: branch, serviceId: data.serviceId, name: data.name, uom: data.uom, activeKey, ...createdBy(actor) } });
+    if (await tx.item.findFirst({ where: { officeBranchId: branch, serviceId: data.serviceId ?? null, isActive: true, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists', 409);
+    const item = await tx.item.create({ data: {
+      officeBranchId: branch, serviceId: data.serviceId, name: data.name, uom: data.uom, activeKey, ...createdBy(actor),
+      inspectionScopes: { create: data.inspectionScopes.map(inspectionScope => ({ inspectionScope, revoked: false })) },
+      maintenanceScopes: { create: data.maintenanceScopes.map(scope => ({ scope, revoked: false })) },
+    } });
     await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];
     for (const size of data.sizes.length ? data.sizes : [{ size: null }]) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
@@ -208,13 +214,13 @@ export const itemWriteRepository = {
     let result;
     if (create) {
       if (before) throw new HttpError('Price already exists; use PATCH with its version', 409);
-      const prices = standardPrices(input as PriceInput, item.service.hasMaintenance);
+      const prices = standardPrices(input as PriceInput, item.service?.hasMaintenance ?? false);
       result = await tx.itemPrice.create({ data: { itemSizeId: id, ...prices, ...createdBy(actor) } });
       await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, result, actor, 'CREATE');
     } else {
       if (!before) throw new HttpError('Item price not found', 404);
       requireCatalogVersion(before, version!);
-      const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany.toString(), priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service.hasMaintenance);
+      const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany.toString(), priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service?.hasMaintenance ?? false);
       result = await change(tx, branch, 'ITEM_PRICE', before, { ...prices, ...(isActive === undefined ? {} : { isActive, effectiveUntil: isActive ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())), ...(!before.isActive && isActive ? { effectiveFrom: new Date() } : {}) }) }, actor);
     }
     await bumpSize(tx, branch, size, item, actor);
