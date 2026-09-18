@@ -39,7 +39,7 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
     const row = sheet.addRow([service?.name ?? null, size.item.name, size.size, servicePrice, maintenance, size.id, size.version]);
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       cell.font = { name: 'Calibri', size: 11, color: { argb: ink } };
-      cell.alignment = { vertical: 'middle', horizontal: col === 4 || col === 5 ? 'right' : 'left' };
+      cell.alignment = { vertical: 'middle', horizontal: col === 4 || col === 5 ? 'right' : 'left', wrapText: col === 1 || col === 2 };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: [4, 5].includes(col) ? yellow : index % 2 ? pale : 'FFFFFF' } };
     });
     for (const col of [4, 5]) {
@@ -70,7 +70,9 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
   ].forEach((line, index) => { const row = help.addRow([index + 1, line]); row.height = 42; row.getCell(2).alignment = { wrapText: true, vertical: 'middle' }; row.font = { name: 'Calibri', size: 11 }; if (index % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pale } }; });
   const meta = workbook.addWorksheet('_Template', { state: 'veryHidden' });
   meta.addRows([['Format', MARKER], ['Branch', branch], ['ExportedAt', now.toISOString()]]);
-  await sheet.protect('', { autoFilter: true, selectLockedCells: true, selectUnlockedCells: true });
+  // Column formatting is intentionally disabled: Excel cannot allow resizing only for
+  // Service/Item while preventing unhide of the locked metadata columns.
+  await sheet.protect('', { autoFilter: true, formatColumns: false, formatRows: false, selectLockedCells: false, selectUnlockedCells: true });
   await help.protect('', {});
   await meta.protect('', {});
   return Buffer.from(await workbook.xlsx.writeBuffer());

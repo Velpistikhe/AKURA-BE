@@ -28,11 +28,14 @@ async function main() {
   assert.equal(sheet.rowCount, 8);
   assert.deepEqual(sheet.getRow(5).values.slice(1), ['Service', 'Item', 'Size', 'Service Price', 'Maintenance Price', 'Item Size ID', 'Size Version']);
   assert.equal(sheet.columnCount, 7);
+  assert.equal(sheet.getColumn(1).width, 28);
+  assert.equal(sheet.getColumn(2).width, 32);
   assert.equal(sheet.getCell('A7').value, null);
   assert.equal(sheet.getCell('B7').value, 'Adapter');
   assert.equal(sheet.getColumn(6).hidden, true);
   assert.equal(sheet.getColumn(7).hidden, true);
   assert.equal(sheet.sheetProtection.sheet, true);
+  assert.notEqual(sheet.sheetProtection.formatColumns, true);
   for (let row = 6; row <= 8; row++) {
     for (let col = 1; col <= 7; col++) assert.equal(sheet.getRow(row).getCell(col).protection?.locked !== false, ![4, 5].includes(col));
   }

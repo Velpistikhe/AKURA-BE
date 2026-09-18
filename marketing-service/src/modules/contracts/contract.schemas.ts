@@ -7,15 +7,20 @@ const dates = {
 };
 const contractDate = z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`));
 const validPeriod = (value: { effectiveFrom: Date; effectiveUntil: Date }) => value.effectiveUntil > value.effectiveFrom;
+const validContractDate = (value: { contractDate?: Date; effectiveFrom: Date }) => !value.contractDate || value.contractDate <= value.effectiveFrom;
+const contractDateMessage = 'contractDate must be on or before effectiveFrom';
 export const createContractSchema = z.object({
   companyId: z.string().uuid(), contractNumber: z.string().trim().min(1).max(255), contractDate,
   ...dates,
-}).strict().refine(validPeriod, 'effectiveUntil must be after effectiveFrom');
+}).strict()
+  .refine(validPeriod, 'effectiveUntil must be after effectiveFrom')
+  .refine(validContractDate, contractDateMessage);
 export const updateContractSchema = versionSchema.extend({
   contractNumber: z.string().trim().min(1).max(255).optional(), contractDate: contractDate.optional(),
   ...dates,
 })
-  .refine(validPeriod, 'effectiveUntil must be after effectiveFrom');
+  .refine(validPeriod, 'effectiveUntil must be after effectiveFrom')
+  .refine(validContractDate, contractDateMessage);
 export const terminateContractSchema = versionSchema.extend({ terminatedAt: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)) }).strict();
 export const contractIdSchema = z.object({ contractId: z.string().uuid() }).strict();
 export const listContractsSchema = z.object({

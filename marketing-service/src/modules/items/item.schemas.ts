@@ -50,7 +50,8 @@ export const updateItemPriceSchema = createItemPriceSchema.partial().extend({ ve
 export type UpdatePriceInput = z.infer<typeof updateItemPriceSchema>;
 export const contractPriceIdSchema = z.object({ contractPriceId: z.string().uuid() }).strict();
 export const createContractPriceSchema = z.object({ contractId: z.string().uuid(), priceService: price, priceMaintenance: price.nullable().optional() }).strict();
-export const updateContractPriceSchema = versionSchema.extend({ priceService: price, priceMaintenance: price.nullable().optional(), isActive: z.boolean().optional() });
+export const updateContractPriceSchema = versionSchema.extend({ priceService: price.optional(), priceMaintenance: price.nullable().optional(), isActive: z.boolean().optional() })
+  .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const upsertContractPriceSchema = createContractPriceSchema.extend({ version: z.number().int().nonnegative().optional() });
 export type PriceInput = z.infer<typeof createItemPriceSchema>;
 export type ContractPriceInput = z.infer<typeof createContractPriceSchema>;

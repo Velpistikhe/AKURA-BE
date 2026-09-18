@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
+import { currentBusinessDate } from '../../utils/businessDate.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { CatalogEntity, recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
 import { AddItemSizeInput, CreateItemInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema, referenceKey, UpdatePriceInput } from './item.schemas.js';
@@ -38,6 +39,7 @@ const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before:
 const itemInBranch = async (tx: Tx, id: string, branch: string) => {
   const item = await tx.item.findFirst({ where: { id, officeBranchId: branch }, include: { service: true } });
   if (!item) throw new HttpError('Item not found', 404);
+  if (item.service && item.service.officeBranchId !== branch) throw new HttpError('Service does not belong to the current branch', 404);
   if (item.service && !item.service.isActive) throw new HttpError('Service is inactive', 409);
   if (!item.isActive) throw new HttpError('Item is inactive', 409);
   return item;
@@ -58,9 +60,16 @@ const standardPrices = (input: PriceInput, hasMaintenance: boolean) => {
   return { ...parsed.data, priceServiceSisterCompany: parsed.data.priceServiceSisterCompany ?? null, priceMaintenancePrimary: parsed.data.priceMaintenancePrimary ?? null, priceMaintenanceSisterCompany: parsed.data.priceMaintenanceSisterCompany ?? null };
 };
 const contractInBranch = async (tx: Tx, id: string, branch: string) => {
-  const contract = await tx.companyContract.findFirst({ where: { id, isActive: true, company: { officeBranchId: branch, revoked: false } } });
-  if (!contract) throw new HttpError('Active company contract not found', 404);
-  if (contract.status === 'EXPIRED' || contract.status === 'TERMINATED') throw new HttpError('Contract status does not allow price changes', 409);
+  const today = currentBusinessDate();
+  const contract = await tx.companyContract.findFirst({ where: {
+    id, isActive: true, status: 'ACTIVE',
+    company: { officeBranchId: branch, revoked: false },
+    OR: [
+      { effectiveFrom: { lte: today }, effectiveUntil: { gt: today } },
+      { effectiveFrom: { gt: today }, effectiveUntil: { gt: today } },
+    ],
+  } });
+  if (!contract) throw new HttpError('Only current or future active contracts can receive prices', 409);
   return contract;
 };
 const contractPrices = (input: ContractPriceInput, hasMaintenance: boolean) => {
@@ -126,8 +135,8 @@ const createContract = async (tx: Tx, id: string, data: ContractPriceInput, bran
     const { size, item } = await sizeInBranch(tx, id, branch);
     const contract = await contractInBranch(tx, data.contractId, branch);
     const prices = contractPrices(data, item.service?.hasMaintenance ?? false);
-    if (await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id } })) {
-      throw new HttpError('Contract price already exists; use PATCH with its version', 409);
+    if (await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, isActive: true } })) {
+      throw new HttpError('An active contract price already exists for this item', 409);
     }
     const result = await tx.companyContractPrice.create({ data: { itemSizeId: id, ...prices, catalogSnapshot: catalogSnapshot({ ...size, item }), ...createdBy(actor) } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
@@ -141,7 +150,11 @@ const changeContract = async (tx: Tx, id: string, data: { version: number; price
     const { size, item } = await sizeInBranch(tx, before.itemSizeId, branch);
     requireCatalogVersion(before, data.version);
     const contract = await contractInBranch(tx, before.contractId, branch);
-    const prices = remove ? {} : contractPrices({ contractId: before.contractId, priceService: data.priceService!, priceMaintenance: data.priceMaintenance }, item.service?.hasMaintenance ?? false);
+    const prices = remove ? {} : contractPrices({
+      contractId: before.contractId,
+      priceService: data.priceService ?? before.priceService.toString(),
+      priceMaintenance: data.priceMaintenance === undefined ? before.priceMaintenance?.toString() ?? null : data.priceMaintenance,
+    }, item.service?.hasMaintenance ?? false);
     const active = remove ? false : data.isActive ?? before.isActive;
     const result = await change(tx, branch, 'COMPANY_CONTRACT_PRICE', before, {
       ...prices, isActive: active, effectiveUntil: active ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())),

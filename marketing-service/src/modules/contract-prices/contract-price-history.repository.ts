@@ -19,7 +19,7 @@ const changes = (before: Snapshot, after: Snapshot, action: string) => fields.fl
 export const contractPriceHistoryRepository = {
   listPrices: async (input: { contractId?: string; companyId?: string; itemSizeId?: string; isActive?: boolean; search?: string; page: number; limit: number; sortBy?: 'priceService' | 'priceMaintenance' | 'effectiveFrom' | 'effectiveUntil' | 'createdAt' | 'updatedAt'; sortOrder: 'asc' | 'desc' }, branch: string) => {
     const where = {
-      ...(input.contractId ? { contractId: input.contractId } : {}), ...(input.companyId ? { contract: { companyId: input.companyId, company: { officeBranchId: branch, revoked: false } } } : { contract: { company: { officeBranchId: branch, revoked: false } } }),
+      contract: { ...(input.contractId ? { id: input.contractId } : {}), ...(input.companyId ? { companyId: input.companyId } : {}), company: { officeBranchId: branch, revoked: false } },
       ...(input.itemSizeId ? { itemSizeId: input.itemSizeId } : {}), ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
       ...(input.search ? { OR: [{ itemSize: { size: { contains: input.search, mode: 'insensitive' as const } } }, { itemSize: { item: { name: { contains: input.search, mode: 'insensitive' as const } } } }] } : {}),
     };
