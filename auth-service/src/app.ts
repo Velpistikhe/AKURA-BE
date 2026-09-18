@@ -13,6 +13,7 @@ import userManagementRoutes from './modules/user-management/user-management.rout
 const app: Express = express();
 
 app.use(helmet());
+app.use(verifyGatewaySecret);
 app.use(cors({
   origin: true,
   credentials: true,
@@ -22,7 +23,6 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(verifyGatewaySecret);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({

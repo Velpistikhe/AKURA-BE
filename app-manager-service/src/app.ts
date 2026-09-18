@@ -11,12 +11,12 @@ import routes from './routes/index.js';
 const app: Express = express();
 
 app.use(helmet());
+app.use(verifyGatewaySecret);
 app.use(cors({ origin: true, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(verifyGatewaySecret);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({

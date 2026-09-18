@@ -15,11 +15,11 @@ const requireSectionAccess = (sections: readonly string[]) => async (req: Reques
   const gatewayUserId = req.headers['x-user-id'];
   const gatewayUserRole = req.headers['x-user-role'];
   const gatewayOfficeBranchId = req.headers['x-office-branch-id'];
-  if (!res.locals.localDirectAccess && (
+  if (
     gatewayUserId !== tokenPayload.sub
     || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)
     || (tokenPayload.officeBranchId && gatewayOfficeBranchId !== tokenPayload.officeBranchId)
-  )) {
+  ) {
     res.status(401).json({
       status: 401,
       success: false,

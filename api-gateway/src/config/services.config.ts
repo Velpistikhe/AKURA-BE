@@ -5,11 +5,22 @@ interface ServiceRouteConfig {
   target: string;
   gatewaySecret: string;
   authRequired: boolean;
+  internalCaller?: 'finance-service';
   pathRewrite: Record<string, string>;
   description: string;
 }
 
 export const servicesConfig: ServiceRouteConfig[] = [
+  {
+    prefix: '/api/v1/marketing/internal/taxes/events',
+    target: env.MARKETING_SERVICE_URL,
+    gatewaySecret: env.MARKETING_SERVICE_GATEWAY_SECRET,
+    authRequired: false,
+    internalCaller: 'finance-service',
+    // Express removes the entire mounted prefix before invoking the proxy.
+    pathRewrite: { '^/': '/internal/taxes/events' },
+    description: 'Internal Finance tax delivery to Marketing',
+  },
   {
     prefix: '/api/v1/auth',
     target: env.AUTH_SERVICE_URL,

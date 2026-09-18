@@ -8,6 +8,15 @@ const router = Router();
 
 servicesConfig.forEach((service) => {
   const middlewares: RequestHandler[] = [];
+  if (service.internalCaller) {
+    middlewares.push((req, res, next) => {
+      if (req.method !== 'POST' || res.locals.serviceCaller !== service.internalCaller) {
+        res.status(403).json({ status: 403, success: false, message: 'Finance service credentials are required', requestId: req.headers['x-request-id'] });
+        return;
+      }
+      next();
+    });
+  }
   if (service.authRequired) {
     middlewares.push(authenticateJwt);
   }

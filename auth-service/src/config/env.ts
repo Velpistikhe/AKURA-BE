@@ -6,7 +6,6 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.string().default('5001').transform((value) => Number.parseInt(value, 10)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  LOCAL_DIRECT_ACCESS: z.enum(['true', 'false']).default('true').transform(value => value === 'true'),
   GATEWAY_SECRET: z.string().min(1, 'GATEWAY_SECRET is required'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_ACCESS_PRIVATE_KEY_PATH: z.string().min(1).optional(),

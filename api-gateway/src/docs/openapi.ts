@@ -75,7 +75,7 @@ export const openApiDocument = groupByModule({
   info: {
     title: 'Akura API Gateway',
     version: '2.7.0',
-    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway; direct service access is rejected with a target-specific internal secret.',
+    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway; direct service access without the target-specific internal gateway secret is rejected in every environment, including localhost. Frontends must send login, refresh and all API requests to the same gateway host. Internal service requests also use the gateway.',
   },
   servers: [
     {
@@ -1508,7 +1508,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['User Management'],
         summary: 'List users',
-        description: 'Served directly by Auth Service. Requires an active app manager account.',
+        description: 'Proxied through the Gateway to Auth Service. Requires an active app manager account.',
         security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },

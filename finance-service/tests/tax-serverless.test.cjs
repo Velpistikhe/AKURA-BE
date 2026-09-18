@@ -45,7 +45,8 @@ test('HTTP tax delivery works without starting a timer worker', async () => {
   };
   mock('../dist/config/db.js', { prisma });
   mock('../dist/config/env.js', { env: {
-    TAX_DELIVERY_TARGETS: [{ name: 'marketing-service', url: 'https://marketing.example/internal/taxes/events' }],
+    API_GATEWAY_URL: 'https://gateway.example', GATEWAY_SECRET: 'finance-test-secret',
+    TAX_DELIVERY_TARGETS: [{ name: 'marketing-service', url: 'https://gateway.example/api/v1/marketing/internal/taxes/events' }],
     TAX_SYNC_SECRET: 'test-only-secret',
   } });
   mock('../dist/utils/logger.js', { logger: { warn() {}, error() {} } });
@@ -61,6 +62,9 @@ test('HTTP tax delivery works without starting a timer worker', async () => {
   const originalFetch = global.fetch;
   global.fetch = async (url, options) => {
     if (String(url).startsWith('http://127.0.0.1:')) return originalFetch(url, options);
+    assert.equal(String(url), 'https://gateway.example/api/v1/marketing/internal/taxes/events');
+    assert.equal(options.headers['x-service-name'], 'finance-service');
+    assert.equal(options.headers['x-service-secret'], 'finance-test-secret');
     assert.equal(committed, true, 'outbox committed before HTTP delivery');
     assert.equal(options.headers['x-tax-sync-secret'], 'test-only-secret');
     const event = JSON.parse(options.body);

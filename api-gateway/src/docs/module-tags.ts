@@ -26,7 +26,7 @@ const modules = [
 ] as const;
 
 const moduleFor = (path: string): typeof modules[number][0] => {
-  if (path.startsWith('/api/v1/finance/taxes') || path === '/internal/taxes/events') return 'Taxes';
+  if (path.startsWith('/api/v1/finance/taxes') || path === '/api/v1/marketing/internal/taxes/events') return 'Taxes';
   if (path.endsWith('/health') || !path.startsWith('/api/v1/')) return 'Gateway';
   if (path.startsWith('/api/v1/auth/users')) return 'User Management';
   if (/\/auth\/(me|profile|password)$/.test(path)) return 'Profile';

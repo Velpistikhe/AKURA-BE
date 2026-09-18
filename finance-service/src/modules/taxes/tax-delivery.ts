@@ -1,6 +1,7 @@
 import { prisma } from '../../config/db.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
 
 let timer: NodeJS.Timeout | undefined;
 let running = false;
@@ -18,9 +19,10 @@ export async function deliverTax(id: string) {
     const target = env.TAX_DELIVERY_TARGETS.find(target => target.name === job.targetService);
     try {
       if (!target || !env.TAX_SYNC_SECRET) throw new Error('Delivery target or credential is not configured');
+      if (target.url !== serviceUrl('marketing/internal/taxes/events')) throw new Error('Tax delivery target must use the configured API Gateway');
       const response = await fetch(target.url, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
-        headers: { 'content-type': 'application/json', 'x-tax-sync-secret': env.TAX_SYNC_SECRET },
+        headers: { 'content-type': 'application/json', 'x-tax-sync-secret': env.TAX_SYNC_SECRET, ...serviceHeaders('marketing/internal/taxes/events') },
         body: JSON.stringify({ eventId: job.eventId, officeBranchId: job.event.officeBranchId,
           version: job.event.version, taxes: job.event.payload }),
       });

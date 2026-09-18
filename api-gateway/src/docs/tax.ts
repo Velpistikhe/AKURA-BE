@@ -49,12 +49,11 @@ taxPaths['/api/v1/finance/taxes/resync'] = { post: {
   requestBody: { required: false, content: { 'application/json': { schema: { type: 'object', additionalProperties: false } } } },
   responses: { 202: { description: 'Queued; data contains eventId and version' }, 400: { description: 'Body must be empty' }, 401: { description: 'Unauthenticated' }, 403: { description: 'ADMIN in FINANCE required' } },
 } };
-// Direct service endpoint: intentionally not proxied through the public gateway.
-taxPaths['/internal/taxes/events'] = { post: {
-  servers: [{ url: 'http://localhost:5003', description: 'Marketing direct URL; replace for deployment' }],
+// Internal delivery uses the gateway with Finance service credentials.
+taxPaths['/api/v1/marketing/internal/taxes/events'] = { post: {
   tags: ['Taxes'], summary: 'Internal: apply a versioned Finance tax snapshot to Marketing', security: [],
-  parameters: [{ name: 'x-tax-sync-secret', in: 'header', required: true, schema: { type: 'string' } }],
-  description: 'Service credential required. Atomic branch cache replacement; duplicate and older versions are acknowledged without changing cache. Acknowledgment is sent only after commit.',
+  parameters: [{ name: 'x-service-name', in: 'header', required: true, schema: { type: 'string', enum: ['finance-service'] } }, { name: 'x-service-secret', in: 'header', required: true, schema: { type: 'string' } }, { name: 'x-tax-sync-secret', in: 'header', required: true, schema: { type: 'string' } }],
+  description: 'Finance service credentials and tax sync secret required. The gateway injects the Marketing gateway secret. Direct service access is rejected. Atomic branch cache replacement; duplicate and older versions are acknowledged without changing cache. Acknowledgment is sent only after commit.',
   requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: false, required: ['eventId','officeBranchId','version','taxes'], properties: {
     eventId: { type: 'string', format: 'uuid' }, officeBranchId: { type: 'string', format: 'uuid' }, version: { type: 'integer', minimum: 1 },
     taxes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id','officeBranchId','percentage','effectiveFrom','effectiveUntil','updatedAt'], properties: {

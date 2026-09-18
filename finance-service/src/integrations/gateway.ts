@@ -14,9 +14,6 @@ export async function gatewayGet(path: string, req: Request): Promise<unknown> {
   try {
     response = await fetch(serviceUrl(path), {
       headers: { Authorization: `Bearer ${token}`, ...serviceHeaders(path),
-        'x-user-id': user.sub,
-        ...(user.role ? { 'x-user-role': user.role } : {}),
-        ...(user.officeBranchId ? { 'x-office-branch-id': user.officeBranchId } : {}),
         'x-request-id': String(req.headers['x-request-id'] ?? '') },
       signal: AbortSignal.timeout(5000),
     });

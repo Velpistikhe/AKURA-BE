@@ -30,12 +30,10 @@ async function run(service) {
     return;
   }
   Object.assign(process.env, {
-    NODE_ENV: 'development', LOCAL_DIRECT_ACCESS: 'true', VERCEL: '0',
+    NODE_ENV: 'development', VERCEL: '0',
     GATEWAY_SECRET: 'test-gateway', DATABASE_URL: 'postgresql://test:test@localhost/test',
     API_GATEWAY_URL: 'http://localhost:5999', JWT_REFRESH_SECRET: 'test-refresh',
     JWT_ACCESS_PRIVATE_KEY_BASE64: 'test-placeholder',
-    AUTH_SERVICE_GATEWAY_SECRET: 'test-auth-destination',
-    MARKETING_SERVICE_GATEWAY_SECRET: 'test-marketing-destination',
   });
   const { env } = localRequire(path.join(root, 'src/config/env.ts'));
   const { verifyGatewaySecret } = localRequire(path.join(root, 'src/middlewares/gateway.middleware.ts'));
@@ -44,24 +42,22 @@ async function run(service) {
     let passed = false;
     const res = { locals: {}, status(code) { status = code; return this; }, json() {} };
     verifyGatewaySecret({ socket: { remoteAddress: address }, headers }, res, () => { passed = true; });
-    return { status, passed, direct: res.locals.localDirectAccess };
+    return { status, passed };
   }
-  for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.equal(guard(address).passed, true);
-  assert.equal(guard('192.168.1.5', { 'x-forwarded-for': '127.0.0.1' }).status, 403);
-  assert.equal(guard('192.168.1.5', { 'x-gateway-secret': env.GATEWAY_SECRET }).passed, true);
-  env.LOCAL_DIRECT_ACCESS = false;
-  assert.equal(guard('127.0.0.1').status, 403);
-  env.LOCAL_DIRECT_ACCESS = true;
-  for (const mode of ['production', 'test']) {
+  for (const mode of ['development', 'production', 'test']) {
     env.NODE_ENV = mode;
-    assert.equal(guard('127.0.0.1').status, 403);
-    assert.equal(guard('127.0.0.1', { 'x-gateway-secret': env.GATEWAY_SECRET }).passed, true);
+    for (const vercel of ['0', '1']) {
+      process.env.VERCEL = vercel;
+      for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '192.168.1.5']) {
+        assert.equal(guard(address).status, 403);
+        assert.equal(guard(address, { 'x-forwarded-for': '127.0.0.1', 'x-gateway-secret': 'wrong' }).status, 403);
+        assert.equal(guard(address, { 'x-gateway-secret': env.GATEWAY_SECRET }).passed, true);
+      }
+    }
   }
   env.NODE_ENV = 'development';
-  process.env.VERCEL = '1';
-  assert.equal(guard('127.0.0.1').status, 403);
   process.env.VERCEL = '0';
-  if (service === 'auth-service') { console.log(`${service}: local/production gateway guards passed`); return; }
+  if (service === 'auth-service') { console.log(`${service}: gateway required in every environment`); return; }
 
   const express = localRequire('express');
   const cors = localRequire('cors');
@@ -71,25 +67,24 @@ async function run(service) {
   const profile = { id: 'user-1', role: 'USER', section: 'MARKETING', isActive: true, officeBranchId: 'branch-1' };
   const auth = express();
   auth.use((req, res, next) => {
-    if (req.headers['x-gateway-secret'] !== 'test-auth-destination') return res.sendStatus(403);
+    if (req.headers['x-service-secret'] !== env.GATEWAY_SECRET || req.headers['x-service-name'] !== service) return res.sendStatus(403);
     next();
   });
-  auth.get('/.well-known/jwks.json', (_req, res) => res.json({ keys: [key] }));
-  auth.get('/me', (_req, res) => res.json({ data: profile }));
+  auth.get('/api/v1/auth/.well-known/jwks.json', (_req, res) => res.json({ keys: [key] }));
+  auth.get('/api/v1/auth/me', (_req, res) => res.json({ data: profile }));
   const authServer = await listen(auth);
   let server;
   try {
-    env.AUTH_SERVICE_URL = `http://127.0.0.1:${authServer.address().port}`;
+    env.API_GATEWAY_URL = `http://127.0.0.1:${authServer.address().port}`;
     const { serviceUrl, serviceHeaders } = localRequire(path.join(root, 'src/utils/serviceUrl.ts'));
-    assert.equal(serviceUrl('auth/me'), `${env.AUTH_SERVICE_URL}/me`);
-    assert.equal(serviceUrl('marketing/quotations'), `${env.MARKETING_SERVICE_URL}/quotations`);
-    env.NODE_ENV = 'production';
-    assert.equal(serviceUrl('auth/me'), `${env.AUTH_SERVICE_URL}/me`);
-    assert.equal(serviceHeaders('auth/me')['x-gateway-secret'], 'test-auth-destination');
-    assert.equal(serviceHeaders('marketing/quotations')['x-gateway-secret'], 'test-marketing-destination');
-    env.LOCAL_DIRECT_ACCESS = false;
-    assert.equal(serviceUrl('auth/me'), `${env.AUTH_SERVICE_URL}/me`);
-    env.LOCAL_DIRECT_ACCESS = true;
+    for (const mode of ['development', 'production']) {
+      env.NODE_ENV = mode;
+      assert.equal(serviceUrl('auth/me'), `${env.API_GATEWAY_URL}/api/v1/auth/me`);
+      assert.equal(serviceUrl('marketing/quotations'), `${env.API_GATEWAY_URL}/api/v1/marketing/quotations`);
+      assert.equal(serviceHeaders('auth/me')['x-service-secret'], env.GATEWAY_SECRET);
+      assert.equal(serviceHeaders('marketing/quotations')['x-service-name'], service);
+      assert.equal(serviceHeaders('auth/me')['x-gateway-secret'], undefined);
+    }
     env.NODE_ENV = 'development';
     const { verifyAccessToken } = localRequire(path.join(root, 'src/utils/tokens.ts'));
     const token = await new SignJWT({ type: 'access', role: 'USER', officeBranchId: 'branch-1' })
@@ -98,16 +93,17 @@ async function run(service) {
     assert.equal((await verifyAccessToken(token)).sub, 'user-1');
     if (['finance-service', 'fieldservice-service'].includes(service)) {
       const marketing = express();
-      marketing.get('/reference', (req, res) => {
-        assert.equal(req.headers['x-gateway-secret'], 'test-marketing-destination');
-        assert.equal(req.headers['x-user-id'], 'user-1');
-        assert.equal(req.headers['x-user-role'], 'USER');
-        assert.equal(req.headers['x-office-branch-id'], 'branch-1');
+      marketing.get('/api/v1/marketing/reference', (req, res) => {
+        assert.equal(req.headers['x-service-secret'], env.GATEWAY_SECRET);
+        assert.equal(req.headers['x-service-name'], service);
+        assert.equal(req.headers['x-user-id'], undefined);
+        assert.equal(req.headers['x-user-role'], undefined);
+        assert.equal(req.headers['x-office-branch-id'], undefined);
         res.json({ data: { id: 'reference-1' } });
       });
       const marketingServer = await listen(marketing);
       try {
-        env.MARKETING_SERVICE_URL = `http://127.0.0.1:${marketingServer.address().port}`;
+        env.API_GATEWAY_URL = `http://127.0.0.1:${marketingServer.address().port}`;
         const { gatewayGet } = localRequire(path.join(root, 'src/integrations/gateway.ts'));
         const result = await gatewayGet('marketing/reference', {
           headers: { authorization: `Bearer ${token}`, 'x-user-id': 'forged' },
@@ -118,10 +114,11 @@ async function run(service) {
         await new Promise(resolve => marketingServer.close(resolve));
       }
     }
+    env.API_GATEWAY_URL = `http://127.0.0.1:${authServer.address().port}`;
     await assert.rejects(() => verifyAccessToken('invalid-token'));
     const app = express();
-    app.use(cors({ origin: true, credentials: true }));
     app.use(verifyGatewaySecret);
+    app.use(cors({ origin: true, credentials: true }));
     if (service === 'app-manager-service') {
       app.use(localRequire(path.join(root, 'src/middlewares/authorize.middleware.ts')).requireAuthenticated);
     } else {
@@ -135,11 +132,14 @@ async function run(service) {
     server = await listen(app);
     const url = `http://127.0.0.1:${server.address().port}/protected`;
     const preflight = await fetch(url, { method: 'OPTIONS', headers: { Origin: 'http://localhost:5173', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
-    assert.equal(preflight.status, 204);
-    assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://localhost:5173');
-    assert.equal((await fetch(url)).status, 401);
-    assert.equal((await fetch(url, { headers: { Authorization: 'Bearer invalid' } })).status, 401);
-    const headers = { Authorization: `Bearer ${token}`, 'x-user-id': 'forged-client-value' };
+    assert.equal(preflight.status, 403);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), null);
+    assert.equal((await fetch(url)).status, 403);
+    assert.equal((await fetch(url, { headers: { 'x-gateway-secret': env.GATEWAY_SECRET } })).status, 401);
+    assert.equal((await fetch(url, { headers: { Authorization: 'Bearer invalid', 'x-gateway-secret': env.GATEWAY_SECRET } })).status, 401);
+    const headers = { Authorization: `Bearer ${token}`, 'x-gateway-secret': env.GATEWAY_SECRET, 'x-user-id': 'user-1', 'x-user-role': 'USER', 'x-office-branch-id': 'branch-1' };
+    assert.equal((await fetch(url, { headers: { Authorization: `Bearer ${token}` } })).status, 403);
+    if (service === 'marketing-service') assert.equal((await fetch(url, { headers: { ...headers, 'x-user-id': 'forged' } })).status, 401);
     assert.equal((await fetch(url, { headers })).status, 200);
     if (service === 'marketing-service' || service === 'app-manager-service') {
       profile.isActive = false;

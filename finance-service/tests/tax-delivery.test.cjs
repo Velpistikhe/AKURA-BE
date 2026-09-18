@@ -5,7 +5,8 @@ const path = require('node:path');
 const { withTaxDatabase } = require('./tax-fixture.cjs');
 
 test('master/outbox atomicity, HTTP retry, restart recovery, and proforma tax authority', async () => {
-  process.env.TAX_DELIVERY_TARGETS = JSON.stringify([{ name: 'marketing-service', url: 'http://localhost:5003/internal/taxes/events' }]);
+  process.env.API_GATEWAY_URL = 'http://localhost:5000';
+  process.env.TAX_DELIVERY_TARGETS = JSON.stringify([{ name: 'marketing-service', url: 'http://localhost:5000/api/v1/marketing/internal/taxes/events' }]);
   process.env.TAX_SYNC_SECRET = 'test-secret-with-at-least-32-characters';
   await withTaxDatabase(path.resolve(__dirname, '..'), async prisma => {
     const { taxRepository } = require('../dist/modules/taxes/tax.repository.js');
