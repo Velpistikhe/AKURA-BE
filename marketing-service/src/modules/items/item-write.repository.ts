@@ -208,7 +208,7 @@ export const itemWriteRepository = {
     return tx.item.findUniqueOrThrow({ where: { id }, include: { sizes: { include: { price: true } } } });
   }),
   savePrice: (id: string, data: PriceInput | UpdatePriceInput, branch: string, actor: AuditActor, create = false) => write(branch, async tx => {
-    const { size, item } = await sizeInBranch(tx, id, branch);
+    const { item } = await sizeInBranch(tx, id, branch);
     const { version, isActive, ...input } = data as Partial<UpdatePriceInput>;
     const before = await tx.itemPrice.findUnique({ where: { itemSizeId: id } });
     let result;
@@ -224,7 +224,8 @@ export const itemWriteRepository = {
       const prices = standardPrices({ priceServicePrimary: before.priceServicePrimary.toString(), priceServiceSisterCompany: before.priceServiceSisterCompany?.toString() ?? null, priceMaintenancePrimary: before.priceMaintenancePrimary?.toString() ?? null, priceMaintenanceSisterCompany: before.priceMaintenanceSisterCompany?.toString() ?? null, ...input }, item.service?.hasMaintenance ?? false);
       result = await change(tx, branch, 'ITEM_PRICE', before, { ...prices, ...(isActive === undefined ? {} : { isActive, effectiveUntil: isActive ? null : new Date(Math.max(Date.now(), before.effectiveFrom.getTime())), ...(!before.isActive && isActive ? { effectiveFrom: new Date() } : {}) }) }, actor);
     }
-    await bumpSize(tx, branch, size, item, actor);
+    // Normal price changes must not invalidate exported ItemSize versions.
+    await bumpItem(tx, branch, item, actor);
     return result;
   }),
   removePrice: (id: string, version: number, branch: string, actor: AuditActor) => write(branch, async tx => {

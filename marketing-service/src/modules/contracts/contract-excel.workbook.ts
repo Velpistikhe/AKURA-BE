@@ -5,9 +5,9 @@ import { createContractPriceSchema } from '../items/item.schemas.js';
 import { contractExcelRepository } from './contract-excel.repository.js';
 import { ExcelImportError, ExcelPriceRow, MAX_EXCEL_ROWS } from './contract-excel.schemas.js';
 
-const SHEET = 'Harga Normal';
-const HEADERS = ['Pilih', 'Service', 'Item', 'Size', 'Harga Service', 'Harga Maintenance', 'Item Size ID', 'Size Version', 'Price Version'];
-const MARKER = 'AKURA_NORMAL_PRICES_V1';
+const SHEET = 'Normal Prices';
+const HEADERS = ['Service', 'Item', 'Size', 'Service Price', 'Maintenance Price', 'Item Size ID', 'Size Version'];
+const MARKER = 'AKURA_NORMAL_PRICES_V2';
 const HEADER_ROW = 5;
 const ink = '17365D', yellow = 'FFF2CC', pale = 'EAF0F7';
 const numericCell = (value: { toString(): string } | null | undefined): string | number | null => {
@@ -22,12 +22,12 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Akura Marketing'; workbook.created = now;
   const sheet = workbook.addWorksheet(SHEET, { views: [{ state: 'frozen', ySplit: HEADER_ROW }], properties: { defaultRowHeight: 23 }, pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 } });
-  sheet.columns = [{ width: 12 }, { width: 28 }, { width: 32 }, { width: 22 }, { width: 22 }, { width: 24 }, { width: 38, hidden: true }, { width: 15, hidden: true }, { width: 15, hidden: true }];
-  sheet.mergeCells('A1:F1'); sheet.getCell('A1').value = 'AKURA | DAFTAR HARGA NORMAL';
+  sheet.columns = [{ width: 28 }, { width: 32 }, { width: 22 }, { width: 22 }, { width: 24 }, { width: 38, hidden: true }, { width: 15, hidden: true }];
+  sheet.mergeCells('A1:E1'); sheet.getCell('A1').value = 'AKURA | NORMAL PRICE LIST';
   sheet.getCell('A1').font = { name: 'Calibri', size: 19, bold: true, color: { argb: 'FFFFFF' } };
   sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ink } }; sheet.getRow(1).height = 40;
-  sheet.mergeCells('A2:F2'); sheet.getCell('A2').value = 'Harga normal primary · Ubah kolom harga untuk membuat harga kontrak';
-  sheet.mergeCells('A3:F3'); sheet.getCell('A3').value = 'Pilih YA untuk impor, TIDAK untuk lewati. Kolom kuning dapat diedit. Baca sheet Petunjuk.';
+  sheet.mergeCells('A2:E2'); sheet.getCell('A2').value = 'Primary normal prices | Edit prices to create contract prices';
+  sheet.mergeCells('A3:E3'); sheet.getCell('A3').value = 'Edit yellow price cells only. All rows in this file will be imported. Read Instructions.';
   sheet.getRow(2).height = 26; sheet.getRow(3).height = 26;
   HEADERS.forEach((header, index) => { const cell = sheet.getRow(HEADER_ROW).getCell(index + 1); cell.value = header; cell.font = { bold: true, color: { argb: 'FFFFFF' }, name: 'Calibri' }; cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ink } }; cell.alignment = { vertical: 'middle', wrapText: true }; });
   sheet.getRow(HEADER_ROW).height = 30;
@@ -36,40 +36,43 @@ export async function createPriceWorkbook(sizes: Awaited<ReturnType<typeof contr
     const servicePrice = current ? numericCell(size.price?.priceServicePrimary) : null;
     const maintenance = current ? numericCell(size.price?.priceMaintenancePrimary) : null;
     const service = size.item.service;
-    if (!service) return;
-    const row = sheet.addRow([servicePrice === null || (service.hasMaintenance && maintenance === null) ? 'TIDAK' : 'YA', service.name, size.item.name, size.size, servicePrice, maintenance, size.id, size.version, size.price?.version ?? 'NONE']);
+    const row = sheet.addRow([service?.name ?? null, size.item.name, size.size, servicePrice, maintenance, size.id, size.version]);
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       cell.font = { name: 'Calibri', size: 11, color: { argb: ink } };
-      cell.alignment = { vertical: 'middle', horizontal: col === 5 || col === 6 ? 'right' : 'left' };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: [1, 5, 6].includes(col) ? yellow : index % 2 ? pale : 'FFFFFF' } };
+      cell.alignment = { vertical: 'middle', horizontal: col === 4 || col === 5 ? 'right' : 'left' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: [4, 5].includes(col) ? yellow : index % 2 ? pale : 'FFFFFF' } };
     });
-    row.getCell(1).dataValidation = { type: 'list', allowBlank: false, formulae: ['"YA,TIDAK"'], showErrorMessage: true, errorTitle: 'Pilihan tidak valid', error: 'Pilih YA atau TIDAK.' };
-    for (const col of [5, 6]) {
+    for (const col of [4, 5]) {
+      row.getCell(col).protection = { locked: false };
       row.getCell(col).numFmt = '#,##0.00;[Red](#,##0.00);0.00';
-      row.getCell(col).dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: col === 6 && !service.hasMaintenance, showErrorMessage: true, errorTitle: 'Harga tidak valid', error: 'Isi harga minimal 0, maksimal 2 desimal. Jangan gunakan formula.' };
+      row.getCell(col).dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: true, showErrorMessage: true, errorTitle: 'Invalid price', error: 'Enter a nonnegative price with at most two decimals. Do not use formulas.' };
     }
-    row.getCell(6).note = service.hasMaintenance ? 'Harga maintenance wajib untuk service ini.' : 'Boleh kosong jika tidak ada harga maintenance.';
+    row.getCell(5).note = service?.hasMaintenance ? 'Maintenance price is required for this service.' : 'Maintenance price is optional.';
   });
-  sheet.autoFilter = { from: { row: HEADER_ROW, column: 1 }, to: { row: Math.max(HEADER_ROW, sheet.rowCount), column: 6 } };
-  sheet.pageSetup.printTitlesRow = '1:5'; sheet.pageSetup.printArea = `A1:F${sheet.rowCount}`;
-  const help = workbook.addWorksheet('Petunjuk'); help.columns = [{ width: 7 }, { width: 105 }];
-  help.mergeCells('A1:B1'); help.getCell('A1').value = 'PETUNJUK TEMPLATE HARGA KONTRAK'; help.getCell('A1').font = { bold: true, size: 16, color: { argb: ink } }; help.getRow(1).height = 34;
+  sheet.autoFilter = { from: { row: HEADER_ROW, column: 1 }, to: { row: Math.max(HEADER_ROW, sheet.rowCount), column: 5 } };
+  sheet.pageSetup.printTitlesRow = '1:5'; sheet.pageSetup.printArea = `A1:E${sheet.rowCount}`;
+  const help = workbook.addWorksheet('Instructions'); help.columns = [{ width: 7 }, { width: 105 }];
+  help.mergeCells('A1:B1'); help.getCell('A1').value = 'CONTRACT PRICE TEMPLATE INSTRUCTIONS'; help.getCell('A1').font = { bold: true, size: 16, color: { argb: ink } }; help.getRow(1).height = 34;
   [
-    'Size kosong berarti item tanpa ukuran. Harga tetap dapat diisi dan diimpor menggunakan baris tersebut.',
-    'File ini hanya memuat harga normal primary. Tidak memuat harga sister company atau harga kontrak lama.',
-    'Edit Harga Service dan Harga Maintenance pada sheet Harga Normal. Nilai yang diisi akan menjadi harga kontrak.',
-    'Pilih YA untuk baris yang akan disimpan, TIDAK untuk dilewati. Semua baris YA diimpor, termasuk harga yang tidak diubah.',
-    'Harga service wajib. Harga maintenance wajib jika service memiliki maintenance. Nol diperbolehkan; nilai negatif dan lebih dari dua desimal ditolak.',
-    'Gunakan nilai angka, bukan formula. Jika menghitung dengan formula, salin lalu Paste Special > Values sebelum upload. Gunakan teks desimal bertitik untuk nominal besar.',
-    'Jangan mengubah nama sheet, header, kolom ID/versi tersembunyi atau sheet _Template. Nama service/item/size hanya referensi.',
-    'Pilih company dan kontraknya saat upload. Status harus CREATE/ACTIVE, kontrak tidak dinonaktifkan dan belum berakhir; kontrak yang belum mulai dapat diisi.',
-    'Impor hanya menambahkan harga baru. Baris yang sudah memiliki harga dalam kontrak akan ditolak. Harga normal tidak berubah.',
-    'Jika ada kesalahan, seluruh impor dibatalkan. Respons menyebut nomor baris dan kesalahan untuk diperbaiki.',
-    'Jika data berubah sejak unduhan atau versi kontrak sudah berubah, unduh ulang template dan gunakan versi kontrak terbaru.',
-    `Maksimal ${MAX_EXCEL_ROWS} baris per file. Gunakan filter saat download untuk membatasi daftar. File kosong tidak dapat diimpor.`,
+    'A blank Size means an item without a size. Its price can still be imported.',
+    'This file contains primary normal prices only, excluding sister-company and existing contract prices.',
+    'Only Service Price and Maintenance Price in Normal Prices are editable. Enter the agreed contract prices.',
+    'Every item row present in this file is imported, including unchanged prices. Use download filters to include only the items needed for the contract.',
+    'Service Price is required for import. Maintenance Price is required only when the service has maintenance. Zero is allowed; negative values and more than two decimals are rejected.',
+    'Use numeric values, not formulas. For large amounts, use decimal text with a period.',
+    'Items without a service have a blank Service cell and CAN have contract prices. Their maintenance price is optional.',
+    'Default order: service name, item name, size, then ID ascending. Items without a service appear last, ordered by item name, size, then ID.',
+    'Do not change sheet names, headers, hidden Item Size ID / Size Version columns, or the _Template sheet.',
+    'Upload with the company, contract, and latest contract version. The contract must be ACTIVE and within its validity period.',
+    'Import creates new contract prices only. Existing contract prices are rejected. Normal prices are never changed.',
+    'Any error cancels the entire import. The response identifies rows to correct. If ItemSize or the contract version changes, download a new template and use the latest contract version. Normal price changes do not invalidate this template.',
+    `Maximum ${MAX_EXCEL_ROWS} rows per file. Use download filters to limit the list. Empty files cannot be imported.`,
   ].forEach((line, index) => { const row = help.addRow([index + 1, line]); row.height = 42; row.getCell(2).alignment = { wrapText: true, vertical: 'middle' }; row.font = { name: 'Calibri', size: 11 }; if (index % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pale } }; });
   const meta = workbook.addWorksheet('_Template', { state: 'veryHidden' });
   meta.addRows([['Format', MARKER], ['Branch', branch], ['ExportedAt', now.toISOString()]]);
+  await sheet.protect('', { autoFilter: true, selectLockedCells: true, selectUnlockedCells: true });
+  await help.protect('', {});
+  await meta.protect('', {});
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
@@ -113,25 +116,21 @@ export async function parsePriceWorkbook(buffer: Buffer, branch: string): Promis
   for (let number = HEADER_ROW + 1; number <= sheet.rowCount; number++) {
     const row = sheet.getRow(number);
     if (!row.hasValues) continue;
-    const include = row.getCell(1).value;
-    if (include === 'TIDAK') continue;
-    if (include !== 'YA') { errors.push({ row: number, field: 'Pilih', message: 'Choose YA or TIDAK' }); continue; }
-    const id = z.string().uuid().safeParse(row.getCell(7).value);
-    const sizeVersion = z.number().int().nonnegative().safeParse(row.getCell(8).value);
-    const priceVersion = z.union([z.number().int().nonnegative(), z.literal('NONE')]).safeParse(row.getCell(9).value);
-    if (!id.success || !sizeVersion.success || !priceVersion.success) { errors.push({ row: number, message: 'Size ID or version metadata was changed; download a new template' }); continue; }
+    const id = z.string().uuid().safeParse(row.getCell(6).value);
+    const sizeVersion = z.number().int().nonnegative().safeParse(row.getCell(7).value);
+    if (!id.success || !sizeVersion.success) { errors.push({ row: number, message: 'Size ID or version metadata was changed; download a new template' }); continue; }
     if (seen.has(id.data)) { errors.push({ row: number, message: 'Duplicate item size in the workbook' }); continue; }
     seen.add(id.data);
-    const data = createContractPriceSchema.omit({ contractId: true }).safeParse({ priceService: row.getCell(5).value, priceMaintenance: row.getCell(6).value ?? null });
+    const data = createContractPriceSchema.omit({ contractId: true }).safeParse({ priceService: row.getCell(4).value, priceMaintenance: row.getCell(5).value ?? null });
     if (!data.success) {
-      for (const issue of data.error.issues) errors.push({ row: number, field: issue.path[0] === 'priceService' ? 'Harga Service' : 'Harga Maintenance', message: 'Enter a nonnegative value with at most two decimals; service price is required and formulas are not accepted' });
+      for (const issue of data.error.issues) errors.push({ row: number, field: issue.path[0] === 'priceService' ? 'Service Price' : 'Maintenance Price', message: 'Enter a nonnegative value with at most two decimals; service price is required and formulas are not accepted' });
       continue;
     }
-    rows.push({ row: number, itemSizeId: id.data, sizeVersion: sizeVersion.data, priceVersion: priceVersion.data === 'NONE' ? null : priceVersion.data,
+    rows.push({ row: number, itemSizeId: id.data, sizeVersion: sizeVersion.data,
       priceService: String(data.data.priceService), priceMaintenance: data.data.priceMaintenance == null ? null : String(data.data.priceMaintenance),
     });
   }
   if (errors.length) throw new ExcelImportError(errors);
-  if (!rows.length) throw new ExcelImportError([{ message: 'Select at least one row with YA' }]);
+  if (!rows.length) throw new ExcelImportError([{ message: 'Enter a service price in at least one row' }]);
   return rows;
 }

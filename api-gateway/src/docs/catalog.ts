@@ -165,7 +165,7 @@ export const catalogPaths = {
       tags: ['Marketing'], summary: 'Download Excel template with service, item, size and normal primary prices',
       security: [{ bearerAuth: [] }, { accessTokenCookie: [] }],
       parameters: [parameter('companyId', uuid), ...filters.filter(field => !['page', 'limit'].includes(field.name))],
-      description: 'Returns up to 2000 active sizes in the token branch. Optional companyId must belong to the same branch and must not be revoked; otherwise 404. Item and service are both restricted to the token branch. Edit Harga Service/Harga Maintenance and select YA for rows to import into a company contract. Hidden IDs and versions must remain unchanged. Variants without a size have a blank Size cell and retain their hidden ID for import. Missing normal prices are blank; sister-company and contract prices are not exported.',
+      description: 'Returns up to 2000 active sizes in the token branch, including items with or without a service. Optional companyId must belong to the same branch and must not be revoked; otherwise 404. Default order is service name, item name, size, then ID ascending (PostgreSQL NULLS LAST); items without a service appear last, ordered by item name, size, then ID. Explicit sortBy=size overrides the default order. The English workbook is protected: only Service Price and Maintenance Price are editable. All item rows present are imported; there is no selection column. Use download filters to limit items. Items without a service have a blank Service cell and can have contract prices. Only Item Size ID and Size Version are hidden. Missing normal prices and absent sizes are blank; sister-company and contract prices are not exported.',
       responses: {
         200: { description: 'Excel contract-price template', content: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { schema: { type: 'string', format: 'binary' } } } },
         400: { description: 'Invalid filters or export exceeds 2000 rows' },
@@ -177,6 +177,7 @@ export const catalogPaths = {
     post: {
       tags: ['Marketing'], summary: 'Upload Excel template to create company contract prices atomically',
       security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters: [path('contractId')],
+      description: 'Imports every item row present, including items without a service. Service Price is required; Maintenance Price is required only for services with maintenance. Only prices are editable. ItemSize version changes return 409 and require a new template; normal ItemPrice changes do not invalidate the template. Price Version and selection columns are not used. The contract must be ACTIVE and currently valid. Imports are atomic.',
       requestBody: { required: true, content: { 'multipart/form-data': { schema: input({
         file: { type: 'string', format: 'binary', description: '.xlsx template, maximum 5 MB' }, companyId: uuid, version,
       }, ['file', 'companyId', 'version']) } } },

@@ -102,7 +102,7 @@ async function main() {
     const exportRows = await contractExcelRepository.exportSizes({ itemId: item.id }, branch);
     const buffer = await createPriceWorkbook(exportRows, branch);
     const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer);
-    assert.equal(workbook.getWorksheet('Harga Normal').getCell('D6').value, null);
+    assert.equal(workbook.getWorksheet('Normal Prices').getCell('C6').value, null);
     const importedRows = await parsePriceWorkbook(buffer, branch);
     assert.equal(importedRows[0].itemSizeId, size.id);
     const secondCompany = await prisma.company.create({ data: { officeBranchId: branch, name: 'Import customer', normalizeName: randomUUID(), type: 'PT', npwp: '2', address: 'Jakarta', createdById: actor.id } });

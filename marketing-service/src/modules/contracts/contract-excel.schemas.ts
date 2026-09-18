@@ -13,7 +13,6 @@ export type ExcelPriceRow = {
   row: number;
   itemSizeId: string;
   sizeVersion: number;
-  priceVersion: number | null;
   priceService: string;
   priceMaintenance: string | null;
 };
