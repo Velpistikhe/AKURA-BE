@@ -412,6 +412,7 @@ model Quotation {
   location            String             @db.VarChar(255)
   accomplished        String             @db.VarChar(255)
   deliveryReports     String             @map("delivery_reports") @db.VarChar(255)
+  deliveryInvoice     String?            @map("delivery_invoice") @db.VarChar(255)
   staffId             String?            @map("staff_id") @db.Uuid
   staff               CompanyStaff?      @relation(fields: [staffId], references: [id], onDelete: Restrict)
   /// Company staff name captured independently of later staff edits.

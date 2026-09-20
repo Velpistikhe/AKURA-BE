@@ -235,7 +235,7 @@ export const quotationRepository = {
           ...header, ...data, ...(companyChanged ? { staffId: selectedStaffId } : {}), ...customerSnapshot,
           companySnapshot: customerSnapshot?.companySnapshot ?? json(current.companySnapshot),
           previousQuotationId: id, no: null, numberYear: null, revision: current.revision + 1,
-          status: 'REVISED', invoiceStatus: null, version: 0, isActive: true, createdById: actor.id, updatedById: null,
+          status: 'REVISED', invoiceStatus: null, deliveryInvoice: data.deliveryInvoice !== undefined ? data.deliveryInvoice : current.deliveryInvoice, version: 0, isActive: true, createdById: actor.id, updatedById: null,
         } });
         const copiedItems = items ? prepared.map(row => row.data) : activeItems.map(row => ({
           itemSizeId: row.itemSizeId, position: row.position, serviceName: row.serviceName, serviceType: row.serviceType,

@@ -7,7 +7,7 @@ const header = {
   inquiryMethod: ref('InquiryMethod'),
   inquiryDate: { type: 'string', format: 'date' },
   subject: text, termOfPayment: text, validity: text,
-  supplyAkura: text, supplyCustomer: text, location: text, accomplished: text, deliveryReports: text,
+  supplyAkura: text, supplyCustomer: text, location: text, accomplished: text, deliveryReports: text, deliveryInvoice: { ...text, nullable: true },
   companyId: { ...uuid, description: 'Selected company. Required when staffId is omitted. Not stored as an editable header; captured in companySnapshot.' },
   staffId: { ...uuid, nullable: true, description: 'Optional contact belonging to the selected company.' },
 };

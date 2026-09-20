@@ -30,6 +30,7 @@ const fields = {
   subject: text, termOfPayment: text, validity: text,
   supplyAkura: text, supplyCustomer: text, location: text,
   accomplished: text, deliveryReports: text,
+  deliveryInvoice: text.nullable().optional(),
   companyId: z.string().uuid().optional(),
   staffId: z.string().uuid().nullable().optional(),
   items,
