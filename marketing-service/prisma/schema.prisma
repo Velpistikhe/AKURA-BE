@@ -256,17 +256,18 @@ model ItemPrice {
 
 enum CompanyContractStatus {
   DRAFT
+  SUBMITTED
+  REJECTED
   APPROVED
-  TERMINATED
   REVISED
-  CANCELED
-  TERMINATE
+  TERMINATED
 
   @@map("company_contract_status")
 }
 
 model CompanyContract {
   status         CompanyContractStatus    @default(DRAFT)
+  isDeleted      Boolean                  @default(false) @map("is_deleted")
   id             String                   @id @default(uuid()) @db.Uuid
   companyId      String                   @map("company_id") @db.Uuid
   company        Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)

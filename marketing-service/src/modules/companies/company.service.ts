@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError.js';
+
 import { normalizeName } from '../../utils/normalizeName.js';
 import { CreateCompanyInput, ListCompaniesInput, UpdateCompanyInput } from './company.schemas.js';
 import { companyRepository } from './company.repository.js';
@@ -18,8 +19,5 @@ export const companyService = {
   },
   async update(id: string, data: UpdateCompanyInput, officeBranchId: string, actor: AuditActor) {
     return companyRepository.update(id, officeBranchId, data, actor);
-  },
-  async delete(id: string, officeBranchId: string, version: number, actor: AuditActor) {
-    return companyRepository.revoke(id, officeBranchId, version, actor);
   },
 };

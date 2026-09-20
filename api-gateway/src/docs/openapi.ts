@@ -1185,11 +1185,6 @@ export const openApiDocument = groupByModule({
           email: { type: 'string', format: 'email', nullable: true, maxLength: 254 },
         },
       },
-      DeactivateCompanyRequest: {
-        type: 'object', required: ['version'], additionalProperties: false,
-        description: 'Current company version for optimistic locking.',
-        properties: { version: { type: 'integer', minimum: 0, example: 0 } },
-      },
       DeactivateCompanyStaffRequest: {
         type: 'object', required: ['version'], additionalProperties: false,
         description: 'Current staff version for optimistic locking.',
@@ -1953,18 +1948,6 @@ export const openApiDocument = groupByModule({
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Company not found'),
           409: errorResponse('Version mismatch, inactive record, or normalized company or staff name already exists'),
-          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
-        },
-      },
-      delete: {
-        tags: ['Marketing'], summary: 'Revoke a company', description: 'Soft deletes the company by setting revoked=true, increments its version, and revokes its active staff records.', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'companyId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        requestBody: { required: true, ...jsonContent(schemaRef('DeactivateCompanyRequest')) },
-        responses: {
-          200: { description: 'Company revoked', ...jsonContent(schemaRef('CompanyResponse')) },
-          400: errorResponse('Invalid company ID or version body'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Marketing access is required'), 404: errorResponse('Company not found'),
-          409: errorResponse('Version mismatch or inactive record'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },

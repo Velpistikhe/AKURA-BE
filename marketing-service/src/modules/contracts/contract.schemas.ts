@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import { versionSchema } from '../items/item.schemas.js';
-export const contractStatusSchema = z.enum(['DRAFT', 'APPROVED', 'TERMINATED', 'REVISED', 'CANCELED', 'TERMINATE']);
+export const contractStatusSchema = z.enum(['DRAFT', 'SUBMITTED', 'REJECTED', 'APPROVED', 'TERMINATED', 'REVISED']);
 const dates = {
   effectiveFrom: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),
   effectiveUntil: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),
 };
 const contractDate = z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`));
-const validPeriod = (value: { effectiveFrom: Date; effectiveUntil: Date }) => value.effectiveUntil > value.effectiveFrom;
+const validPeriod = (value: { effectiveFrom: Date; effectiveUntil: Date }) => value.effectiveUntil >= value.effectiveFrom;
 const validContractDate = (value: { contractDate?: Date; effectiveFrom: Date }) => !value.contractDate || value.contractDate <= value.effectiveFrom;
 const contractDateMessage = 'contractDate must be on or before effectiveFrom';
 export const createContractSchema = z.object({
