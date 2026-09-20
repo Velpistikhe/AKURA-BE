@@ -5,6 +5,8 @@ import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
 import { currentBusinessDate } from '../../utils/businessDate.js';
+import { recordContractHistory } from '../contracts/contract-history.js';
+
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { CatalogEntity, recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
 import { AddItemSizeInput, CreateItemInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema, referenceKey, UpdatePriceInput } from './item.schemas.js';
@@ -30,10 +32,7 @@ const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before:
     ...data, ...(entity === 'COMPANY_CONTRACT' ? contractUpdatedBy(actor) : updatedBy(actor)),
   } });
   await recordCatalogAudit(tx, branch, entity, before, after, actor, action);
-  if (entity === 'COMPANY_CONTRACT') await tx.companyContractHistory.create({ data: {
-    companyContractId: after.id, version: after.version, action,
-    snapshot: JSON.parse(JSON.stringify(after)), createdById: actor.id, createdByName: actor.name,
-  } });
+  if (entity === 'COMPANY_CONTRACT') await recordContractHistory(tx, before, after, actor, action);
   return after;
 };
 const itemInBranch = async (tx: Tx, id: string, branch: string) => {
@@ -62,7 +61,7 @@ const standardPrices = (input: PriceInput, hasMaintenance: boolean) => {
 const contractInBranch = async (tx: Tx, id: string, branch: string) => {
   const today = currentBusinessDate();
   const contract = await tx.companyContract.findFirst({ where: {
-    id, isActive: true, status: 'ACTIVE',
+    id, status: 'APPROVED',
     company: { officeBranchId: branch, revoked: false },
     OR: [
       { effectiveFrom: { lte: today }, effectiveUntil: { gt: today } },
@@ -121,7 +120,7 @@ const closeSizes = async (tx: Tx, branch: string, sizes: Prisma.ItemSizeGetPaylo
     createdById: actor.id, createdByName: actor.name,
   }));
   await tx.itemPrice.updateMany({ where: { id: { in: prices.map(price => price.id) } }, data: { ...closed, version: { increment: 1 } } });
-  await tx.itemSize.updateMany({ where: { id: { in: ids } }, data: { ...closed, activeKey: null, version: { increment: 1 } } });
+  await tx.itemSize.updateMany({ where: { id: { in: ids } }, data: { ...closed, version: { increment: 1 } } });
   const audits = [
     ...rows('ITEM_PRICE', prices, closed, 'DEACTIVATE'),
     ...rows('ITEM_SIZE', sizes, { ...closed, activeKey: null }, 'DEACTIVATE'),

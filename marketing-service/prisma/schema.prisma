@@ -255,16 +255,16 @@ model ItemPrice {
 }
 
 enum CompanyContractStatus {
-  CREATE
-  ACTIVE
-  EXPIRED
-  TERMINATED
+  DRAFT
+  APPROVED
+  CANCELED
+  TERMINATE
 
   @@map("company_contract_status")
 }
 
 model CompanyContract {
-  status         CompanyContractStatus    @default(CREATE)
+  status         CompanyContractStatus    @default(DRAFT)
   id             String                   @id @default(uuid()) @db.Uuid
   companyId      String                   @map("company_id") @db.Uuid
   company        Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -272,7 +272,6 @@ model CompanyContract {
   contractDate   DateTime                 @map("contract_date") @db.Date
   effectiveFrom  DateTime                 @map("effective_from") @db.Date
   effectiveUntil DateTime                 @map("effective_until") @db.Date
-  isActive       Boolean                  @default(true) @map("is_active")
   version        Int                      @default(0)
   createdById    String                   @map("created_by_id") @db.Uuid
   updatedById    String?                  @map("updated_by_id") @db.Uuid
@@ -281,7 +280,7 @@ model CompanyContract {
   prices         CompanyContractPrice[]
   history        CompanyContractHistory[]
 
-  @@index([companyId, isActive, effectiveFrom, effectiveUntil])
+  @@index([companyId, status, effectiveFrom, effectiveUntil])
   @@map("company_contracts")
 }
 

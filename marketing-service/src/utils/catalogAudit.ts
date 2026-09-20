@@ -3,8 +3,8 @@ import { AuditActor } from '../types/auth.types.js';
 import { HttpError } from './httpError.js';
 
 export type CatalogEntity = 'SERVICE' | 'SERVICE_SCOPE' | 'MAINTENANCE_SCOPE' | 'ITEM' | 'ITEM_SIZE' | 'ITEM_PRICE' | 'COMPANY_CONTRACT_PRICE' | 'COMPANY_CONTRACT';
-export const requireCatalogVersion = (row: { version: number; isActive: boolean }, version: number, allowInactive = false) => {
-  if ((!allowInactive && !row.isActive) || row.version !== version) {
+export const requireCatalogVersion = (row: { version: number; isActive?: boolean }, version: number, allowInactive = false) => {
+  if ((!allowInactive && row.isActive === false) || row.version !== version) {
     throw new HttpError('Data has changed or is inactive; reload and submit the current version', 409);
   }
 };

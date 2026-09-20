@@ -9,6 +9,8 @@ import { recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAu
 import { HttpError } from '../../utils/httpError.js';
 import { currentBusinessDate } from '../../utils/businessDate.js';
 import { ExcelImportError, ExcelPriceRow, ExportItemSizesInput, MAX_EXCEL_ROWS } from './contract-excel.schemas.js';
+import { recordContractHistory } from './contract-history.js';
+
 
 export const contractExcelRepository = {
   exportSizes: async (input: ExportItemSizesInput, branch: string) => {
@@ -51,7 +53,7 @@ export const contractExcelRepository = {
     if (!requestedContract) throw new HttpError('Company contract not found in the current branch', 404);
     const now = new Date();
     const today = currentBusinessDate(now);
-    const contractValidity = { status: 'ACTIVE' as const, isActive: true, companyId, effectiveUntil: { gt: today }, company: { officeBranchId: branch, revoked: false } };
+    const contractValidity = { status: 'APPROVED' as const, companyId, effectiveUntil: { gt: today }, company: { officeBranchId: branch, revoked: false } };
     // Prefer the contract valid today. If there is no current contract, import into the earliest future contract.
     const contract = await tx.companyContract.findFirst({
       where: { ...contractValidity, effectiveFrom: { lte: today } },
@@ -95,10 +97,7 @@ export const contractExcelRepository = {
     ] });
     const updated = await tx.companyContract.update({ where: { id: targetContractId, version: contract.version }, data: { updatedAt: now, updatedById: actor.id, version: { increment: 1 } } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', contract, updated, actor, 'IMPORT');
-    await tx.companyContractHistory.create({ data: {
-      companyContractId: updated.id, version: updated.version, action: 'IMPORT',
-      snapshot: JSON.parse(JSON.stringify(updated)), createdById: actor.id, createdByName: actor.name,
-    } });
+    await recordContractHistory(tx, contract, updated, actor, 'IMPORT');
     return { companyId, contractId: targetContractId, version: updated.version, imported: prices.length };
   }, { maxWait: 10000, timeout: 30000 }),
 };

@@ -19,8 +19,9 @@ const selectWithContract = () => ({
   ...select,
   contracts: {
     where: {
-      status: 'ACTIVE',
-      isActive: true,
+      status: 'APPROVED',
+      effectiveFrom: { lte: new Date() },
+      effectiveUntil: { gt: new Date() },
     },
     orderBy: { effectiveFrom: 'asc' as const },
     take: 1,
@@ -94,7 +95,8 @@ export const companyRepository = {
       await lockCompanyBranch(tx, officeBranchId);
       const current = await tx.company.findFirst({ where: { id, officeBranchId } });
       if (!current) throw new HttpError('Company not found', 404);
-      requireCurrentVersion(current, data.version);
+      if (current.revoked) throw new HttpError('Company is already revoked', 409);
+    requireCurrentVersion(current, data.version);
       const normalized = normalizeName(data.name ?? current.name);
       if (await tx.company.findFirst({ where: { normalizeName: normalized, officeBranchId, revoked: false, id: { not: id } } })) {
         throw new HttpError('Company name already exists', 409);
@@ -137,6 +139,11 @@ export const companyRepository = {
       });
       if (!current) throw new HttpError('Company not found', 404);
       requireCurrentVersion(current, version);
+      const openContract = await tx.companyContract.findFirst({
+        where: { companyId: id, status: { in: ['DRAFT', 'APPROVED'] } },
+        select: { id: true, status: true },
+      });
+      if (openContract) throw new HttpError('Company cannot be deleted while it has a draft or approved contract', 409);
       for (const staff of current.staffs) {
         await tx.companyStaff.update({
           where: { id: staff.id }, data: { revoked: true, version: { increment: 1 }, updatedById: actor.id },

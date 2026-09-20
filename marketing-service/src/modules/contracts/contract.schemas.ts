@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { versionSchema } from '../items/item.schemas.js';
-export const contractStatusSchema = z.enum(['CREATE', 'ACTIVE', 'EXPIRED', 'TERMINATED']);
+export const contractStatusSchema = z.enum(['DRAFT', 'APPROVED', 'CANCELED', 'TERMINATE']);
 const dates = {
   effectiveFrom: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),
   effectiveUntil: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),
@@ -15,18 +15,19 @@ export const createContractSchema = z.object({
 }).strict()
   .refine(validPeriod, 'effectiveUntil must be after effectiveFrom')
   .refine(validContractDate, contractDateMessage);
-export const updateContractSchema = versionSchema.extend({
-  contractNumber: z.string().trim().min(1).max(255).optional(), contractDate: contractDate.optional(),
+const contractChangeSchema = versionSchema.extend({
+  contractNumber: z.string().trim().min(1).max(255), contractDate,
   ...dates,
-})
+}).strict()
   .refine(validPeriod, 'effectiveUntil must be after effectiveFrom')
   .refine(validContractDate, contractDateMessage);
+export const updateContractSchema = contractChangeSchema;
+export const reviseContractSchema = contractChangeSchema;
 export const terminateContractSchema = versionSchema.extend({ terminatedAt: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)) }).strict();
 export const contractIdSchema = z.object({ contractId: z.string().uuid() }).strict();
 export const listContractsSchema = z.object({
   companyId: z.string().uuid().optional(), page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  isActive: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
   status: contractStatusSchema.optional(),
 }).strict();
 export type ContractPeriod = z.infer<typeof updateContractSchema>;

@@ -7,7 +7,7 @@ export const priceContext = async (tx: Prisma.TransactionClient, companyId: stri
   const company = await tx.company.findFirst({ where: { id: companyId, officeBranchId: branch, revoked: false } });
   if (!company) throw new HttpError('Company not found', 404);
   const today = currentBusinessDate(now);
-  const contracts = await tx.companyContract.findMany({ where: { companyId, isActive: true, status: 'ACTIVE', effectiveFrom: { lte: today }, effectiveUntil: { gt: today } }, take: 2 });
+  const contracts = await tx.companyContract.findMany({ where: { companyId, status: 'APPROVED', effectiveFrom: { lte: today }, effectiveUntil: { gt: today } }, take: 2 });
   if (contracts.length > 1) throw new HttpError('Multiple current contracts found', 409);
   return { company, contract: contracts.length ? contracts[0] : null };
 };
