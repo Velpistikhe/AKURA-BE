@@ -10,16 +10,20 @@ import { importContractExcelSchema } from './contract-excel.schemas.js';
 import { HttpError } from '../../utils/httpError.js';
 const router = Router();
 const send = (req: Request, res: Response, data: unknown, status = 200) => { res.status(status).json({ status, success: true, data, requestId: req.headers['x-request-id'] }); };
-const requireMarketingAdmin = (res: Response) => {
-  const user = res.locals.authUser;
-  if (!user || user.role !== 'ADMIN' || user.section !== 'MARKETING') throw new HttpError('Marketing admin role is required', 403);
+const requireMarketingSection = (res: Response) => {
+  if (res.locals.authUser?.section !== 'MARKETING') throw new HttpError('Marketing section is required', 403);
 };
+const requireMarketingAdmin = (res: Response) => {
+  if (res.locals.authUser?.role !== 'ADMIN' || res.locals.authUser.section !== 'MARKETING') throw new HttpError('Marketing admin role is required', 403);
+};
+
 router.get('/', validate('query', listContractsSchema), asyncHandler(async (req, res) => { send(req, res, await repository.list(restrictListVisibility(res, res.locals.query), getOfficeBranchId(res))); }));
 router.post('/', validate('body', createContractSchema), asyncHandler(async (req, res) => { const admin = ['ADMIN', 'APP_MANAGER'].includes(res.locals.authUser?.role ?? ''); send(req, res, await repository.create(res.locals.body, getOfficeBranchId(res), getAuditActor(res), admin), 201); }));
 router.post('/:contractId/prices/import', validate('params', contractIdSchema), uploadContractWorkbook, validate('body', importContractExcelSchema), asyncHandler(contractExcelController.upload));
 router.get('/:contractId', validate('params', contractIdSchema), asyncHandler(async (req, res) => { send(req, res, await repository.get(res.locals.params.contractId, getOfficeBranchId(res))); }));
 router.post('/:contractId/approve', validate('params', contractIdSchema), validate('body', versionSchema), asyncHandler(async (req, res) => { requireMarketingAdmin(res); send(req, res, await repository.approve(res.locals.params.contractId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res))); }));
-router.patch('/:contractId', validate('params', contractIdSchema), validate('body', updateContractSchema), asyncHandler(async (req, res) => { requireMarketingAdmin(res); send(req, res, await repository.update(res.locals.params.contractId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); }));
-router.post('/:contractId/revise', validate('params', contractIdSchema), validate('body', reviseContractSchema), asyncHandler(async (req, res) => { requireMarketingAdmin(res); send(req, res, await repository.revise(res.locals.params.contractId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)), 201); }));
-router.post('/:contractId/terminate', validate('params', contractIdSchema), validate('body', terminateContractSchema), asyncHandler(async (req, res) => { requireMarketingAdmin(res); send(req, res, await repository.deactivate(res.locals.params.contractId, res.locals.body.version, res.locals.body.terminatedAt, getOfficeBranchId(res), getAuditActor(res))); }));
+router.patch('/:contractId', validate('params', contractIdSchema), validate('body', updateContractSchema), asyncHandler(async (req, res) => { requireMarketingSection(res); const isAdmin = res.locals.authUser?.role === 'ADMIN'; send(req, res, await repository.update(res.locals.params.contractId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), isAdmin)); }));
+router.post('/:contractId/revise', validate('params', contractIdSchema), validate('body', reviseContractSchema), asyncHandler(async (req, res) => { requireMarketingSection(res); send(req, res, await repository.revise(res.locals.params.contractId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)), 201); }));
+router.post('/:contractId/terminate', validate('params', contractIdSchema), validate('body', terminateContractSchema), asyncHandler(async (req, res) => { requireMarketingAdmin(res); send(req, res, await repository.terminate(res.locals.params.contractId, res.locals.body.version, res.locals.body.terminatedAt, getOfficeBranchId(res), getAuditActor(res))); }));
+router.delete('/:contractId', validate('params', contractIdSchema), validate('body', versionSchema), asyncHandler(async (req, res) => { requireMarketingSection(res); send(req, res, await repository.delete(res.locals.params.contractId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res))); }));
 export default router;

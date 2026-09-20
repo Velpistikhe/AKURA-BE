@@ -50,10 +50,10 @@ export const contractRepository = {
   },
   create: (data: CreateContractInput, branch: string, actor: AuditActor, _isAdmin: boolean) => prisma.$transaction(async tx => {
     await lockCompanyBranch(tx, branch);
-    await company(tx, data.companyId, branch);
-    const existing = await tx.companyContract.findFirst({ where: { companyId: data.companyId, status: { in: ['DRAFT', 'APPROVED'] } } });
+    const owner = await company(tx, data.companyId, branch);
+    const existing = await tx.companyContract.findFirst({ where: { companyId: data.companyId, status: { in: ['DRAFT', 'APPROVED'] }, effectiveUntil: { gt: currentBusinessDate() } } });
     if (existing) throw new HttpError('The company already has a draft or approved contract', 409);
-    const row = await tx.companyContract.create({ data: { ...data, status: 'DRAFT', createdById: actor.id } });
+    const row = await tx.companyContract.create({ data: { ...data, status: 'DRAFT', companySnapshot: JSON.parse(JSON.stringify(owner)), createdById: actor.id } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', null, row, actor, 'CREATE');
     await saveHistory(tx, null, row, actor, 'CREATE');
     return row;
@@ -65,19 +65,31 @@ export const contractRepository = {
     requireCatalogVersion(before, version);
     if (before.status !== 'DRAFT') throw new HttpError('Only contracts with DRAFT status can be approved', 409);
     if (before.effectiveUntil <= currentBusinessDate()) throw new HttpError('Expired contracts cannot be approved', 409);
-    const active = await tx.companyContract.findFirst({ where: { companyId: before.companyId, status: 'APPROVED', effectiveUntil: { gt: currentBusinessDate() } } });
-    if (active) throw new HttpError('The company already has an approved contract', 409);
+    const conflict = await tx.companyContract.findFirst({ where: { companyId: before.companyId, id: { not: id }, status: 'APPROVED', effectiveFrom: { lt: before.effectiveUntil }, effectiveUntil: { gt: before.effectiveFrom } } });
+    if (conflict) throw new HttpError('Approved contract period overlaps another approved contract', 409);
     const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'APPROVED', version: { increment: 1 }, updatedById: actor.id } });
+    if (before.revisionOfId) {
+      const old = await tx.companyContract.findUniqueOrThrow({ where: { id: before.revisionOfId } });
+      const oldUntil = new Date(before.effectiveFrom); oldUntil.setUTCDate(oldUntil.getUTCDate() - 1);
+      const oldAfter = await tx.companyContract.update({ where: { id: old.id, version: old.version }, data: { status: 'REVISED', effectiveUntil: oldUntil, version: { increment: 1 }, updatedById: actor.id } });
+      await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', old, oldAfter, actor, 'REVISED');
+      await saveHistory(tx, old, oldAfter, actor, 'REVISED');
+    }
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'APPROVE');
     await saveHistory(tx, before, after, actor, 'APPROVE');
     return after;
   }),
-  update: (id: string, data: ContractPeriod, branch: string, actor: AuditActor) => prisma.$transaction(async tx => {
+  update: (id: string, data: ContractPeriod, branch: string, actor: AuditActor, isAdmin = true) => prisma.$transaction(async tx => {
     await lockCompanyBranch(tx, branch);
     const before = await tx.companyContract.findFirst({ where: { id, company: { officeBranchId: branch, revoked: false } } });
     if (!before) throw new HttpError('Company contract not found', 404);
     requireCatalogVersion(before, data.version);
-    if (before.status !== 'DRAFT') throw new HttpError('Only draft contracts can be updated', 409);
+    if (before.status === 'APPROVED' && !isAdmin) throw new HttpError('Only marketing admin can update approved contracts', 403);
+    if (!['DRAFT', 'APPROVED'].includes(before.status)) throw new HttpError('Contract status cannot be updated', 409);
+    if (before.status === 'APPROVED') {
+      const conflict = await tx.companyContract.findFirst({ where: { companyId: before.companyId, id: { not: id }, status: { in: ['APPROVED', 'TERMINATED'] }, effectiveFrom: { lt: data.effectiveUntil }, effectiveUntil: { gt: data.effectiveFrom } } });
+      if (conflict) throw new HttpError('Contract period overlaps another contract', 409);
+    }
     const after = await tx.companyContract.update({ where: { id, version: data.version }, data: {
       contractNumber: data.contractNumber, contractDate: data.contractDate,
       effectiveFrom: data.effectiveFrom, effectiveUntil: data.effectiveUntil,
@@ -114,24 +126,36 @@ export const contractRepository = {
       await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', contract, closed, actor, 'REVISED');
       await saveHistory(tx, contract, closed, actor, 'REVISED');
     }
-    const replacement = await tx.companyContract.create({ data: {
-      companyId: before.companyId, contractNumber: period.contractNumber, contractDate: period.contractDate,
-      effectiveFrom: period.effectiveFrom, effectiveUntil: period.effectiveUntil, status: 'APPROVED', createdById: actor.id,
+    const row = await tx.companyContract.create({ data: {
+      companyId: before.companyId, contractNumber: data.contractNumber, contractDate: data.contractDate,
+      effectiveFrom: data.effectiveFrom, effectiveUntil: data.effectiveUntil, status: 'DRAFT',
+      companySnapshot: before.companySnapshot ?? Prisma.DbNull, revisionOfId: before.id, createdById: actor.id,
     } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', null, replacement, actor, 'REVISED');
-    await saveHistory(tx, null, replacement, actor, 'REVISED');
-    return replacement;
+    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', null, row, actor, 'REVISE');
+    await saveHistory(tx, null, row, actor, 'REVISE');
+    return row;
   }),
-  deactivate: (id: string, version: number, terminatedAt: Date, branch: string, actor: AuditActor) => prisma.$transaction(async tx => {
+  terminate: (id: string, version: number, terminatedAt: Date, branch: string, actor: AuditActor) => prisma.$transaction(async tx => {
     await lockCompanyBranch(tx, branch);
     const before = await tx.companyContract.findFirst({ where: { id, company: { officeBranchId: branch, revoked: false } } });
     if (!before) throw new HttpError('Company contract not found', 404);
     requireCatalogVersion(before, version);
     if (before.status !== 'APPROVED') throw new HttpError('Only approved contracts can be terminated', 409);
     if (terminatedAt <= before.effectiveFrom || terminatedAt > before.effectiveUntil) throw new HttpError('terminatedAt must be after effectiveFrom and not after effectiveUntil', 400);
-    const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'TERMINATE', effectiveUntil: terminatedAt, version: { increment: 1 }, updatedById: actor.id } });
+    const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'TERMINATED', effectiveUntil: terminatedAt, version: { increment: 1 }, updatedById: actor.id } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DEACTIVATE');
     await saveHistory(tx, before, after, actor, 'TERMINATE');
+    return after;
+  }),
+  delete: (id: string, version: number, branch: string, actor: AuditActor) => prisma.$transaction(async tx => {
+    await lockCompanyBranch(tx, branch);
+    const before = await tx.companyContract.findFirst({ where: { id, company: { officeBranchId: branch, revoked: false } } });
+    if (!before) throw new HttpError('Company contract not found', 404);
+    requireCatalogVersion(before, version);
+    if (before.status !== 'DRAFT') throw new HttpError('Only DRAFT contracts can be deleted', 409);
+    const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'CANCELED', version: { increment: 1 }, updatedById: actor.id } });
+    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DELETE');
+    await saveHistory(tx, before, after, actor, 'DELETE');
     return after;
   }),
 };

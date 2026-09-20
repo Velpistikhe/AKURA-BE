@@ -47,8 +47,8 @@ model Company {
   createdById String? @map("created_by_id") @db.Uuid
   updatedById String? @map("updated_by_id") @db.Uuid
 
+  @@unique([officeBranchId, normalizeName])
   @@index([revoked])
-  @@index([officeBranchId])
   @@map("companies")
 }
 
@@ -257,6 +257,8 @@ model ItemPrice {
 enum CompanyContractStatus {
   DRAFT
   APPROVED
+  TERMINATED
+  REVISED
   CANCELED
   TERMINATE
 
@@ -275,12 +277,15 @@ model CompanyContract {
   version        Int                      @default(0)
   createdById    String                   @map("created_by_id") @db.Uuid
   updatedById    String?                  @map("updated_by_id") @db.Uuid
+  companySnapshot Json?                   @map("company_snapshot")
+  revisionOfId   String?                  @map("revision_of_id") @db.Uuid
   createdAt      DateTime                 @default(now()) @map("created_at")
   updatedAt      DateTime                 @updatedAt @map("updated_at")
   prices         CompanyContractPrice[]
   history        CompanyContractHistory[]
 
   @@index([companyId, status, effectiveFrom, effectiveUntil])
+  @@index([revisionOfId])
   @@map("company_contracts")
 }
 
@@ -412,7 +417,7 @@ model Quotation {
   location            String             @db.VarChar(255)
   accomplished        String             @db.VarChar(255)
   deliveryReports     String             @map("delivery_reports") @db.VarChar(255)
-  deliveryInvoice     String?            @map("delivery_invoice") @db.VarChar(255)
+  deliveryInvoice     String             @map("delivery_invoice") @db.VarChar(255)
   staffId             String?            @map("staff_id") @db.Uuid
   staff               CompanyStaff?      @relation(fields: [staffId], references: [id], onDelete: Restrict)
   /// Company staff name captured independently of later staff edits.

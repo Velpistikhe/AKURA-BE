@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { versionSchema } from '../items/item.schemas.js';
-export const contractStatusSchema = z.enum(['DRAFT', 'APPROVED', 'CANCELED', 'TERMINATE']);
+export const contractStatusSchema = z.enum(['DRAFT', 'APPROVED', 'TERMINATED', 'REVISED', 'CANCELED', 'TERMINATE']);
 const dates = {
   effectiveFrom: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),
   effectiveUntil: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),

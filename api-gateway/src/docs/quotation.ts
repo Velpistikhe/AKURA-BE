@@ -15,7 +15,7 @@ const audit = {
   createdById: { ...uuid, readOnly: true }, updatedById: { ...uuid, nullable: true, readOnly: true },
   createdAt: timestamp, updatedAt: timestamp,
 };
-const requiredHeader = ['inquiryMethod', 'inquiryDate', 'subject', 'termOfPayment', 'validity', 'supplyAkura', 'supplyCustomer', 'location', 'accomplished', 'deliveryReports'];
+const requiredHeader = ['inquiryMethod', 'inquiryDate', 'subject', 'termOfPayment', 'validity', 'supplyAkura', 'supplyCustomer', 'location', 'accomplished', 'deliveryReports', 'deliveryInvoice'];
 const envelope = (data: object) => ({
   type: 'object', required: ['status', 'success', 'message', 'data'],
   properties: { status: { type: 'integer' }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' }, data, requestId: uuid },
