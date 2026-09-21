@@ -245,7 +245,7 @@ export const catalogPaths = {
   [`${root}/company-contracts/{contractId}/revise`]: {
     post: operation('Revise company contract', 'CompanyContractResponse', [path('contractId')], 'ReviseCompanyContractRequest', 201, 'Creates a DRAFT revision. Approval closes the original one day before the new effectiveFrom and marks it REVISED.'),
   },
-  [`${root}/company-contracts/{contractId}/submit`]: { post: operation('Submit company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Changes DRAFT to SUBMITTED. Marketing USER or ADMIN may submit within the authenticated branch.') },
+  [`${root}/company-contracts/{contractId}/submit`]: { post: operation('Submit company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Changes DRAFT or REJECTED to SUBMITTED. The contract must contain at least one active contract item price. Marketing USER or ADMIN may submit within the authenticated branch.') },
   [`${root}/company-contracts/{contractId}/reject`]: { post: operation('Reject submitted company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Changes SUBMITTED to REJECTED. Only ADMIN in MARKETING may reject within the authenticated branch.') },
 
   [`${root}/company-contracts/{contractId}/terminate`]: {

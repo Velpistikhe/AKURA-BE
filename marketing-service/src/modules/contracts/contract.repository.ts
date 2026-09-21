@@ -65,7 +65,9 @@ export const contractRepository = {
     const before = await tx.companyContract.findFirst({ where: { id, isDeleted: false, company: { officeBranchId: branch, revoked: false } } });
     if (!before) throw new HttpError('Company contract not found', 404);
     requireCatalogVersion(before, version);
-    if (before.status !== 'DRAFT') throw new HttpError('Only DRAFT contracts can be submitted', 409);
+    if (before.status !== 'DRAFT' && before.status !== 'REJECTED') throw new HttpError('Only DRAFT or REJECTED contracts can be submitted', 409);
+    const contractPrice = await tx.companyContractPrice.findFirst({ where: { contractId: before.id, isActive: true }, select: { id: true } });
+    if (!contractPrice) throw new HttpError('At least one active contract item price is required before submission', 409);
     const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'SUBMITTED', version: { increment: 1 }, updatedById: actor.id } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'SUBMIT');
     await saveHistory(tx, before, after, actor, 'SUBMIT');
