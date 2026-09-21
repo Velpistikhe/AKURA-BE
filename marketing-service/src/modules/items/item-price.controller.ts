@@ -9,11 +9,6 @@ import { itemHistoryRepository } from './item-history.repository.js';
 const send = (req: Request, res: Response, data: unknown, status = 200) => {
   res.status(status).json({ status, success: true, data, requestId: req.headers['x-request-id'] });
 };
-const requireMarketingAdmin = (res: Response): void => {
-  const user = res.locals.authUser;
-  if (!user) throw new HttpError('Authenticated user is required', 401);
-  if (user.role !== 'ADMIN' || user.section !== 'MARKETING') throw new HttpError('ADMIN role with MARKETING section is required', 403);
-};
 
 export const itemPriceController = {
   itemHistory: async (req: Request, res: Response) => { send(req, res, await itemHistoryRepository.read('ITEM', res.locals.params.itemId, getOfficeBranchId(res), res.locals.query)); },
@@ -22,6 +17,10 @@ export const itemPriceController = {
   resolvedPrices: async (req: Request, res: Response) => {
     const branch = getOfficeBranchId(res);
     send(req, res, await itemRepository.listSizes(res.locals.query, branch, res.locals.query.companyId, true));
+  },
+  contractPriceOptions: async (req: Request, res: Response) => {
+    const branch = getOfficeBranchId(res);
+    send(req, res, await itemRepository.listContractPriceOptions(res.locals.query, res.locals.params.contractId, branch));
   },
   updateItem: async (req: Request, res: Response) => { send(req, res, await writes.updateItem(res.locals.params.itemId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   createPrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true), 201); },
@@ -32,7 +31,7 @@ export const itemPriceController = {
     const result = await writes.upsertContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res));
     send(req, res, result.price, result.created ? 201 : 200);
   },
-  updateContract: async (req: Request, res: Response) => { requireMarketingAdmin(res); send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
+  updateContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   removeContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true)); },
   getPrice: async (req: Request, res: Response) => {
     const branch = getOfficeBranchId(res);

@@ -7,7 +7,7 @@ import { contractPriceHistoryParamsSchema, contractPriceHistoryQuerySchema, list
 
 const router = Router();
 router.get('/', validate('query', listContractPricesSchema), asyncHandler(async (req, res) => {
-  const data = await contractPriceHistoryRepository.listPrices(restrictListVisibility(res, res.locals.query), getOfficeBranchId(res));
+  const data = await contractPriceHistoryRepository.listPrices({ ...restrictListVisibility(res, res.locals.query), isActive: true }, getOfficeBranchId(res));
   res.status(200).json({ status: 200, success: true, data, requestId: req.headers['x-request-id'] });
 }));
 router.get('/:contractPriceId/history', validate('params', contractPriceHistoryParamsSchema), validate('query', contractPriceHistoryQuerySchema), asyncHandler(async (req, res) => {

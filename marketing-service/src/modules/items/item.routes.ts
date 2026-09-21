@@ -13,6 +13,8 @@ import {
   itemSizeIdSchema,
   listItemSizesSchema,
   listContractItemSizesSchema,
+  listContractPriceOptionsSchema,
+  contractPriceOptionsParamsSchema,
   listItemsSchema,
 } from './item.schemas.js';
 
@@ -26,6 +28,8 @@ router.patch('/sizes/:itemSizeId/price', validate('params', itemSizeIdSchema), v
 router.delete('/sizes/:itemSizeId/price', validate('params', itemSizeIdSchema), validate('body', versionSchema), asyncHandler(prices.removePrice));
 router.put('/sizes/:itemSizeId/contract-prices', validate('params', itemSizeIdSchema), validate('body', upsertContractPriceSchema), asyncHandler(prices.upsertContract));
 router.get('/sizes', validate('query', listItemSizesSchema), asyncHandler(itemController.listSizes));
+router.get('/sizes/contract-price-options/:contractId', validate('params', contractPriceOptionsParamsSchema), validate('query', listContractPriceOptionsSchema), asyncHandler(prices.contractPriceOptions));
+
 router.get('/sizes/export', validate('query', exportItemSizesSchema), asyncHandler(contractExcelController.download));
 router.get('/sizes/prices', validate('query', listContractItemSizesSchema), asyncHandler(prices.resolvedPrices));
 router.post('/sizes', validate('body', addItemSizeSchema), asyncHandler(itemController.addSize));

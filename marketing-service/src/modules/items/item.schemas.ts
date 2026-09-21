@@ -28,6 +28,10 @@ export const listContractItemSizesSchema = listItemSizesSchema.extend({
     : undefined,
 }));
 export type ListContractItemSizesInput = z.infer<typeof listContractItemSizesSchema>;
+export const contractPriceOptionsParamsSchema = z.object({ contractId: z.string().uuid() }).strict();
+export type ContractPriceOptionsParams = z.infer<typeof contractPriceOptionsParamsSchema>;
+export const listContractPriceOptionsSchema = listItemSizesSchema;
+export type ListContractPriceOptionsInput = z.infer<typeof listContractPriceOptionsSchema>;
 
 // Do not coerce null, blank strings or booleans to zero.
 const price = z.union([z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER / 100), z.string().regex(/^\d{1,16}(\.\d{1,2})?$/)])

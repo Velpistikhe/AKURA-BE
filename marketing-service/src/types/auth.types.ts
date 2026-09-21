@@ -29,6 +29,8 @@ export interface AuthUser {
 export interface AuditActor {
   id: string;
   name: string;
+  role?: string;
+  section?: string | null;
 }
 
 declare global {

@@ -14,6 +14,8 @@ export const getAuditActor = (res: Response): AuditActor => {
   return {
     id: user.id,
     name: `${user.firstName} ${user.lastName}`.trim() || user.username,
+    role: user.role,
+    section: user.section,
   };
 };
 

@@ -4,7 +4,6 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
-import { currentBusinessDate } from '../../utils/businessDate.js';
 import { recordContractHistory } from '../contracts/contract-history.js';
 
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
@@ -58,17 +57,19 @@ const standardPrices = (input: PriceInput, hasMaintenance: boolean) => {
   }
   return { ...parsed.data, priceServiceSisterCompany: parsed.data.priceServiceSisterCompany ?? null, priceMaintenancePrimary: parsed.data.priceMaintenancePrimary ?? null, priceMaintenanceSisterCompany: parsed.data.priceMaintenanceSisterCompany ?? null };
 };
-const contractInBranch = async (tx: Tx, id: string, branch: string) => {
-  const today = currentBusinessDate();
+const contractInBranch = async (tx: Tx, id: string, branch: string, actor: AuditActor) => {
   const contract = await tx.companyContract.findFirst({ where: {
-    id, status: 'APPROVED',
+    id,
+    isDeleted: false,
+    status: { in: ['DRAFT', 'REJECTED', 'SUBMITTED', 'APPROVED'] },
     company: { officeBranchId: branch, revoked: false },
-    OR: [
-      { effectiveFrom: { lte: today }, effectiveUntil: { gt: today } },
-      { effectiveFrom: { gt: today }, effectiveUntil: { gt: today } },
-    ],
   } });
-  if (!contract) throw new HttpError('Only current or future active contracts can receive prices', 409);
+  if (!contract) throw new HttpError('Only DRAFT, REJECTED, SUBMITTED or APPROVED contracts can receive or remove prices', 409);
+  if (contract.status === 'SUBMITTED' || contract.status === 'APPROVED') {
+    if (actor.role !== 'ADMIN' || actor.section !== 'MARKETING') throw new HttpError('ADMIN role with MARKETING section is required for this contract status', 403);
+  } else if (actor.section !== 'MARKETING') {
+    throw new HttpError('Marketing section is required', 403);
+  }
   return contract;
 };
 const contractPrices = (input: ContractPriceInput, hasMaintenance: boolean) => {
@@ -132,13 +133,19 @@ const closeSizes = async (tx: Tx, branch: string, sizes: Prisma.ItemSizeGetPaylo
 
 const createContract = async (tx: Tx, id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => {
     const { size, item } = await sizeInBranch(tx, id, branch);
-    const contract = await contractInBranch(tx, data.contractId, branch);
+    const contract = await contractInBranch(tx, data.contractId, branch, actor);
     const prices = contractPrices(data, item.service?.hasMaintenance ?? false);
-    if (await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, isActive: true } })) {
-      throw new HttpError('An active contract price already exists for this item', 409);
-    }
-    const result = await tx.companyContractPrice.create({ data: { itemSizeId: id, ...prices, catalogSnapshot: catalogSnapshot({ ...size, item }), ...createdBy(actor) } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
+    const existing = await tx.companyContractPrice.findUnique({ where: { contractId_itemSizeId: { contractId: data.contractId, itemSizeId: id } } });
+    if (existing?.isActive) throw new HttpError('An active contract price already exists for this item', 409);
+    const result = existing
+      ? await change(tx, branch, 'COMPANY_CONTRACT_PRICE', existing, {
+          ...prices,
+          isActive: true,
+          effectiveUntil: null,
+          effectiveFrom: new Date(),
+        }, actor, 'REACTIVATE')
+      : await tx.companyContractPrice.create({ data: { itemSizeId: id, ...prices, catalogSnapshot: catalogSnapshot({ ...size, item }), ...createdBy(actor) } });
+    if (!existing) await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
     await change(tx, branch, 'COMPANY_CONTRACT', contract, {}, actor, 'PRICE_UPDATE');
     await bumpSize(tx, branch, size, item, actor);
     return result;
@@ -148,7 +155,7 @@ const changeContract = async (tx: Tx, id: string, data: { version: number; price
     if (!before) throw new HttpError('Contract price not found', 404);
     const { size, item } = await sizeInBranch(tx, before.itemSizeId, branch);
     requireCatalogVersion(before, data.version);
-    const contract = await contractInBranch(tx, before.contractId, branch);
+    const contract = await contractInBranch(tx, before.contractId, branch, actor);
     const prices = remove ? {} : contractPrices({
       contractId: before.contractId,
       priceService: data.priceService ?? before.priceService.toString(),

@@ -6,6 +6,8 @@ import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 import { buildListQuery, buildPagination, defineSortRules } from '../../utils/listQuery.js';
 import { CreateCompanyInput, ListCompaniesInput, UpdateCompanyInput } from './company.schemas.js';
+import { formatContractDates } from '../../utils/dateOnly.js';
+
 import { AuditActor } from '../../types/auth.types.js';
 
 const select = {
@@ -33,7 +35,7 @@ const withCurrentContract = ({ contracts, ...company }: Prisma.CompanyGetPayload
   ...company,
   contract: company.revoked || !contracts[0] ? null : (() => {
     const { _count, ...contract } = contracts[0];
-    return { ...contract, hasList: _count.prices > 0 };
+    return formatContractDates({ ...contract, hasList: _count.prices > 0 });
   })(),
 });
 

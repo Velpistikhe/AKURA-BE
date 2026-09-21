@@ -7,6 +7,8 @@ import { recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAu
 import { currentBusinessDate } from '../../utils/businessDate.js';
 import { recordContractHistory } from './contract-history.js';
 
+import { formatContractDates } from '../../utils/dateOnly.js';
+
 import { ContractPeriod, CreateContractInput, ListContractsInput } from './contract.schemas.js';
 
 const company = async (tx: Prisma.TransactionClient, id: string, branch: string) => {
@@ -40,13 +42,13 @@ export const contractRepository = {
     const where = { ...(input.companyId ? { companyId: input.companyId } : {}), isDeleted: false, status: input.status, company: { officeBranchId: branch, revoked: false } } satisfies Prisma.CompanyContractWhereInput;
     const contracts = await tx.companyContract.findMany({ where, orderBy: [{ effectiveFrom: 'desc' }, { id: 'asc' }], skip: (input.page - 1) * input.limit, take: input.limit, include: { _count: { select: { prices: true } } } });
     const total = await tx.companyContract.count({ where });
-    return { contracts: contracts.map(({ _count, ...contract }) => ({ ...contract, hasList: _count.prices > 0 })), pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) } };
+    return { contracts: contracts.map(({ _count, ...contract }) => formatContractDates({ ...contract, hasList: _count.prices > 0 })), pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) } };
   }, { isolationLevel: 'RepeatableRead' }),
   get: async (id: string, branch: string) => {
     const contract = await prisma.companyContract.findFirst({ where: { id, company: { officeBranchId: branch, revoked: false } }, include: { _count: { select: { prices: true } } } });
     if (!contract) throw new HttpError('Company contract not found', 404);
     const { _count, ...data } = contract;
-    return { ...data, hasList: _count.prices > 0 };
+    return formatContractDates({ ...data, hasList: _count.prices > 0 });
   },
   create: (data: CreateContractInput, branch: string, actor: AuditActor, _isAdmin: boolean) => prisma.$transaction(async tx => {
     await lockCompanyBranch(tx, branch);

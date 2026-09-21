@@ -53,19 +53,25 @@ export const contractExcelRepository = {
     if (!requestedContract) throw new HttpError('Company contract not found in the current branch', 404);
     const now = new Date();
     const today = currentBusinessDate(now);
-    const contractValidity = { status: 'APPROVED' as const, companyId, effectiveUntil: { gt: today }, company: { officeBranchId: branch, revoked: false } };
-    // Prefer the contract valid today. If there is no current contract, import into the earliest future contract.
-    const contract = await tx.companyContract.findFirst({
-      where: { ...contractValidity, effectiveFrom: { lte: today } },
-      orderBy: [{ effectiveFrom: 'desc' }, { id: 'asc' }],
-    }) ?? await tx.companyContract.findFirst({
-      where: { ...contractValidity, effectiveFrom: { gt: today } },
-      orderBy: [{ effectiveFrom: 'asc' }, { id: 'asc' }],
-    });
+    // A requested DRAFT is the explicit upload target. This prevents the old
+    // active-contract resolver from silently importing rows into another contract.
+    // Keep the APPROVED resolver for existing callers that use the endpoint as a
+    // company-level import and for backward compatibility.
+    const contract = requestedContract.status === 'DRAFT'
+      ? requestedContract
+      : await tx.companyContract.findFirst({
+        where: { status: 'APPROVED', companyId, effectiveUntil: { gt: today }, company: { officeBranchId: branch, revoked: false }, effectiveFrom: { lte: today } },
+        orderBy: [{ effectiveFrom: 'desc' }, { id: 'asc' }],
+      }) ?? await tx.companyContract.findFirst({
+        where: { status: 'APPROVED', companyId, effectiveUntil: { gt: today }, company: { officeBranchId: branch, revoked: false }, effectiveFrom: { gt: today } },
+        orderBy: [{ effectiveFrom: 'asc' }, { id: 'asc' }],
+      });
     if (!contract) throw new HttpError('No active or future contract is available for price imports', 409);
     requireCatalogVersion(contract, version);
     const targetContractId = contract.id;
     const ids = rows.map(row => row.itemSizeId);
+    const duplicateRows = new Map<string, number[]>();
+    for (const row of rows) duplicateRows.set(row.itemSizeId, [...(duplicateRows.get(row.itemSizeId) ?? []), row.row]);
     const sizes = await tx.itemSize.findMany({ where: { id: { in: ids }, isActive: true, item: { officeBranchId: branch, isActive: true } }, include: { item: { include: { service: true } } } });
     const byId = new Map(sizes.map(size => [size.id, size]));
     const existing = new Set((await tx.companyContractPrice.findMany({ where: { contractId: targetContractId, itemSizeId: { in: ids } }, select: { itemSizeId: true } })).map(price => price.itemSizeId));
@@ -73,6 +79,8 @@ export const contractExcelRepository = {
     let stale = false;
     for (const row of rows) {
       const size = byId.get(row.itemSizeId);
+      const duplicateRowsForItem = duplicateRows.get(row.itemSizeId) ?? [];
+      if (duplicateRowsForItem.length > 1) errors.push({ row: row.row, message: `Duplicate item in upload; rows ${duplicateRowsForItem.join(', ')} contain the same item` });
       if (!size) { errors.push({ row: row.row, message: 'Size is missing, inactive or outside the current branch' }); continue; }
       if (size.version !== row.sizeVersion) {
         stale = true; errors.push({ row: row.row, message: 'Size changed after export; download a new template' });
@@ -84,7 +92,7 @@ export const contractExcelRepository = {
     const metadata = { createdAt: now, updatedAt: now, createdById: actor.id, createdByName: actor.name, updatedById: null, updatedByName: null, version: 0 };
     const prices = rows.map(row => ({ id: randomUUID(), contractId: targetContractId, itemSizeId: row.itemSizeId, catalogSnapshot: catalogSnapshot(byId.get(row.itemSizeId)!),
       priceService: new Prisma.Decimal(row.priceService), priceMaintenance: row.priceMaintenance === null ? null : new Prisma.Decimal(row.priceMaintenance),
-      isActive: true, effectiveFrom: now, effectiveUntil: null, ...metadata,
+      isActive: true, effectiveFrom: contract.status === 'DRAFT' ? contract.effectiveFrom : now, effectiveUntil: contract.status === 'DRAFT' ? contract.effectiveUntil : null, ...metadata,
     }));
     await tx.companyContractPrice.createMany({ data: prices });
     const audit = (entityType: string, before: unknown, after: { id: string; version: number }, action: string) => ({

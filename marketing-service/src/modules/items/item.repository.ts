@@ -2,7 +2,7 @@ import { priceContext, quotationOptions } from './quotation-price.js';
 import { Prisma } from '@prisma/client';
 import { defineSortRules, findAll } from '../../utils/listQuery.js';
 import { prisma } from '../../config/db.js';
-import { AddItemSizeInput, CreateItemInput, ListItemsInput, ListItemSizesInput } from './item.schemas.js';
+import { AddItemSizeInput, ListItemsInput, ListItemSizesInput, ListContractPriceOptionsInput } from './item.schemas.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
 import { itemWriteRepository } from './item-write.repository.js';
@@ -130,8 +130,51 @@ export const itemRepository = {
     };
     }, { isolationLevel: 'RepeatableRead' });
   },
-  create: (data: CreateItemInput, branch: string, actor: AuditActor) => itemWriteRepository.create(data, branch, actor).then(flattenItemPrices),
+  async listContractPriceOptions(input: ListContractPriceOptionsInput, contractId: string, branch: string) {
+    return prisma.$transaction(async tx => {
+      const contract = await tx.companyContract.findFirst({
+        where: { id: contractId, isDeleted: false, company: { officeBranchId: branch, revoked: false } },
+        select: { id: true },
+      });
+      if (!contract) throw new HttpError('Company contract not found in the current branch', 404);
+
+      const serviceLabel = Prisma.sql`COALESCE(svc.name, '')`;
+      const conditions = [
+        Prisma.sql`i.office_branch_id = ${branch}::uuid`,
+        Prisma.sql`i.is_active = true`,
+        Prisma.sql`s.is_active = true`,
+        Prisma.sql`(svc.id IS NULL OR svc.is_active = true)`,
+        Prisma.sql`NOT EXISTS (SELECT 1 FROM company_contract_prices cp WHERE cp.contract_id = ${contractId}::uuid AND cp.item_size_id = s.id AND cp.is_active = true)`,
+      ];
+      if (input.itemId) conditions.push(Prisma.sql`i.id = ${input.itemId}::uuid`);
+      if (input.notIn?.length) conditions.push(Prisma.sql`s.id::text NOT IN (${Prisma.join(input.notIn)})`);
+      if (input.size) conditions.push(Prisma.sql`strpos(lower(COALESCE(s.size, '')), lower(${input.size})) > 0`);
+      if (input.itemName) conditions.push(Prisma.sql`strpos(lower(i.name), lower(${input.itemName})) > 0`);
+      if (input.serviceName) conditions.push(Prisma.sql`strpos(lower(${serviceLabel}), lower(${input.serviceName})) > 0`);
+      const where = Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`;
+      const order = input.sortBy === 'size'
+        ? Prisma.sql`s.size ${input.sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`}`
+        : Prisma.sql`s.created_at DESC`;
+      const [rows, count] = await Promise.all([
+        tx.$queryRaw<Array<{ id: string; itemId: string; size: string | null; version: number; itemName: string; serviceName: string | null }>>(Prisma.sql`
+          SELECT s.id, s.item_id AS "itemId", s.size, s.version, i.name AS "itemName", svc.name AS "serviceName"
+          FROM item_sizes s
+          JOIN items i ON i.id = s.item_id
+          LEFT JOIN services svc ON svc.id = i.service_id
+          ${where}
+          ORDER BY ${order}, s.id ASC
+          LIMIT ${input.limit} OFFSET ${(input.page - 1) * input.limit}`),
+        tx.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT count(*) AS total FROM item_sizes s JOIN items i ON i.id = s.item_id LEFT JOIN services svc ON svc.id = i.service_id ${where}`),
+      ]);
+      const total = Number(count[0]?.total ?? 0n);
+      return { sizes: rows, pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) } };
+    }, { isolationLevel: 'RepeatableRead' });
+  },
+
+  create: (data: import('./item.schemas.js').CreateItemInput, branch: string, actor: AuditActor) => itemWriteRepository.create(data, branch, actor).then(flattenItemPrices),
+
   addSize: (data: AddItemSizeInput, branch: string, actor: AuditActor) => itemWriteRepository.addSize(data, branch, actor).then(flattenSizePrice),
+
   removeSize: (id: string, branch: string, actor: AuditActor, version: number) => itemWriteRepository.removeSize(id, branch, actor, version).then(flattenSizePrice),
   remove: (id: string, branch: string, actor: AuditActor, version: number) => itemWriteRepository.remove(id, branch, actor, version).then(flattenItemPrices),
 };
