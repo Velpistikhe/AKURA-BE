@@ -73,13 +73,13 @@ async function main() {
     assert.equal(priceCreates.filter(r => r.status === 201).length, 1);
     assert.equal(priceCreates.filter(r => r.status === 409).length, 11);
     assert.equal(await prisma.itemSize.count({ where: { itemId: item.id } }), sizeCount);
-    let price = await ok('GET', `/sizes/${large.id}/price`);
+    let price = await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: large.id } });
     for (const value of [null, '', false, -1, '1.001']) assert.equal((await request('PATCH', `/sizes/${large.id}/price`, { version: price.version, priceServicePrimary: value })).status, 400);
     assert.equal((await request('PATCH', `/sizes/${large.id}/price`, { version: price.version })).status, 400);
     const updates = await pool(Array.from({ length: 16 }, (_, i) => () => request('PATCH', `/sizes/${large.id}/price`, { version: price.version, priceServicePrimary: String(200 + i) })));
     assert.equal(updates.filter(r => r.status === 200).length, 1);
     assert.equal(updates.filter(r => r.status === 409).length, 15);
-    price = await ok('GET', `/sizes/${large.id}/price`);
+    price = await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: large.id } });
     assert.equal(price.priceServiceSisterCompany, '80');
     assert.equal(price.priceMaintenancePrimary, '20');
     const preserved = price.priceServicePrimary;
@@ -132,7 +132,7 @@ async function main() {
     assert.equal((await request('GET', `/${item.id}/history?limit=101`)).status, 400);
     // A price update racing size deletion must never leave an active child of an inactive size.
     let deleteTarget = await ok('GET', `/sizes/${small.id}`);
-    const targetPrice = await ok('GET', `/sizes/${small.id}/price`);
+    const targetPrice = (await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: small.id } }));
     const priceDeleteRace = await Promise.all([
       request('DELETE', `/sizes/${small.id}`, { version: deleteTarget.version }),
       request('PATCH', `/sizes/${small.id}/price`, { version: targetPrice.version, priceServicePrimary: '777' }),

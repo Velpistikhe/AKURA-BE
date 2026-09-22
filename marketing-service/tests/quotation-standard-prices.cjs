@@ -2,7 +2,8 @@
 const {prisma}=require('../dist/config/db.js');const {itemRepository}=require('../dist/modules/items/item.repository.js');const {quotationRepository}=require('../dist/modules/quotations/quotation.repository.js');
 async function main(){const branch=randomUUID(),otherBranch=randomUUID(),actor={id:randomUUID(),name:'Standard quotation test'},audit={createdById:actor.id,createdByName:actor.name};const branches=[branch,otherBranch];
 try{
-const companies=[];for(const b of [branch,branch,otherBranch])companies.push(await prisma.company.create({data:{officeBranchId:b,name:'Customer',normalizeName:randomUUID(),type:'PT',npwp:'1',address:'Jakarta'}}));const [company,otherCompany,foreign]=companies;
+const quotationDefaults = { jobStart: '2026-10-01' };
+const companies=[];for(const b of [branch,branch,otherBranch])companies.push(await prisma.company.create({data:{officeBranchId:b,name:'Customer',normalizeName:randomUUID(),type:'PT',npwp:'1',address:'Jakarta',staffs:{create:{name:'Contact',normalizeName:randomUUID(),title:'mr'}}},include:{staffs:true}}));const [company,otherCompany,foreign]=companies;
 const svc=await prisma.service.create({data:{officeBranchId:branch,name:'Inspection',type:'TUBULAR',hasMaintenance:true,...audit}});
 const item=await prisma.item.create({data:{officeBranchId:branch,serviceId:svc.id,name:'Pipe',uom:'JOINT',...audit}});const sizes=[];
 for(const label of ['Contract','Standard','Other company','Other branch','Unavailable'])sizes.push(await prisma.itemSize.create({data:{itemId:item.id,size:label,...audit,price:label==='Unavailable'?undefined:{create:{priceServicePrimary:'100',priceServiceSisterCompany:'80',priceMaintenancePrimary:'20',priceMaintenanceSisterCompany:'10',...audit}}}}));
@@ -16,7 +17,7 @@ await assert.rejects(options({},otherBranch,company.id),e=>e.statusCode===404);
 // A disabled contract price is still a member of the current contract and remains excluded.
 await prisma.companyContractPrice.updateMany({where:{contractId:contracts[0].id},data:{isActive:false}});assert.equal((await options()).sizes.some(x=>x.id===sizes[0].id),false);
 await prisma.taxCache.create({data:{id:randomUUID(),officeBranchId:branch,percentage:'11',effectiveFrom:new Date('2000-01-01'),sourceUpdatedAt:new Date()}});
-const quoteInput={companyId:company.id,inquiryMethod:'EMAIL',inquiryDate:'2026-01-01',subject:'Normal pricing',termOfPayment:'30 days',validity:'30 days',supplyAkura:'Tools',supplyCustomer:'Access',location:'Jakarta',accomplished:'7 days',deliveryReports:'PDF',items:[{itemSizeId:sizes[1].id,quantityInspection:'2',quantityMaintenance:'1'}]};
+const quoteInput={...quotationDefaults,companyId:company.id,inquiryMethod:'EMAIL',inquiryDate:'2026-01-01',subject:'Normal pricing',termOfPayment:'30 days',validity:'30 days',supplyAkura:'Tools',supplyCustomer:'Access',location:'Jakarta',accomplished:'7 days',deliveryReports:'PDF',staffId:company.staffs[0].id,items:[{itemSizeId:sizes[1].id,quantityInspection:'2',quantityMaintenance:'1'}]};
 const q=await quotationRepository.create(quoteInput,branch,actor);assert.equal(q.items[0].priceInspection.toString(),'100');assert.equal(q.items[0].priceMaintenance.toString(),'20');assert.equal(q.subTotal.toString(),'220');assert.equal(q.items[0].priceSelection.priceSource,'PRIMARY');
 // Even a directly supplied contracted size must never resolve a contract price.
 const direct=await quotationRepository.create({...quoteInput,items:[{itemSizeId:sizes[0].id,quantityInspection:'1'}]},branch,actor);assert.equal(direct.items[0].priceInspection.toString(),'100');assert.equal(direct.items[0].itemName,'Pipe');assert.equal(direct.items[0].priceSelection.contractId,null);

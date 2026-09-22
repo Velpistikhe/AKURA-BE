@@ -22,7 +22,7 @@ async function main() {
     }, include: { itemCatalog: { include: { sizes: true } } } });
     const itemSizeId = service.itemCatalog[0].sizes[0].id;
     const input = {
-      inquiryMethod: 'EMAIL', inquiryDate: '2026-09-09', subject: 'Inspection quotation',
+      inquiryMethod: 'EMAIL', inquiryDate: '2026-09-09', jobStart: '2026-10-01', subject: 'Inspection quotation',
       termOfPayment: '30 days', validity: '30 days', tax: 11,
       supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta',
       accomplished: '7 days', deliveryReports: 'PDF', staffId: company.staffs[0].id,
@@ -30,6 +30,8 @@ async function main() {
     };
     const quote = await repository.create(input, branch, actor);
     assert.equal(quote.customerSnapshot, 'Contact');
+    assert.equal(quote.jobStart, '2026-10-01');
+
     assert.deepEqual(quote.companySnapshot, { id: company.id, version: 0, name: company.name, type: 'PT', address: 'Jakarta', npwp: company.npwp });
     await prisma.company.update({ where: { id: company.id }, data: { name: 'Updated company', address: 'Bandung', npwp: '0099999999999999' } });
     assert.equal(quote.invoiceStatus, null);

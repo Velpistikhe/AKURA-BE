@@ -20,19 +20,13 @@ const amount = (value: Prisma.Decimal) => {
   return rounded;
 };
 
-async function customer(tx: Prisma.TransactionClient, companyId: string | undefined, staffId: string | null | undefined, officeBranchId: string) {
+async function customer(tx: Prisma.TransactionClient, companyId: string | undefined, staffId: string, officeBranchId: string) {
   const selectCompany = { id: true, version: true, name: true, type: true, address: true, npwp: true } as const;
-  if (staffId) {
-    const staff = await tx.companyStaff.findFirst({ where: { id: staffId, revoked: false,
-      ...(companyId ? { companyId } : {}), company: { officeBranchId, revoked: false } },
-      select: { name: true, title: true, company: { select: selectCompany } } });
-    if (!staff) throw new HttpError('Company staff not found in the selected company and branch', 404);
-    return { customerSnapshot: staff.name, companySnapshot: json({ ...staff.company, staffTitle: staff.title }) };
-  }
-  if (!companyId) throw new HttpError('Company is required', 400);
-  const company = await tx.company.findFirst({ where: { id: companyId, officeBranchId, revoked: false }, select: selectCompany });
-  if (!company) throw new HttpError('Company not found', 404);
-  return { customerSnapshot: '', companySnapshot: json(company) };
+  const staff = await tx.companyStaff.findFirst({ where: { id: staffId, revoked: false,
+    ...(companyId ? { companyId } : {}), company: { officeBranchId, revoked: false } },
+    select: { name: true, title: true, company: { select: selectCompany } } });
+  if (!staff) throw new HttpError('Company staff not found in the selected company and branch', 404);
+  return { customerSnapshot: staff.name, companySnapshot: json({ ...staff.company, staffTitle: staff.title }) };
 }
 
 async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, officeBranchId: string, actor: AuditActor, position: number, context: PriceContext, now: Date) {
@@ -199,9 +193,9 @@ export const quotationRepository = {
       const companyChanged = companyId !== undefined && companyId !== currentCompanyId;
       const staffChanged = data.staffId !== undefined && data.staffId !== current.staffId;
       if ((companyChanged || staffChanged) && !items) throw new HttpError('Changing customer requires the complete item list', 400);
-      const selectedStaffId = data.staffId !== undefined ? data.staffId : companyChanged ? null : current.staffId;
+      const selectedStaffId = data.staffId ?? current.staffId;
       const selectedCustomer = companyChanged || staffChanged
-        ? await customer(tx, companyId ?? (data.staffId ? undefined : currentCompanyId), selectedStaffId, officeBranchId) : null;
+        ? await customer(tx, companyId ?? (data.staffId ? undefined : currentCompanyId), selectedStaffId!, officeBranchId) : null;
       const context = items ? await standardPriceContext(tx, ((selectedCustomer?.companySnapshot ?? current.companySnapshot) as { id: string }).id, officeBranchId) : null;
       const activeItems = current.items.filter((item) => item.isActive);
       const itemsChanged = items !== undefined && (items.length !== activeItems.length || items.some((item, position) => {

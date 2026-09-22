@@ -38,11 +38,15 @@ async function main() {
     }, include: { itemCatalog: { include: { sizes: true } } } });
     const itemSizeId = service.itemCatalog[0].sizes[0].id;
     const input = {
+    jobStart: '2026-10-01',
+
       date: '2026-09-10', inquiryMethod: 'EMAIL', inquiryDate: '2026-09-10', subject: 'Inspection',
-      termOfPayment: '30 days', validity: '30 days', tax: 11, supplyAkura: 'Equipment', supplyCustomer: 'Access',
+      termOfPayment: '30 days', validity: '30 days', tax: 11, supplyAkura: 'Equipment\nCalibration tools', supplyCustomer: 'Access\nHandling facilities',
       location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF', staffId: company.staffs[0].id,
       items: [{ itemSizeId, quantity: '2.500', unitPrice: '100.25' }, { itemSizeId, quantity: '1', unitPrice: '50' }],
     };
+    const missingStaff = { ...input }; delete missingStaff.staffId;
+    assert.equal((await request('POST', '/quotations', missingStaff)).status, 400);
     for (const invalid of [{ ...input, items: [] }, { ...input, tax: -1 }, { ...input, items: [{ itemSizeId, quantity: '-1', unitPrice: '10' }] }]) {
       assert.equal((await request('POST', '/quotations', invalid)).status, 400);
     }
@@ -62,6 +66,8 @@ async function main() {
     assert.equal(quote.inquiryMethod, 'EMAIL');
     assert.equal(quote.status, 'CREATED');
     assert.equal(quote.invoiceStatus, null);
+    assert.equal(quote.supplyAkura, 'Equipment\nCalibration tools');
+    assert.equal(quote.supplyCustomer, 'Access\nHandling facilities');
     assert.equal(Object.hasOwn(quote, 'userId'), false);
     assert.equal((await request('POST', '/quotations', { ...input, userId: actor })).status, 400);
     assert.equal((await request('POST', '/quotations', { ...input, createdById: randomUUID() })).status, 400);

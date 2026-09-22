@@ -98,7 +98,7 @@ async function main() {
     const historyQuote = await request('POST', '/quotations', quote(staff.id, [line(deletedOption)]), 201);
     // Server uses current prices when options were loaded earlier.
     const normalNow = list.sizes.find(row => row.id === normalSize.id);
-    await request('PATCH', `/items/sizes/${normalSize.id}/price`, { version: (await request('GET', `/items/sizes/${normalSize.id}/price`)).version, priceServicePrimary: '111' });
+    await request('PATCH', `/items/sizes/${normalSize.id}/price`, { version: (await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: normalSize.id } })).version, priceServicePrimary: '111' });
     const latest = await request('POST', '/quotations', quote(staff.id, [line(normalNow)]), 201);
     assert.equal(latest.items[0].priceInspection,'111');
     const refreshedCompanyOnly = await request('PATCH',`/quotations/${companyOnly.id}`,{version:companyOnly.version,items:[{id:companyOnly.items[0].id,...line(normal)}]});

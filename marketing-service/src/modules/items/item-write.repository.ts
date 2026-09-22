@@ -247,18 +247,6 @@ export const itemWriteRepository = {
     await bumpItem(tx, branch, item, actor);
     return result;
   }),
-  removePrice: (id: string, version: number, branch: string, actor: AuditActor) => write(branch, async tx => {
-    const { size, item } = await sizeInBranch(tx, id, branch);
-    const before = await tx.itemPrice.findUnique({ where: { itemSizeId: id } });
-    if (!before) throw new HttpError('Item price not found', 404);
-    requireCatalogVersion(before, version);
-    if (!before.isActive) throw new HttpError('Item price is already inactive', 409);
-    const activePrimary = await tx.itemPrice.findFirst({ where: { itemSizeId: id, isActive: true }, select: { id: true } });
-    if (!activePrimary || activePrimary.id === before.id) throw new HttpError('A size must retain an active normal price', 409);
-    const result = await change(tx, branch, 'ITEM_PRICE', before, { isActive: false, effectiveUntil: new Date(Math.max(Date.now(), before.effectiveFrom.getTime())) }, actor, 'DEACTIVATE');
-    await bumpSize(tx, branch, size, item, actor);
-    return result;
-  }),
   createContract: (id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => write(branch, tx => createContract(tx, id, data, branch, actor)),
   upsertContract: (id: string, data: ContractPriceInput & { version?: number }, branch: string, actor: AuditActor) => write(branch, async tx => {
     const existing = await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, contract: { company: { officeBranchId: branch, revoked: false } } }, select: { id: true } });

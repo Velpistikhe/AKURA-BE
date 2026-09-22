@@ -25,7 +25,6 @@ export const itemPriceController = {
   updateItem: async (req: Request, res: Response) => { send(req, res, await writes.updateItem(res.locals.params.itemId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   createPrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true), 201); },
   updatePrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
-  removePrice: async (req: Request, res: Response) => { send(req, res, await writes.removePrice(res.locals.params.itemSizeId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res))); },
   createContract: async (req: Request, res: Response) => { send(req, res, await writes.createContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)), 201); },
   upsertContract: async (req: Request, res: Response) => {
     const result = await writes.upsertContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res));
@@ -33,12 +32,6 @@ export const itemPriceController = {
   },
   updateContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   removeContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true)); },
-  getPrice: async (req: Request, res: Response) => {
-    const branch = getOfficeBranchId(res);
-    const price = await prisma.itemPrice.findFirst({ where: { itemSizeId: res.locals.params.itemSizeId, itemSize: { item: { officeBranchId: branch } } } });
-    if (!price) throw new HttpError('Item price not found', 404);
-    send(req, res, price);
-  },
   getSize: async (req: Request, res: Response) => {
     const branch = getOfficeBranchId(res);
     const size = await prisma.itemSize.findFirst({ where: { id: res.locals.params.itemSizeId, item: { officeBranchId: branch } }, include: { price: true, item: { include: { service: true } } } });

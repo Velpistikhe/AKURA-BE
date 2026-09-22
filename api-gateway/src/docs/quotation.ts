@@ -2,20 +2,22 @@ const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 const uuid = { type: 'string', format: 'uuid' };
 const timestamp = { type: 'string', format: 'date-time' };
 const text = { type: 'string', minLength: 1, maxLength: 255 };
+const supplyText = { type: 'string', minLength: 1, maxLength: 5000, description: 'Supports newline characters.' };
 const money = { type: 'string', format: 'decimal', example: '100.25' };
 const header = {
   inquiryMethod: ref('InquiryMethod'),
   inquiryDate: { type: 'string', format: 'date' },
+  jobStart: { type: 'string', minLength: 1, maxLength: 255, description: 'Planned job start value.' },
   subject: text, termOfPayment: text, validity: text,
-  supplyAkura: text, supplyCustomer: text, location: text, accomplished: text, deliveryReports: text, deliveryInvoice: { ...text, nullable: true },
-  companyId: { ...uuid, description: 'Selected company. Required when staffId is omitted. Not stored as an editable header; captured in companySnapshot.' },
-  staffId: { ...uuid, nullable: true, description: 'Optional contact belonging to the selected company.' },
+  supplyAkura: supplyText, supplyCustomer: supplyText, location: text, accomplished: text, deliveryReports: text, deliveryInvoice: text,
+  companyId: { ...uuid, description: 'Optional company filter. The staff must belong to this company when supplied.' },
+  staffId: { ...uuid, nullable: false, description: 'Required contact belonging to the selected company and branch.' },
 };
 const audit = {
   createdById: { ...uuid, readOnly: true }, createdByName: { type: 'string', readOnly: true }, updatedById: { ...uuid, nullable: true, readOnly: true }, updatedByName: { type: 'string', nullable: true, readOnly: true },
   createdAt: timestamp, updatedAt: timestamp,
 };
-const requiredHeader = ['inquiryMethod', 'inquiryDate', 'subject', 'termOfPayment', 'validity', 'supplyAkura', 'supplyCustomer', 'location', 'accomplished', 'deliveryReports', 'deliveryInvoice'];
+const requiredHeader = ['inquiryMethod', 'inquiryDate', 'jobStart', 'subject', 'termOfPayment', 'validity', 'supplyAkura', 'supplyCustomer', 'location', 'accomplished', 'deliveryReports', 'deliveryInvoice', 'staffId'];
 const envelope = (data: object) => ({
   type: 'object', required: ['status', 'success', 'message', 'data'],
   properties: { status: { type: 'integer' }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' }, data, requestId: uuid },
@@ -63,7 +65,6 @@ export const quotationSchemas = {
   },
   CreateQuotationRequest: {
     type: 'object', additionalProperties: false, required: [...requiredHeader, 'items'],
-    anyOf:[{required:['companyId']},{required:['staffId'],properties:{staffId:{...uuid,nullable:false}}}],
     properties: { ...header, items: { type: 'array', minItems: 1, maxItems: 100, items: ref('QuotationItemInput') } },
   },
 
@@ -102,7 +103,7 @@ export const quotationSchemas = {
     properties: {
       ...Object.fromEntries(Object.entries(header).filter(([key])=>key!=='companyId')),
       tax: { type: 'string', readOnly: true, example: '11.25', description: 'Snapshot percentage selected from synchronized branch tax on creation.' },
-      taxSourceId: { ...uuid, nullable: true, readOnly: true },
+      taxSourceId: { ...uuid, readOnly: true },
       status: { allOf: [ref('QuotationStatus')], readOnly: true },
       previousQuotationId: { ...uuid, nullable: true, readOnly: true, description: 'Previous approved quotation replaced by this revision.' },
       pdfDocument: { allOf: [ref('QuotationPdf')], nullable: true, readOnly: true },
@@ -111,7 +112,7 @@ export const quotationSchemas = {
       no: { type: 'integer', nullable: true, minimum: 1, maximum: 2147483647, readOnly: true, description: 'Null for drafts. Assigned only on approval; approved revisions reuse the previous number.' },
       numberYear: { type: 'integer', nullable: true, readOnly: true, description: 'Null for drafts. First approval year in Asia/Jakarta; revisions retain the original year.' },
       date: { ...timestamp, nullable: true, readOnly: true, description: 'Server-managed Asia/Jakarta calendar date serialized at UTC midnight. Set on creation and refreshed when the first number is assigned at approval; revisions retain the original numbered quotation date.' },
-      inquiryDate: timestamp, id: uuid, officeBranchId: { ...uuid, readOnly: true },
+      inquiryDate: timestamp, jobStart: { type: 'string', minLength: 1, maxLength: 255 }, id: uuid, officeBranchId: { ...uuid, readOnly: true },
       companySnapshot: { type: 'object', readOnly: true, description: 'Company id, version, name, type, address and npwp captured at creation or contact replacement. Profile edits do not alter this snapshot.' },
       customerSnapshot: { type: 'string', readOnly: true, example: 'Budi Santoso', description: 'Company staff name captured when the quotation is created or its contact is replaced.' },
       subTotal: { ...money, readOnly: true }, taxAmount: { ...money, readOnly: true }, total: { ...money, readOnly: true },

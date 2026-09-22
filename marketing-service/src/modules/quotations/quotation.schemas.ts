@@ -10,6 +10,8 @@ export const listQuotationsSchema = z.object({
 export type ListQuotationsInput = z.infer<typeof listQuotationsSchema>;
 
 const text = z.string().trim().min(1).max(255);
+// Supply descriptions are stored as PostgreSQL TEXT so internal newlines are preserved.
+const supplyText = z.string().trim().min(1).max(5000);
 const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`));
 // Accept decimal strings without passing through floating-point arithmetic.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
@@ -25,18 +27,19 @@ const items = z.array(item).min(1).max(100).refine((rows) => {
 }, 'Item IDs must be unique').refine(rows => new Set(rows.map(row => row.itemSizeId.toLowerCase())).size === rows.length, 'Each size may appear only once; enter both quantities on the same line');
 const fields = {
   date: date.nullable().optional(),
+  jobStart: z.string().trim().min(1).max(255),
   inquiryMethod: z.nativeEnum(InquiryMethod),
   inquiryDate: date,
   subject: text, termOfPayment: text, validity: text,
-  supplyAkura: text, supplyCustomer: text, location: text,
+  supplyAkura: supplyText, supplyCustomer: supplyText, location: text,
   accomplished: text, deliveryReports: text,
   deliveryInvoice: text,
   companyId: z.string().uuid().optional(),
-  staffId: z.string().uuid().nullable().optional(),
+  staffId: z.string().uuid(),
   items,
 };
 export const createQuotationSchema = z.object(fields).strict()
-  .refine(value => !!value.companyId || !!value.staffId, 'Company or company staff is required')
+  .refine(value => !!value.staffId, 'Staff is required')
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
 export const updateQuotationSchema = z.object(fields).partial().extend({
   version: z.number().int().nonnegative().max(2147483646),

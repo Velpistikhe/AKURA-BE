@@ -207,6 +207,20 @@ export const catalogPaths = {
     patch: operation('Update item name or unit of measure using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest'),
     delete: operation('Deactivate item, active sizes and standard prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Contract prices and contract versions remain unchanged; no contract is created automatically. Historical inactive records remain unchanged.'),
   },
+  [`${root}/items/sizes/prices`]: {
+    get: operation(
+      'List quotation item-size options with resolved prices',
+      'ResolvedPriceListResponse',
+      [
+        parameter('companyId', uuid, true),
+        { ...parameter('exclude', { type: 'array', minItems: 1, maxItems: 100, items: uuid }), style: 'form', explode: false, description: 'Comma-separated item-size UUIDs to exclude from quotation selection.' },
+        ...filters,
+      ],
+      undefined,
+      200,
+      'Returns active item-size options for the selected company and current branch. The response resolves PRIMARY or SISTER_COMPANY pricing based on the company profile, excludes item sizes with an active contract price, and includes pagination. The companyId must belong to the authenticated branch.'
+    ),
+  },
   [`${root}/items/sizes`]: {
     get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Includes variants without a size as size=null; hide the size selector for these variants. A size text filter matches only named sizes. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
     post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'Send size=null to add a variant without a size, including for existing items. A size=null variant marks a direct-price item. Additional sizes are rejected with 409. Direct-price and named-size variants cannot be mixed, including at creation. Soft deletion does not allow switching modes; an inactive direct-price variant can only be replaced by another size=null variant. itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
@@ -216,10 +230,8 @@ export const catalogPaths = {
     delete: operation('Deactivate size and its active prices', 'ItemSizeResponse', [path('itemSizeId')], 'CatalogVersionRequest', 200, 'Atomically deactivates standard prices. Company contract prices and their snapshots remain unchanged and can be used by currently valid contracts. The parent item remains active; its version increments for the child change. Each changed row receives an audit entry.'),
   },
   [`${root}/items/sizes/{itemSizeId}/price`]: {
-    get: operation('Get standard price including inactive state and version', 'CatalogItemPriceResponse', [path('itemSizeId')]),
     post: operation('Create missing standard price', 'CatalogItemPriceResponse', [path('itemSizeId')], 'CatalogPriceRequest', 201),
     patch: operation('Update active standard price using its version', 'CatalogItemPriceResponse', [path('itemSizeId')], 'UpdateCatalogPriceRequest'),
-    delete: operation('Deactivate standard price using its version', 'CatalogItemPriceResponse', [path('itemSizeId')], 'CatalogVersionRequest'),
   },
   [`${root}/items/sizes/{itemSizeId}/contract-prices`]: {
      post: operation('Create size price for a company contract', 'CompanyContractPriceResponse', [path('itemSizeId')], 'CreateContractPriceRequest', 201, 'The item size and contract must belong to the authenticated user branch. Prices may be added only to DRAFT, REJECTED, SUBMITTED or APPROVED contracts. DRAFT and REJECTED allow any MARKETING-section role; SUBMITTED and APPROVED require ADMIN with MARKETING section. One active price per contract/item size is allowed. Maintenance price is required for services with maintenance. Parent contract version increments.'),
@@ -242,13 +254,12 @@ export const catalogPaths = {
     post: operation('Create company contract', 'CompanyContractResponse', [], 'CreateCompanyContractRequest', 201, 'Creates DRAFT, stores an immutable company snapshot, and rejects concurrent DRAFT or current/future APPROVED contracts for the company.'),
   },
   [`${root}/company-contracts/{contractId}`]: {
-  [`${root}/company-contracts/{contractId}/history`]: {
-    get: operation('Read company contract history', 'CompanyContractHistoryResponse', [path('contractId'), ...pagination], undefined, 200, 'Returns append-only contract snapshots ordered by newest version. Access is restricted to the authenticated user branch and history remains available for soft-deleted contracts.'),
-  },
-
     get: operation('Get company contract', 'CompanyContractResponse', [path('contractId')]),
     patch: operation('Update company contract', 'CompanyContractResponse', [path('contractId')], 'UpdateCompanyContractRequest', 200, 'DRAFT may be updated by all MARKETING roles in the same branch. APPROVED may be updated only by ADMIN in MARKETING. Approved and terminated intervals may not overlap.'),
     delete: operation('Cancel draft company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Soft-cancels only a DRAFT contract and records history.'),
+  },
+  [`${root}/company-contracts/{contractId}/history`]: {
+    get: operation('Read company contract history', 'CompanyContractHistoryResponse', [path('contractId'), ...pagination], undefined, 200, 'Returns append-only contract snapshots ordered by newest version. Access is restricted to the authenticated user branch and history remains available for soft-deleted contracts.'),
   },
   [`${root}/company-contracts/{contractId}/revise`]: {
     post: operation('Revise company contract', 'CompanyContractResponse', [path('contractId')], 'ReviseCompanyContractRequest', 201, 'Creates a DRAFT revision. Approval closes the original one day before the new effectiveFrom and marks it REVISED.'),

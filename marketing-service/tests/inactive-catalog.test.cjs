@@ -67,7 +67,6 @@ for (const inactive of ['service', 'item', 'size']) {
     await assert.rejects(items.removeSize('size', 'branch', actor, 0), conflict);
     await assert.rejects(items.savePrice('size', { version: 0 }, 'branch', actor), conflict);
     await assert.rejects(items.savePrice('size', {}, 'branch', actor, true), conflict);
-    await assert.rejects(items.removePrice('size', 0, 'branch', actor), conflict);
     await assert.rejects(items.createContract('size', { contractId: 'contract' }, 'branch', actor), conflict);
     await assert.rejects(items.changeContract('price', { version: 0 }, 'branch', actor), conflict);
     await assert.rejects(items.upsertContract('size', { contractId: 'contract', version: 0 }, 'branch', actor), conflict);
@@ -80,6 +79,5 @@ test('inactive prices cannot be edited, reactivated, or deleted again', async t 
     await assert.rejects(items.savePrice('size', { version: 0, isActive }, 'branch', actor), conflict);
     await assert.rejects(items.changeContract('price', { version: 0, isActive }, 'branch', actor), conflict);
   }
-  await assert.rejects(items.removePrice('size', 0, 'branch', actor), conflict);
   await assert.rejects(items.changeContract('price', { version: 0 }, 'branch', actor, true), conflict);
 });

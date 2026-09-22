@@ -33,6 +33,8 @@ async function main() {
       await prisma.taxCache.create({data:{id:randomUUID(),officeBranchId:branch,percentage:'11.25',effectiveFrom:new Date('2000-01-01'),sourceUpdatedAt:new Date()}});
       fixtures.push({ branch, companyId: company.id, serviceId: service.id, input: {
         date: '2020-01-01', inquiryMethod: 'EMAIL', inquiryDate: '2020-01-01', subject: 'Inspection', termOfPayment: '30 days', validity: '30 days',
+    jobStart: '2026-10-01',
+
         supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF',
         companyId: company.id, staffId: staff.id, items: [{ itemSizeId: service.itemCatalog[0].sizes[0].id, quantityInspection: '1' }],
       } });

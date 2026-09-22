@@ -406,21 +406,22 @@ model Quotation {
   previousQuotation   Quotation?         @relation("QuotationRevisions", fields: [previousQuotationId], references: [id], onDelete: Restrict)
   nextQuotation       Quotation?         @relation("QuotationRevisions")
   date                DateTime?          @db.Date
+  jobStart            String             @map("job_start")
   inquiryMethod       InquiryMethod      @map("inquiry_method")
   inquiryDate         DateTime           @map("inquiry_date") @db.Date
   subject             String             @db.VarChar(255)
   termOfPayment       String             @map("term_of_payment") @db.VarChar(255)
   validity            String             @db.VarChar(255)
   tax                 Decimal            @db.Decimal(5, 2)
-  taxSourceId         String?            @map("tax_source_id") @db.Uuid
-  supplyAkura         String             @map("supply_akura") @db.VarChar(255)
-  supplyCustomer      String             @map("supply_customer") @db.VarChar(255)
+  taxSourceId         String             @map("tax_source_id") @db.Uuid
+  supplyAkura         String             @map("supply_akura") @db.Text
+  supplyCustomer      String             @map("supply_customer") @db.Text
   location            String             @db.VarChar(255)
   accomplished        String             @db.VarChar(255)
   deliveryReports     String             @map("delivery_reports") @db.VarChar(255)
   deliveryInvoice     String             @map("delivery_invoice") @db.VarChar(255)
-  staffId             String?            @map("staff_id") @db.Uuid
-  staff               CompanyStaff?      @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  staffId             String             @map("staff_id") @db.Uuid
+  staff               CompanyStaff       @relation(fields: [staffId], references: [id], onDelete: Restrict)
   /// Company staff name captured independently of later staff edits.
   customerSnapshot    String             @map("customer_snapshot")
   companySnapshot     Json               @map("company_snapshot")

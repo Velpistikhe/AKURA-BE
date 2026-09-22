@@ -71,12 +71,12 @@ async function main() {
     const sizeHistory = await request('GET', `/sizes/${size.id}/history`);
     assert(sizeHistory.history.some(row => row.action === 'CREATE' && row.changes.some(change => change.field === 'size' && change.after === null)));
 
-    const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Customer', normalizeName: randomUUID(), type: 'PT', npwp: '1', address: 'Jakarta', createdById: actor.id } });
+    const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Customer', normalizeName: randomUUID(), type: 'PT', npwp: '1', address: 'Jakarta', createdById: actor.id, staffs: { create: { name: 'Contact', normalizeName: randomUUID(), title: 'mr' } } }, include: { staffs: true } });
     const options = await request('GET', `/sizes/prices?companyId=${company.id}&itemId=${item.id}`);
     assert.equal(options.sizes[0].size, null);
     assert.equal(options.sizes[0].priceService, '120');
     await prisma.taxCache.create({ data: { id: randomUUID(), officeBranchId: branch, percentage: '11', effectiveFrom: new Date('2000-01-01'), sourceUpdatedAt: new Date() } });
-    const quoteInput = { companyId: company.id, inquiryMethod: 'EMAIL', inquiryDate: '2026-01-01', subject: 'Unsized', termOfPayment: '30 days', validity: '30 days', supplyAkura: 'Tools', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF', items: [{ itemSizeId: size.id, quantityInspection: '2', quantityMaintenance: '1' }] };
+    const quoteInput = { jobStart: '2026-10-01', companyId: company.id, inquiryMethod: 'EMAIL', inquiryDate: '2026-01-01', subject: 'Unsized', termOfPayment: '30 days', validity: '30 days', supplyAkura: 'Tools', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF', staffId: company.staffs[0].id, items: [{ itemSizeId: size.id, quantityInspection: '2', quantityMaintenance: '1' }] };
     const quote = await quotationRepository.create(quoteInput, branch, actor);
     assert.equal(quote.items[0].size, null);
     assert.equal(quote.subTotal.toString(), '260');

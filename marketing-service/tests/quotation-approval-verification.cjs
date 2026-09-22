@@ -31,13 +31,14 @@ async function main() {
     });
     const payload = await response.json(); assert.equal(response.status, expected, JSON.stringify(payload)); return payload.data;
   };
-  let service, size;
+  let service, size, companyStaff, fixtureCompany;
   const fixture = async (changes = {}) => prisma.quotation.create({ data: {
-    officeBranchId: branch, date: new Date('2026-09-13'),
+    officeBranchId: branch, date: new Date('2026-09-13'), jobStart: '2026-10-01',
     inquiryMethod: 'EMAIL', inquiryDate: new Date('2026-09-10'), subject: 'Inspection and maintenance',
-    termOfPayment: '30 days', validity: '1 week', tax: 11, supplyAkura: 'Inspectors and calibrated equipment',
-    supplyCustomer: 'Access and handling facilities', location: 'Balikpapan', accomplished: '7 days', deliveryReports: '2 working days',
+    termOfPayment: '30 days', validity: '1 week', tax: 11, taxSourceId: randomUUID(),
+    supplyAkura: 'Inspectors and calibrated equipment', supplyCustomer: 'Access and handling facilities', location: 'Balikpapan', accomplished: '7 days', deliveryReports: '2 working days',
     companySnapshot: { id: randomUUID(), name: 'Fixture Customer', type: 'PT', address: 'Jakarta' }, customerSnapshot: 'Fixture Contact',
+    staffId: companyStaff.id,
     createdById: actor.id, createdByName: actor.name, subTotal: '275.63', taxAmount: '30.32', total: '305.95', ...changes,
     items: { create: { itemSizeId: size.id, position: 0, serviceName: 'Tubular inspection', serviceType: 'TUBULAR',
       itemName: 'Drill Pipe', size: '4 inch', quantityInspection: '2.5', quantityMaintenance: '1.25', priceInspection: '100.25',
@@ -49,6 +50,8 @@ async function main() {
       maintenanceScopes: { create: { scope: 'Cleaning' } },
       itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', uom: 'JOINT', ...audit, sizes: { create: { size: '4 inch', ...audit } } } },
     }, include: { itemCatalog: { include: { sizes: true } } } });
+    fixtureCompany = await prisma.company.create({ data: { officeBranchId: branch, name: 'Fixture Customer', normalizeName: randomUUID(), type: 'PT', npwp: '1', address: 'Jakarta', staffs: { create: { name: 'Fixture Contact', normalizeName: randomUUID(), title: 'mr' } } }, include: { staffs: true } });
+    companyStaff = fixtureCompany.staffs[0];
     size = service.itemCatalog[0].sizes[0];
     const quote = await fixture();
     assert.equal(quote.no, null); assert.equal(quote.numberYear, null);
@@ -153,6 +156,7 @@ async function main() {
     await prisma.quotation.deleteMany({ where: { officeBranchId: branch } });
     await prisma.quotationSequence.deleteMany({ where: { officeBranchId: branch } });
     if (service) await prisma.service.delete({ where: { id: service.id } });
+    if (fixtureCompany) await prisma.company.delete({ where: { id: fixtureCompany.id } });
     await prisma.$disconnect();
   }
 }
