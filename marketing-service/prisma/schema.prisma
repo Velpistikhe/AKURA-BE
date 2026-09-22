@@ -436,7 +436,9 @@ model Quotation {
   revision            Int                @default(0)
   isActive            Boolean            @default(true) @map("is_active")
   createdById         String             @map("created_by_id") @db.Uuid
+  createdByName       String             @map("created_by_name")
   updatedById         String?            @map("updated_by_id") @db.Uuid
+  updatedByName       String?            @map("updated_by_name")
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")
   items               QuotationItem[]

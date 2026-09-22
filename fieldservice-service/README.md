@@ -2,7 +2,7 @@
 
 Express/TypeScript service for Work Order. Default port: 5005. Gateway prefix: `/api/v1/fieldservice`.
 
-Configure `.env` from `.env.example`, run `npm ci`, `npm run work-order:schema`, and `npm run build`. Use `npm run dev` for development or `npm start` for compiled code. Configure the matching Field Service URL and gateway secret in API Gateway.
+Configure `.env` from `.env.example`, run `npm ci`, and run `npm run build`. Use `npm run dev` for development or `npm start` for compiled code. Configure the matching Field Service URL and gateway secret in API Gateway.
 
 Run `npm test` for the service boundary and Work Order integration checks.
 
@@ -10,7 +10,7 @@ Run `npm test` for the service boundary and Work Order integration checks.
 
 Endpoint: `/api/v1/fieldservice/work-orders` through the gateway. GET/POST collection and GET/PATCH/DELETE `/:id`. Access requires an active profile and matching authenticated branch. POST and DELETE require section MARKETING; PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass these write restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is loaded from Auth, never from client-submitted fields or headers.
 
-Four tables: `work_order` (work order, optional quotation snapshot and audit), `work_order_inspectors` (ordered inspector names linked to the work order), `work_order_sequences` (last allocated integer keyed by branch and year), and `work_order_histories` (append-only changes). For existing databases run `npm run work-order:schema`, then `npm run build`. The schema script is additive; it preserves existing tables. For a fresh database use `npm run db:push`.
+Four tables: `work_order` (work order, optional quotation snapshot and audit), `work_order_inspectors` (ordered inspector names linked to the work order), `work_order_sequences` (last allocated integer keyed by branch and year), and `work_order_histories` (append-only changes). For a fresh database use `npm run db:push`.
 
 Create example:
 ```json
@@ -38,8 +38,6 @@ Run `npm run test:work-order` after generation/schema setup. Swagger includes th
 
 `GET /api/v1/fieldservice/work-orders/:id/history?page=1&limit=20` returns changes newest version first, within the authenticated branch, including revoked work orders. Each CREATE, UPDATE and REVOKE saves the actor ID/name, timestamp, version, full before/after snapshots including inspectors, and a field-level changes array. Inspector changes compare names and order; generated row IDs do not create noisy change entries. Work Order, inspectors, sequence allocation and history commit together; a history failure rolls everything back. One history record per Work Order/version is enforced by a unique index. No history edit/delete endpoint is exposed.
 
-Run `npm run work-order:schema` and regenerate/build for existing installations to add `work_order_histories`. Existing work orders begin accumulating history at their next mutation, including the actual pre-change snapshot; earlier events are not reconstructed.
-
 The old report/documents HTTP modules and Prisma models have been removed. Existing `reports` and `reports_histories` database tables remain archived; this change does not drop historical data. Use the additive schema script on existing databases instead of accepting destructive `db:push` changes.
 
 Application names use WorkOrder and `/work-orders`. Existing numbers and history are preserved; new numbers use WO and continue the existing branch/year counter.
@@ -49,4 +47,4 @@ Application names use WorkOrder and `/work-orders`. Existing numbers and history
 
 Every new work order requires exactly one basis: `quotationId` + `quotationVersion` (active APPROVED quotation using normal/sister company prices), or `companyId` (server resolves an ACTIVE contract for the non-revoked company effective today in Asia/Jakarta; effectiveUntil is exclusive, matching Marketing). Client-supplied `contractId` and `contractVersion` are rejected. Marketing returns 404 for a missing/revoked company or a company outside the authenticated branch, and 409 for no eligible contract or multiple eligible contracts. Upstream unavailability returns 503 without creating a work order. Work orders without either basis are rejected. PATCH may replace the basis by supplying companyId or exactly one quotation/version pair, which clears the opposite reference. Omitting all basis fields preserves it; clearing without replacement is rejected. Contract data is fetched through `/api/v1/marketing/company-contract-references/:companyId`; its ID, version and contractSnapshot are saved and included in history. Existing independent work orders remain readable.
 
-Physical tables are now `work_order`, `work_order_inspectors`, `work_order_sequences`, `work_order_histories`, with `work_order_id` foreign keys and `WorkOrderStatus` enum. `npm run work-order:schema` renames legacy tables/columns/constraints transactionally while preserving records and adds contract reference columns. Restart running consumers after applying this migration.
+Physical tables are now `work_order`, `work_order_inspectors`, `work_order_sequences`, `work_order_histories`, with `work_order_id` foreign keys and `WorkOrderStatus` enum. Existing databases have been migrated; fresh databases use `npm run db:push`. Restart running consumers after applying schema changes.

@@ -37,7 +37,9 @@ async function main() {
     assert.equal(quote.version, 0);
     assert.equal(quote.revision, 0);
     assert.equal(quote.createdById, actor.id);
+    assert.equal(quote.createdByName, actor.name);
     assert.equal(quote.updatedById, null);
+    assert.equal(quote.updatedByName, null);
     assert.equal(quote.subTotal.toFixed(2), '250.63');
     assert.equal(quote.taxAmount.toFixed(2), '27.57');
     assert.equal(quote.total.toFixed(2), '278.20');

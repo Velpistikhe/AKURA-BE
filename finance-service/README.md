@@ -32,7 +32,7 @@ The service verifies the current active Auth profile through Gateway and derives
 
 No invoiceStatus updates are sent automatically to Marketing. No automatic invoice, proforma, report, contract or payment is generated.
 
-For an existing database, run `npm run invoice:schema` and `npm run proforma:schema` to add the respective counter tables, then `npm run build` (stop the service first on Windows if its Prisma engine is locked).
+The invoice and proforma sequence tables are already applied to existing databases. Fresh databases use `npm run db:push`.
 
 Run `npm test` and `npm run test:documents` after setting up the database. Document tests use isolated random branches and remove only their fixtures. They exercise cross-branch rejection, snapshot persistence, 12 competing updates, atomic history, soft deletion and upstream validation.
 
@@ -64,7 +64,7 @@ Invoice/proforma creation reads Finance master tax effective on document date, s
 ### Cutover from App Manager
 
 1. Configure delivery targets and the shared secret using `.env.example`. Stop the old App Manager tax writer and old Finance/Marketing scheduler processes before import.
-2. Run `npm run tax:schema` in Finance and Marketing for an existing database (additive tax changes only), then `npm run db:generate` in both. For a new empty database use `npm run db:push`. Stop running service processes before Prisma generation on Windows to release the engine DLL. Build Finance.
+2. Run `npm run db:generate` in Finance and Marketing for an existing database. For a new empty database use `npm run db:push`. Stop running service processes before Prisma generation on Windows to release the engine DLL. Build Finance.
 3. Run `npm run tax:import` in Finance. It reads App Manager's local `.env` (or `APP_MANAGER_DATABASE_URL`), preserves IDs, dates and audit history, refuses conflicting Finance data and queues snapshots. It never changes the source database.
 4. Start updated Marketing and Finance. The worker recovers queued events. Check `/taxes/deliveries`; source records stay archived in App Manager, whose tax endpoints are removed.
 5. Point the UI to `/api/v1/finance/taxes`. For a new consumer, add its stable target name/URL, restart Finance and call `/taxes/resync` for each branch.

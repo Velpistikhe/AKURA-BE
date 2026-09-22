@@ -12,7 +12,7 @@ const header = {
   staffId: { ...uuid, nullable: true, description: 'Optional contact belonging to the selected company.' },
 };
 const audit = {
-  createdById: { ...uuid, readOnly: true }, updatedById: { ...uuid, nullable: true, readOnly: true },
+  createdById: { ...uuid, readOnly: true }, createdByName: { type: 'string', readOnly: true }, updatedById: { ...uuid, nullable: true, readOnly: true }, updatedByName: { type: 'string', nullable: true, readOnly: true },
   createdAt: timestamp, updatedAt: timestamp,
 };
 const requiredHeader = ['inquiryMethod', 'inquiryDate', 'subject', 'termOfPayment', 'validity', 'supplyAkura', 'supplyCustomer', 'location', 'accomplished', 'deliveryReports', 'deliveryInvoice'];

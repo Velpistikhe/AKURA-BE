@@ -38,7 +38,7 @@ async function main() {
     termOfPayment: '30 days', validity: '1 week', tax: 11, supplyAkura: 'Inspectors and calibrated equipment',
     supplyCustomer: 'Access and handling facilities', location: 'Balikpapan', accomplished: '7 days', deliveryReports: '2 working days',
     companySnapshot: { id: randomUUID(), name: 'Fixture Customer', type: 'PT', address: 'Jakarta' }, customerSnapshot: 'Fixture Contact',
-    createdById: actor.id, subTotal: '275.63', taxAmount: '30.32', total: '305.95', ...changes,
+    createdById: actor.id, createdByName: actor.name, subTotal: '275.63', taxAmount: '30.32', total: '305.95', ...changes,
     items: { create: { itemSizeId: size.id, position: 0, serviceName: 'Tubular inspection', serviceType: 'TUBULAR',
       itemName: 'Drill Pipe', size: '4 inch', quantityInspection: '2.5', quantityMaintenance: '1.25', priceInspection: '100.25',
       priceMaintenance: '20', subTotal: '275.63', createdById: actor.id } },

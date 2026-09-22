@@ -252,7 +252,7 @@ Backend mengambil harga terkini dalam transaksi dengan lock branch, menyimpan ke
 
 Subtotal baris adalah inspection quantity ? inspection price ditambah maintenance quantity ? maintenance price; tiap komponen dibulatkan ke dua desimal sebelum dijumlahkan. Pajak/total dihitung server. PATCH yang menyertakan items menyegarkan harga seluruh baris yang dikirim. PATCH header/status tanpa items mempertahankan snapshot harga. Mengganti perusahaan/kontak mewajibkan daftar item lengkap. Update/delete tetap memakai version quotation. Riwayat dan snapshot dokumen Finance/Field Service yang sudah dibuat tidak ditulis ulang.
 
-Schema menggunakan nama Prisma `quantityInspection` dan `priceInspection` dengan mapping ke kolom lama quantity/unit_price, ditambah quantity_maintenance dan price_maintenance. Setelah db:push pada lingkungan yang memiliki data lama, jalankan `node scripts/upgrade-quotation-quantities.cjs` sebelum menjalankan versi baru. Script idempotent memindahkan baris maintenance lama ke kolom maintenance tanpa mengubah subtotal; historical JSON snapshots mempertahankan format aslinya. Database lokal tidak memiliki baris lama saat perubahan ini diterapkan.
+Schema menggunakan nama Prisma `quantityInspection` dan `priceInspection` dengan mapping ke kolom lama quantity/unit_price, ditambah quantity_maintenance dan price_maintenance. Database sudah dinormalisasi dan tidak memerlukan script migrasi legacy. Historical JSON snapshots mempertahankan format aslinya.
 
 Verifikasi quotation options dilakukan melalui harness eksternal pada database PostgreSQL terisolasi, termasuk options campuran, snapshot historis, exclude, serta pembuatan quotation paralel.
 

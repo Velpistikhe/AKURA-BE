@@ -70,7 +70,7 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
 async function saveRevision(tx: Prisma.TransactionClient, id: string, actor: AuditActor, action: string) {
   const quote = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
   await tx.quotationHistory.create({ data: {
-    quotationId: id, version: quote.version, action, snapshot: json(quote), createdById: actor.id,
+      quotationId: id, version: quote.version, action, snapshot: json(quote), createdById: actor.id,
   } });
   return quote;
 }
@@ -113,7 +113,7 @@ export const quotationRepository = {
       const customerSnapshot = await customer(tx, companyId, data.staffId, officeBranchId);
       const context = await standardPriceContext(tx, (customerSnapshot.companySnapshot as { id: string }).id, officeBranchId);
       const tax = await applicableTax(tx, officeBranchId, now);
-      const quote = await tx.quotation.create({ data: { ...data, date: quotationDate(now), tax: tax.percentage, taxSourceId: tax.id, status: 'CREATED', invoiceStatus: null, officeBranchId, ...customerSnapshot, createdById: actor.id } });
+      const quote = await tx.quotation.create({ data: { ...data, date: quotationDate(now), tax: tax.percentage, taxSourceId: tax.id, status: 'CREATED', invoiceStatus: null, officeBranchId, ...customerSnapshot, createdById: actor.id, createdByName: actor.name } });
       for (const [position, item] of items.entries()) {
         await tx.quotationItem.create({ data: { ...await newItem(tx, item, officeBranchId, actor, position, context!, now), quotationId: quote.id } });
       }
@@ -127,7 +127,7 @@ export const quotationRepository = {
     return prisma.$transaction(async (tx) => {
       const claimed = await tx.quotation.updateMany({
         where: { id, officeBranchId, version, isActive: true, status: { in: [...approvableStatuses] } },
-        data: { status: 'APPROVED', version: { increment: 1 }, updatedById: actor.id },
+        data: { status: 'APPROVED', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
       });
       if (!claimed.count) throw new HttpError('Quotation has changed or cannot be approved; reload before retrying', 409);
       const current = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
@@ -182,7 +182,7 @@ export const quotationRepository = {
       // Atomic compare-and-swap locks the row before touching any children.
       const claimed = await tx.quotation.updateMany({
         where: { id, officeBranchId, version, isActive: true },
-        data: { version: { increment: 1 }, updatedById: actor.id },
+        data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
       });
       if (!claimed.count) {
         if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);
@@ -235,7 +235,7 @@ export const quotationRepository = {
           ...header, ...data, ...(companyChanged ? { staffId: selectedStaffId } : {}), ...customerSnapshot,
           companySnapshot: customerSnapshot?.companySnapshot ?? json(current.companySnapshot),
           previousQuotationId: id, no: null, numberYear: null, revision: current.revision + 1,
-          status: 'REVISED', invoiceStatus: null, deliveryInvoice: data.deliveryInvoice !== undefined ? data.deliveryInvoice : current.deliveryInvoice, version: 0, isActive: true, createdById: actor.id, updatedById: null,
+          status: 'REVISED', invoiceStatus: null, deliveryInvoice: data.deliveryInvoice !== undefined ? data.deliveryInvoice : current.deliveryInvoice, version: 0, isActive: true, createdById: actor.id, createdByName: actor.name, updatedById: null, updatedByName: null,
         } });
         const copiedItems = items ? prepared.map(row => row.data) : activeItems.map(row => ({
           itemSizeId: row.itemSizeId, position: row.position, serviceName: row.serviceName, serviceType: row.serviceType,
@@ -246,7 +246,7 @@ export const quotationRepository = {
         }));
         for (const row of copiedItems) await tx.quotationItem.create({ data: { ...row, quotationId: draft.id } });
         await tx.quotation.update({ where: { id: draft.id }, data: await totals(tx, draft.id, draft.tax) });
-        await tx.quotation.update({ where: { id }, data: { isActive: false } });
+        await tx.quotation.update({ where: { id }, data: { isActive: false, updatedById: actor.id, updatedByName: actor.name } });
         await saveRevision(tx, id, actor, 'SUPERSEDE');
         return saveRevision(tx, draft.id, actor, 'REVISE');
       }
@@ -267,6 +267,7 @@ export const quotationRepository = {
       await tx.quotation.update({ where: { id }, data: {
         ...data, ...(companyChanged ? { staffId: selectedStaffId } : {}), ...customerSnapshot,
         ...await totals(tx, id, current.tax),
+        updatedById: actor.id, updatedByName: actor.name,
       } });
       return saveRevision(tx, id, actor, 'UPDATE');
     }, { maxWait: 10000, timeout: 20000 });
@@ -277,7 +278,7 @@ export const quotationRepository = {
     return prisma.$transaction(async (tx) => {
       const claimed = await tx.quotation.updateMany({
         where: { id, officeBranchId, version, isActive: true },
-        data: { isActive: false, version: { increment: 1 }, updatedById: actor.id },
+        data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
       });
       if (!claimed.count) {
         if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);

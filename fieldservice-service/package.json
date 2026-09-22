@@ -9,7 +9,6 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test tests/service.test.cjs tests/work-order.test.cjs",
-    "work-order:schema": "node scripts/apply-work-order-schema.cjs",
     "test:work-order": "tsc && node --test tests/work-order.test.cjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push"
