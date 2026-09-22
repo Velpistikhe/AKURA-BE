@@ -27,14 +27,15 @@ test('receiver authenticates, applies atomically, isolates branches and ignores 
     assert.equal((await prisma.taxCacheRevision.findUnique({ where: { officeBranchId: branch } })).version, 2);
     assert.equal(await prisma.taxCache.count(), 2);
     const app = require('../dist/app.js').default;
+    const syncSecret = require('../dist/config/env.js').env.TAX_SYNC_SECRET;
     const server = app.listen(0, '127.0.0.1');
     await new Promise(resolve => server.once('listening', resolve));
     try {
       const url = `http://127.0.0.1:${server.address().port}/internal/taxes/events`;
-      const headers = { 'content-type': 'application/json' };
+      const headers = { 'content-type': 'application/json', 'x-gateway-secret': process.env.GATEWAY_SECRET };
       assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify(second) })).status, 403);
-      assert.equal((await fetch(url, { method: 'POST', headers: { ...headers, 'x-tax-sync-secret': process.env.TAX_SYNC_SECRET }, body: '{}' })).status, 400);
-      const response = await fetch(url, { method: 'POST', headers: { ...headers, 'x-tax-sync-secret': process.env.TAX_SYNC_SECRET }, body: JSON.stringify(second) });
+      assert.equal((await fetch(url, { method: 'POST', headers: { ...headers, 'x-tax-sync-secret': syncSecret }, body: '{}' })).status, 400);
+      const response = await fetch(url, { method: 'POST', headers: { ...headers, 'x-tax-sync-secret': syncSecret }, body: JSON.stringify(second) });
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { success: true, eventId: second.eventId });
     } finally { await new Promise(resolve => server.close(resolve)); }

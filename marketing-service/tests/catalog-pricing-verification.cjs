@@ -49,7 +49,7 @@ async function main() {
   try {
     const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', hasMaintenance: true, ...createdBy } });
     const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Customer', normalizeName: 'customer', npwp: '1', type: 'PT', address: 'Test', createdById: actor } });
-    const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: randomUUID(), contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'ACTIVE', createdById: actor } });
+    const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: randomUUID(), contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'APPROVED', createdById: actor } });
     const standardCompany = await prisma.company.create({ data: { officeBranchId: branch, name: 'Standard Customer', normalizeName: 'standardcustomer', npwp: '2', type: 'PT', address: 'Test', createdById: actor } });
     const input = { serviceId: service.id, uom: 'JOINT', name: 'Pipe', sizes: [{ size: 'Large' }, { size: 'Small' }] };
     const item = await ok('POST', '', input, 201), [large, small] = item.sizes;

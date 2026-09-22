@@ -1,31 +1,35 @@
 const { randomUUID } = require('node:crypto');
-const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 
-// Uses a new schema, never writes to the application's existing tables.
-exports.withTaxDatabase = async function(serviceRoot, run) {
+// Creates only the Marketing tax-cache tables in an isolated PostgreSQL schema.
+exports.withTaxDatabase = async function withTaxDatabase(serviceRoot, run) {
   require(path.join(serviceRoot, 'node_modules/dotenv')).config({ path: path.join(serviceRoot, '.env') });
   const { PrismaClient } = require(path.join(serviceRoot, 'node_modules/@prisma/client'));
   const baseUrl = process.env.DATABASE_URL;
-  const schema = 'tax_test_' + randomUUID().replaceAll('-', '');
+  if (!baseUrl) throw new Error('DATABASE_URL is required for tax fixture');
+  const schema = `tax_test_${randomUUID().replaceAll('-', '')}`;
   const admin = new PrismaClient({ datasources: { db: { url: baseUrl } } });
   const url = new URL(baseUrl);
   url.searchParams.set('schema', schema);
-  await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
   let client;
+  const modules = [path.join(serviceRoot, 'dist/config/db.js'), path.join(serviceRoot, 'dist/config/env.js'), path.join(serviceRoot, 'dist/app.js'), path.join(serviceRoot, 'dist/modules/taxes/tax-events.routes.js')];
+  await admin.$executeRawUnsafe(`CREATE SCHEMA \"${schema}\"`);
   try {
-    const result = spawnSync(process.execPath, [path.join(serviceRoot, 'node_modules/prisma/build/index.js'), 'db', 'push', '--skip-generate'], {
-      cwd: serviceRoot, env: { ...process.env, DATABASE_URL: url.toString() }, encoding: 'utf8', timeout: 60000,
-    });
-    if (result.status !== 0) throw Error('Isolated test schema setup failed: ' + result.stderr);
+    const isolated = new PrismaClient({ datasources: { db: { url: url.toString() } } });
+    await isolated.$executeRawUnsafe(`CREATE TABLE \"${schema}\".\"tax_cache\" (\"id\" uuid PRIMARY KEY, \"office_branch_id\" uuid NOT NULL, \"percentage\" decimal(5,2) NOT NULL, \"effective_from\" date NOT NULL, \"effective_until\" date NULL, \"source_updated_at\" timestamptz NOT NULL)`);
+    await isolated.$executeRawUnsafe(`CREATE INDEX \"tax_cache_branch_date_idx\" ON \"${schema}\".\"tax_cache\" (\"office_branch_id\", \"effective_from\")`);
+    await isolated.$executeRawUnsafe(`CREATE TABLE \"${schema}\".\"tax_cache_revisions\" (\"officeBranchId\" uuid PRIMARY KEY, \"version\" integer NOT NULL, \"eventId\" uuid NOT NULL)`);
+    await isolated.$disconnect();
     process.env.DATABASE_URL = url.toString();
+    for (const module of modules) { try { delete require.cache[require.resolve(module)]; } catch { /* not loaded */ } }
     client = require(path.join(serviceRoot, 'dist/config/db.js')).prisma;
     await run(client);
   } finally {
     if (client) await client.$disconnect();
-    if (!/^tax_test_[a-f0-9]{32}$/.test(schema)) throw Error('Invalid cleanup schema');
-    await admin.$executeRawUnsafe(`DROP SCHEMA "${schema}" CASCADE`);
+    if (!/^tax_test_[a-f0-9]{32}$/.test(schema)) throw new Error('Invalid cleanup schema');
+    await admin.$executeRawUnsafe(`DROP SCHEMA \"${schema}\" CASCADE`);
     await admin.$disconnect();
     process.env.DATABASE_URL = baseUrl;
+    for (const module of modules) { try { delete require.cache[require.resolve(module)]; } catch { /* not loaded */ } }
   }
 };

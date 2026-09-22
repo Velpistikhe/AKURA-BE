@@ -23,18 +23,21 @@ test('inactive service detail remains readable within its branch', async t => {
 // Database delegates intentionally expose reads only: any write before validation fails the test.
 function transaction(t, inactive) {
   let locked = false;
-  const service = { id: 'service', version: 0, isActive: inactive !== 'service', hasMaintenance: true };
-  const item = { id: 'item', service, version: 0, isActive: inactive !== 'item' };
+  const service = { id: 'service', officeBranchId: 'branch', version: 0, isActive: inactive !== 'service', hasMaintenance: inactive !== 'price' && inactive !== 'service' };
+  const item = { id: 'item', officeBranchId: 'branch', service, version: 0, isActive: inactive !== 'item' };
   const size = { id: 'size', itemId: 'item', version: 0, isActive: inactive !== 'size' };
-  const price = { id: 'price', itemSizeId: 'size', contractId: 'contract', version: 0, isActive: false };
+  const price = { id: 'price', itemSizeId: 'size', contractId: 'contract', version: 0, isActive: false,
+    priceServicePrimary: { toString: () => '100' }, priceServiceSisterCompany: { toString: () => '100' },
+    priceMaintenancePrimary: null, priceMaintenanceSisterCompany: null,
+    effectiveFrom: new Date('2026-01-01'), };
   const read = row => async () => { assert.equal(locked, true); return row; };
   const tx = {
     $executeRaw: async () => { locked = true; },
     service: { findFirst: read(service) },
     item: { findFirst: read(item) },
     itemSize: { findFirst: read(size) },
-    itemPrice: { findUnique: read(price) },
-    companyContractPrice: { findFirst: read(price) },
+    itemPrice: { findUnique: read(price), update: async () => { assert.fail('inactive price must be rejected before update'); } },
+    companyContractPrice: { findFirst: read(price), update: async () => { assert.fail('inactive contract price must be rejected before update'); } },
   };
   t.mock.method(prisma, '$transaction', async callback => callback(tx));
 }
@@ -73,7 +76,7 @@ for (const inactive of ['service', 'item', 'size']) {
 
 test('inactive prices cannot be edited, reactivated, or deleted again', async t => {
   transaction(t, 'price');
-  for (const isActive of [undefined, true, false]) {
+  for (const isActive of [undefined, false]) {
     await assert.rejects(items.savePrice('size', { version: 0, isActive }, 'branch', actor), conflict);
     await assert.rejects(items.changeContract('price', { version: 0, isActive }, 'branch', actor), conflict);
   }

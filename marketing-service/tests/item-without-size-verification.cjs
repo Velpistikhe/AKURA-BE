@@ -93,7 +93,7 @@ async function main() {
       assert(!texts.some(text => text.includes(`${item.name} - null`) || text.includes(`${item.name} - `)));
     } finally { PDFDocument.prototype.text = originalText; }
 
-    const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: randomUUID(), contractDate: new Date('2020-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'ACTIVE', createdById: actor.id } });
+    const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: randomUUID(), contractDate: new Date('2020-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'APPROVED', createdById: actor.id } });
     const contractPrice = await request('POST', `/sizes/${size.id}/contract-prices`, { contractId: contract.id, priceService: '50', priceMaintenance: '5' }, 201);
     assert.equal(contractPrice.catalogSnapshot.size, null);
     const revised = await request('PATCH', `/contract-prices/${contractPrice.id}`, { version: contractPrice.version, priceService: '60', priceMaintenance: '5' });
@@ -106,7 +106,7 @@ async function main() {
     const importedRows = await parsePriceWorkbook(buffer, branch);
     assert.equal(importedRows[0].itemSizeId, size.id);
     const secondCompany = await prisma.company.create({ data: { officeBranchId: branch, name: 'Import customer', normalizeName: randomUUID(), type: 'PT', npwp: '2', address: 'Jakarta', createdById: actor.id } });
-    const secondContract = await prisma.companyContract.create({ data: { companyId: secondCompany.id, contractNumber: randomUUID(), contractDate: new Date('2020-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'ACTIVE', createdById: actor.id } });
+    const secondContract = await prisma.companyContract.create({ data: { companyId: secondCompany.id, contractNumber: randomUUID(), contractDate: new Date('2020-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'APPROVED', createdById: actor.id } });
     await contractExcelRepository.importPrices(secondContract.id, secondCompany.id, secondContract.version, importedRows, branch, actor);
     assert.equal((await prisma.companyContractPrice.findFirst({ where: { contractId: secondContract.id } })).catalogSnapshot.size, null);
 

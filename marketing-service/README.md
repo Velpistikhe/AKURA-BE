@@ -30,7 +30,7 @@ Company memakai ID tetap. POST wajib berisi `name`, `type`, `address`, dan `npwp
 
 Quotation menyimpan `companySnapshot` berisi `id`, `version`, `name`, `type`, `address`, `npwp` saat create atau penggantian kontak, selain `customerSnapshot` nama staff. Perubahan profil company dan update quotation tanpa penggantian kontak tidak mengubah snapshot tersebut. Gunakan snapshot saat menampilkan/cetak identitas customer pada quotation lama.
 
-Tes CRUD/history: `npm run test:company-history`.
+Verifikasi CRUD/history dilakukan melalui harness verifikasi eksternal pada database PostgreSQL terisolasi.
 
 ## History company staff
 
@@ -40,7 +40,7 @@ Tes CRUD/history: `npm run test:company-history`.
 
 Model `CompanyAuditLog` tidak lagi digunakan. Karena masih tahap development, tabel `company_audit_logs` beserta data audit lama boleh langsung dihapus tanpa migrasi atau backfill. Sinkronkan database dengan `npm run db:push -- --accept-data-loss`; perintah ini menerapkan seluruh perubahan pada schema Prisma. History baru tetap disimpan di `company_histories` dan `company_staff_histories`.
 
-Tes staff/history: `npm run test:company-staff-history`.
+Verifikasi staff/history dilakukan melalui harness verifikasi eksternal pada database PostgreSQL terisolasi.
 
 ## Model katalog
 
@@ -154,7 +154,7 @@ Worksheet diproteksi dan hanya kolom `Service Price` serta `Maintenance Price` y
 Upload melalui `POST /api/v1/marketing/company-contracts/:contractId/prices/import` dengan multipart/form-data: `file` (.xlsx maksimal 5 MB), `companyId`, dan `version` kontrak terbaru. Kontrak harus ACTIVE, isActive=true, dan sedang berlaku. Semua baris disimpan atomik sebagai harga kontrak baru tanpa mengubah harga normal. Service Price wajib; Maintenance Price wajib hanya jika service memiliki maintenance, dan opsional untuk item tanpa service. Duplikasi, template dari branch lain, formula harga, serta harga invalid ditolak sebelum penyimpanan. Perubahan `Size Version` menghasilkan 409 dan mengharuskan download ulang; perubahan harga normal tidak menyebabkan stale upload. Versi kontrak tetap divalidasi. Template format lama harus diunduh ulang. Respons sukses berisi `companyId`, `contractId`, `version` terbaru, dan jumlah `imported`.
 
 
-Verifikasi download, upload, dan status: `npm run test:contract-excel`.
+Verifikasi import/export dan status dilakukan melalui harness verifikasi eksternal pada database PostgreSQL terisolasi.
 
 ### Sinkronisasi database development
 
@@ -164,7 +164,7 @@ Primary key, foreign key, tipe kolom, dan unique key relasi/histori tetap didefi
 
 Jika data development menghalangi perubahan schema, gunakan `npm run db:push -- --force-reset` untuk menghapus data dan membuat ulang schema. Tidak ada pemindahan data legacy atau pembuatan baseline audit.
 
-Tes: `npm run test:catalog-pricing`, `npm run test:item-size-list`, dan `npm run test:item-size-reuse`. Tes menggunakan router asli dengan auth context yang diinjeksi, menguji PostgreSQL sungguhan, dan membersihkan fixture. Audit fixture tetap tersimpan sesuai aturan append-only.
+Katalog diverifikasi melalui harness eksternal menggunakan router asli dengan auth context yang diinjeksi, PostgreSQL sungguhan, fixture terisolasi, dan audit append-only.
 
 ## Quotation
 
@@ -196,7 +196,7 @@ Endpoint melalui Gateway (akses Marketing dan office branch wajib):
 
 GET daftar menampilkan quotation aktif maupun nonaktif beserta seluruh itemnya, dibatasi branch pengguna; pagination menghitung keduanya. Gunakan isActive untuk membedakan status. GET detail tetap tidak menampilkan quotation nonaktif. DELETE mempertahankan row dan histori, menambah versi, serta mengembalikan `409` untuk versi stale atau quotation yang sudah nonaktif. Contoh payload lengkap tersedia di Swagger pada tag `Quotations`.
 
-Verifikasi database lokal: `npm run test:quotation` dan `npm run test:quotation-http`. Harness memakai branch UUID khusus dan membersihkan hanya fixture miliknya setelah pengujian. Pengujian HTTP memakai router asli dengan konteks user terautentikasi yang diinjeksi; tidak menguji ulang JWT/Gateway.
+Verifikasi database lokal dilakukan melalui harness eksternal pada database PostgreSQL terisolasi.
 
 ## Menjalankan aplikasi
 
@@ -212,14 +212,7 @@ Melalui gateway, endpoint tersedia pada `/api/v1/marketing/companies` dan `/api/
 
 ## Pengujian API dan concurrency
 
-Dengan Auth Service, Marketing Service, dan API Gateway aktif, jalankan:
-
-```powershell
-npm run test:api
-```
-
-Harness menguji seluruh endpoint Marketing, race condition pada pembuatan company, request scope concurrent, perlindungan lost update untuk PATCH parsial, invariant row aktif, cleanup data, dan stress test request paralel.
-Jumlah request stress default adalah `25` dengan concurrency `5`; keduanya dapat dinaikkan melalui `TEST_STRESS_TOTAL` dan `TEST_STRESS_CONCURRENCY` dengan memperhatikan konfigurasi rate limit Gateway.
+Dengan Auth Service, Marketing Service, dan API Gateway aktif, jalankan harness verifikasi eksternal dari workspace sementara. Harness mencakup seluruh endpoint Marketing, race condition, lost update, branch isolation, cleanup, stress test, serta pemeriksaan deadlock dengan batas waktu.
 
 ### Inspection scope
 
@@ -243,7 +236,7 @@ History menampilkan `entityType`, `entityId`, `action`, `actionLabel`, `version`
 
 Soft delete item menonaktifkan seluruh size aktif dan harga standar terkait, tetapi mempertahankan harga kontrak, snapshot, status, serta versi kontrak. Soft delete service juga menonaktifkan harga standar terkait tanpa mengubah kontrak. Soft delete size tidak menonaktifkan item; versi item tetap naik sebagai penanda perubahan turunannya. Cascade menulis perubahan dan audit dalam transaksi yang sama, memproses penonaktifan secara batch, tanpa membuat atau merevisi kontrak otomatis. Kontrak hanya dibuat atau direvisi user setelah kesepakatan kedua pihak. Lock branch dipertahankan agar interoperabel dengan import Excel dan perubahan kontrak; penulisan pada branch yang sama tetap diserialisasi.
 
-Jalankan `npm run test:catalog-pricing` untuk uji PostgreSQL melalui router Express (auth diinjeksi), termasuk duplikasi paralel, stale version, PATCH parsial, rollback saat audit gagal, isolasi branch, cascade, reuse, history, dan stress. Hasil tersimpan di `tests/reports/item-catalog.json`. Default 30 item, concurrency 12; `CATALOG_STRESS_ITEMS` dapat diatur 1?200. Fixture dibersihkan setelah tes. Angka latency merupakan pengukuran lokal, bukan jaminan kapasitas produksi.
+Verifikasi katalog dilakukan melalui harness eksternal pada database PostgreSQL terisolasi. Harness mencakup duplikasi paralel, stale version, PATCH parsial, rollback, isolasi branch, cascade, reuse, history, dan stress; hasil pengukuran kapasitas bergantung pada lingkungan.
 
 ### Snapshot kontrak dan option quotation
 
@@ -261,7 +254,7 @@ Subtotal baris adalah inspection quantity ? inspection price ditambah maintenanc
 
 Schema menggunakan nama Prisma `quantityInspection` dan `priceInspection` dengan mapping ke kolom lama quantity/unit_price, ditambah quantity_maintenance dan price_maintenance. Setelah db:push pada lingkungan yang memiliki data lama, jalankan `node scripts/upgrade-quotation-quantities.cjs` sebelum menjalankan versi baru. Script idempotent memindahkan baris maintenance lama ke kolom maintenance tanpa mengubah subtotal; historical JSON snapshots mempertahankan format aslinya. Database lokal tidak memiliki baris lama saat perubahan ini diterapkan.
 
-Jalankan `npm run test:quotation-price-options` untuk verifikasi opsi campuran, company-only create, optional maintenance, harga terkini, snapshot historis, exclude, dan pembuatan quotation paralel.
+Verifikasi quotation options dilakukan melalui harness eksternal pada database PostgreSQL terisolasi, termasuk options campuran, snapshot historis, exclude, serta pembuatan quotation paralel.
 
 Teks buatan sistem untuk audit memakai kode bahasa Inggris (misalnya `CREATE`, `UPDATE`, `DEACTIVATE`) dan key snapshot berbahasa Inggris. Label history juga berbahasa Inggris, termasuk saat membaca audit lama. Nilai input user seperti nama perusahaan, service, item, dan size disimpan apa adanya; aplikasi tidak menerjemahkan isi kontrak atau identitas user.
 
@@ -270,7 +263,7 @@ Quotation Options menerima `exclude` berisi 1-100 UUID `itemSizeId` dipisahkan k
 
 ### Quotation references for downstream documents
 
-GET `/quotation-references/:quotationId` exposes an active quotation snapshot to MARKETING, FINANCE, ACCOUNTING and FIELD_SERVICE users (plus ADMIN/APP_MANAGER), restricted to the authenticated branch. Finance and Field Service use it to validate quotationId/version before saving their own documents. This read-only route does not grant access to Marketing CRUD. Run `node --test tests/quotation-reference-access.cjs` after compiling to verify section and branch restrictions.
+Quotation references diverifikasi melalui harness eksternal untuk memastikan pembatasan section dan branch.
 # Quotation approval PDF
 
 `POST /api/v1/marketing/quotations/:quotationId/approve` through the gateway, with authentication and JSON body `{"version": 0}` (use the latest quotation version).
@@ -287,11 +280,9 @@ Storage uses `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 npm run db:push
 npm run db:generate
 npm run build
-npm run test:quotation-approval
-npm run test:quotation-number
 ```
 
-The approval test uses temporary database fixtures with simulated storage failures. It does not upload to the real bucket.
+Approval, numbering, rollback, and concurrent quotation behavior are covered by the external PostgreSQL verification harness. It uses isolated fixtures and simulated storage failure paths without uploading to the real bucket.
 
 ## Tax cache from Finance
 

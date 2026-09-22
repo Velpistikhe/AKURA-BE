@@ -10,11 +10,11 @@ async function main() {
   const row = { id: inspectionScopeId, serviceId, inspectionScope: 'Visual inspection', revoked: false };
   let existing = null, active = true;
   const calls = [];
-  serviceRepository.findById = async () => ({ id: serviceId, isActive: active });
+  serviceRepository.findById = async () => ({ id: serviceId, officeBranchId, inspectionScopes: [row], maintenanceScopes: [], isActive: active });
   serviceRepository.findInspectionScopeByName = async (...args) => { calls.push(args); return existing; };
   serviceRepository.createInspectionScope = async (...args) => { calls.push(args); return active ? row : null; };
   serviceRepository.revokeInspectionScope = async (...args) => { calls.push(args); return { ...row, revoked: true }; };
-  serviceRepository.findActiveById = async () => ({ id: serviceId, inspectionScopes: [row], maintenanceScopes: [] });
+  serviceRepository.findActiveById = async () => ({ id: serviceId, officeBranchId, inspectionScopes: [row], maintenanceScopes: [], isActive: active });
   const base = { name: 'Inspection', type: 'TUBULAR', hasMaintenance: false };
   assert.deepEqual(createServiceSchema.parse({ ...base, inspectionScopes: ['Visual inspection'] }).inspectionScopes, ['Visual inspection']);
   assert.equal(createServiceSchema.safeParse({ ...base, scopes: ['Legacy'] }).success, false);

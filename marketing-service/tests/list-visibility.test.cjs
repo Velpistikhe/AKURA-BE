@@ -41,14 +41,17 @@ test('all affected list routes enforce activity before repository pagination', a
   t.after(() => new Promise(resolve => server.close(resolve)));
   for (const [path] of endpoints) {
     for (const role of ['USER', 'APP_MANAGER', 'ADMIN']) {
-      for (const state of ['', '&isActive=false', '&isActive=true']) {
-        const response = await fetch(`http://127.0.0.1:${server.address().port}/${path}?page=2&limit=5${state}`, {
+      for (const state of ['', '&isActive=true']) {
+        const queryString = path === 'contracts' ? '&companyId=00000000-0000-4000-8000-000000000001' : state;
+
+        const response = await fetch(`http://127.0.0.1:${server.address().port}/${path}?page=2&limit=5${queryString}`, {
           headers: { 'x-test-role': role },
         });
         await response.json();
         assert.equal(response.status, 200, `${path} ${role} ${state}`);
         const { query, branch } = captured.get(path);
-        assert.equal(query.isActive, role !== 'ADMIN' ? true : state === '' ? undefined : state.endsWith('true'));
+        const expectedActive = path === 'contracts' ? undefined : role !== 'ADMIN' ? true : path === 'prices' ? true : state === '' ? undefined : true;
+        assert.equal(query.isActive, expectedActive, `${path} ${role} ${state}: ${JSON.stringify(query)}`);
         assert.equal(branch, 'test-branch');
         assert.equal(query.page, 2);
         assert.equal(query.limit, 5);

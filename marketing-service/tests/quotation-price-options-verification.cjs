@@ -24,7 +24,7 @@ async function main() {
   try {
     const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Customer', normalizeName: 'customer', type: 'PT', address: 'Jakarta', npwp: '123' } });
     const staff = await prisma.companyStaff.create({ data: { companyId: company.id, name: 'Buyer', normalizeName: 'buyer', title: 'mr' } });
-    const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: 'SIGNED', contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'ACTIVE', createdById: actor } });
+    const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: 'SIGNED', contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'APPROVED', createdById: actor } });
     const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Original Service', type: 'TUBULAR', hasMaintenance: true, ...audit } });
     const item = await request('POST', '/items', { serviceId: service.id, uom: 'JOINT', name: 'Original Pipe', sizes: ['Contract', 'Normal', 'Imported', 'Incomplete', 'Missing'].map(size => ({ size })) }, 201);
     const [contractSize, normalSize, importedSize, incompleteSize] = item.sizes;

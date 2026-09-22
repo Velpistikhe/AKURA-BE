@@ -101,7 +101,7 @@ async function main() {
     companies.push(foreignCompany.id);
     const contractsByCompany = new Map();
     for (const companyId of [company.id, foreignCompany.id]) {
-      const agreement = await prisma.companyContract.create({ data: { companyId, status: 'ACTIVE', effectiveFrom: new Date('2020-01-01'), createdById: actor.id, createdByName: actor.name } });
+      const agreement = await prisma.companyContract.create({ data: { companyId, contractNumber: randomUUID(), contractDate: new Date('2020-01-01'), status: 'APPROVED', effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), createdById: actor.id, createdByName: actor.name } });
       contractsByCompany.set(companyId, agreement.id);
     }
     const contract = async (itemSizeId, companyId = company.id, extra = {}) => prisma.companyContractPrice.create({ data: {
