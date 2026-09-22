@@ -30,6 +30,11 @@ export const listContractsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: contractStatusSchema.optional(),
 }).strict();
+export const contractHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+}).strict();
 export type ContractPeriod = z.infer<typeof updateContractSchema>;
 export type CreateContractInput = z.infer<typeof createContractSchema>;
 export type ListContractsInput = z.infer<typeof listContractsSchema>;
+export type ContractHistoryQueryInput = z.infer<typeof contractHistoryQuerySchema>;

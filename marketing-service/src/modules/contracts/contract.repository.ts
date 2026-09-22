@@ -9,7 +9,7 @@ import { recordContractHistory } from './contract-history.js';
 
 import { formatContractDates } from '../../utils/dateOnly.js';
 
-import { ContractPeriod, CreateContractInput, ListContractsInput } from './contract.schemas.js';
+import { ContractPeriod, CreateContractInput, ListContractsInput, ContractHistoryQueryInput } from './contract.schemas.js';
 
 const company = async (tx: Prisma.TransactionClient, id: string, branch: string) => {
   const row = await tx.company.findFirst({ where: { id, officeBranchId: branch, revoked: false } });
@@ -44,6 +44,23 @@ export const contractRepository = {
     const total = await tx.companyContract.count({ where });
     return { contracts: contracts.map(({ _count, ...contract }) => formatContractDates({ ...contract, hasList: _count.prices > 0 })), pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) } };
   }, { isolationLevel: 'RepeatableRead' }),
+  history: async (id: string, branch: string, input: ContractHistoryQueryInput) => {
+    const contract = await prisma.companyContract.findFirst({
+      where: { id, company: { officeBranchId: branch, revoked: false } },
+      select: { id: true },
+    });
+    if (!contract) throw new HttpError('Company contract not found', 404);
+    const where = { companyContractId: id };
+    const [history, total] = await prisma.$transaction([
+      prisma.companyContractHistory.findMany({ where, orderBy: [{ version: 'desc' }, { createdAt: 'desc' }], skip: (input.page - 1) * input.limit, take: input.limit }),
+      prisma.companyContractHistory.count({ where }),
+    ], { isolationLevel: 'RepeatableRead' });
+    return {
+      contractId: id,
+      history,
+      pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) },
+    };
+  },
   get: async (id: string, branch: string) => {
     const contract = await prisma.companyContract.findFirst({ where: { id, company: { officeBranchId: branch, revoked: false } }, include: { _count: { select: { prices: true } } } });
     if (!contract) throw new HttpError('Company contract not found', 404);

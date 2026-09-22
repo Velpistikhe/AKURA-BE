@@ -124,7 +124,7 @@ Company memiliki `isSisterCompany` (default false). Field `hasContract` sudah di
 |---|---|---|
 | `/company-contracts` | GET | `companyId` wajib; opsional `isActive`, `page`, `limit` |
 | `/company-contracts` | POST | `companyId`, `contractNumber`, `contractDate`, `effectiveFrom`, `effectiveUntil` |
-| `/company-contracts/:contractId` | GET / PATCH / DELETE | PATCH: `version` dan field kontrak/tanggal yang diubah; DELETE: `version` |
+| `/company-contracts/:contractId/history` | GET | Mengambil history contract berdasarkan contract ID, branch-scoped dan paginated |
 | `/items/:itemId` | PATCH | `version`, `name` |
 | `/items/sizes/:itemSizeId` | GET / DELETE | DELETE: `version`; label size tidak dapat diubah |
 | `/items/sizes/:itemSizeId/price` | GET / POST / PATCH / DELETE | Harga standar; PATCH/DELETE: versi harga |

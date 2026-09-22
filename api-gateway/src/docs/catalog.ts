@@ -93,11 +93,15 @@ export const catalogSchemas = {
   CompanyContractPrice: contractPrice, CompanyContractPriceResponse: envelope(ref('CompanyContractPrice')),
   CompanyContractPriceListResponse: paginated('prices', ref('CompanyContractPrice')),
   CompanyContractListResponse: paginated('contracts', ref('CompanyContract')),
-  CompanyContractPriceHistoryResponse: envelope(object({
-    contractPriceId: uuid,
-    history: { type: 'array', items: object({ id: uuid, action: { type: 'string' }, version, changedBy: object({ id: uuid, name: { type: 'string' } }, ['id', 'name']), changedAt: timestamp, changes: { type: 'array', items: object({ field: { type: 'string' }, label: { type: 'string' }, before: { nullable: true }, after: { nullable: true } }, ['field', 'label', 'before', 'after']) } }, ['id', 'action', 'version', 'changedBy', 'changedAt', 'changes']) },
+  CompanyContractHistoryResponse: envelope(object({
+    contractId: uuid,
+    history: { type: 'array', items: object({
+      id: uuid, companyContractId: uuid, version, action: { type: 'string' }, snapshot: { type: 'object', additionalProperties: true },
+      createdById: uuid, createdByName: { type: 'string' }, createdAt: timestamp,
+    }, ['id', 'companyContractId', 'version', 'action', 'snapshot', 'createdById', 'createdByName', 'createdAt']) },
     pagination: ref('Pagination'),
-  }, ['contractPriceId', 'history', 'pagination'])),
+  }, ['contractId', 'history', 'pagination'])),
+
   ContractPriceOption: object({ id: uuid, itemId: uuid, size: { type: 'string', nullable: true }, version, itemName: { type: 'string' }, serviceName: { type: 'string', nullable: true } }, ['id', 'itemId', 'size', 'version', 'itemName', 'serviceName']),
   ContractPriceOptionListResponse: paginated('sizes', ref('ContractPriceOption')),
   CatalogContractSizeListResponse: paginated('sizes', sizeRow),
@@ -238,6 +242,10 @@ export const catalogPaths = {
     post: operation('Create company contract', 'CompanyContractResponse', [], 'CreateCompanyContractRequest', 201, 'Creates DRAFT, stores an immutable company snapshot, and rejects concurrent DRAFT or current/future APPROVED contracts for the company.'),
   },
   [`${root}/company-contracts/{contractId}`]: {
+  [`${root}/company-contracts/{contractId}/history`]: {
+    get: operation('Read company contract history', 'CompanyContractHistoryResponse', [path('contractId'), ...pagination], undefined, 200, 'Returns append-only contract snapshots ordered by newest version. Access is restricted to the authenticated user branch and history remains available for soft-deleted contracts.'),
+  },
+
     get: operation('Get company contract', 'CompanyContractResponse', [path('contractId')]),
     patch: operation('Update company contract', 'CompanyContractResponse', [path('contractId')], 'UpdateCompanyContractRequest', 200, 'DRAFT may be updated by all MARKETING roles in the same branch. APPROVED may be updated only by ADMIN in MARKETING. Approved and terminated intervals may not overlap.'),
     delete: operation('Cancel draft company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Soft-cancels only a DRAFT contract and records history.'),
