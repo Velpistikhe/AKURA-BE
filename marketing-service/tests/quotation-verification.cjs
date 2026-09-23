@@ -26,7 +26,7 @@ async function main() {
       termOfPayment: '30 days', validity: '30 days', tax: 11,
       supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta',
       accomplished: '7 days', deliveryReports: 'PDF', staffId: company.staffs[0].id,
-      items: [{ itemSizeId, quantity: '2.500', unitPrice: '100.25' }],
+      items: [{ itemSizeId, quantity: '2.500', unitPrice: '100.25', note: 'Initial item note' }],
     };
     const quote = await repository.create(input, branch, actor);
     assert.equal(quote.customerSnapshot, 'Contact');
@@ -46,6 +46,7 @@ async function main() {
     assert.equal(quote.taxAmount.toFixed(2), '27.57');
     assert.equal(quote.total.toFixed(2), '278.20');
     assert.equal(quote.items[0].createdById, actor.id);
+    assert.equal(quote.items[0].note, 'Initial item note');
     await assert.rejects(repository.update(quote.id, { version: 0, subject: 'Foreign' }, randomUUID(), editor), e => e.statusCode === 404);
     const race = await Promise.allSettled([
       repository.update(quote.id, { version: 0, subject: 'Winner A' }, branch, actor),
@@ -58,9 +59,10 @@ async function main() {
     // Catalog edits must not rewrite an existing quotation snapshot.
     await prisma.item.update({ where: { id: service.itemCatalog[0].id }, data: { name: 'Renamed Pipe' } });
     const changed = await repository.update(quote.id, {
-      version: 1, items: [{ id: quote.items[0].id, itemSizeId, quantity: '3', unitPrice: '100.25' }],
+      version: 1, items: [{ id: quote.items[0].id, itemSizeId, quantity: '3', unitPrice: '100.25', note: null }],
     }, branch, editor);
     assert.equal(changed.items[0].itemName, 'Pipe');
+    assert.equal(changed.items[0].note, null);
     assert.equal(changed.revision, 2);
     assert.equal(changed.customerSnapshot, 'Contact');
     assert.deepEqual(changed.companySnapshot, quote.companySnapshot);

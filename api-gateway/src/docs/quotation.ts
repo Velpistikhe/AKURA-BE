@@ -61,6 +61,7 @@ export const quotationSchemas = {
     properties:{ itemSizeId:uuid,
       quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
       quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},
+      note:{type:'string',maxLength:5000,nullable:true,description:'Optional note for this quotation item.'},
     },
   },
   CreateQuotationRequest: {
@@ -78,6 +79,7 @@ export const quotationSchemas = {
     properties:{ id:{...uuid,description:'Existing line ID. Omit for a new line.'}, itemSizeId:uuid,
       quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
       quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},
+      note:{type:'string',maxLength:5000,nullable:true,description:'Optional note for this quotation item.'},
     },
   },
   UpdateQuotationRequest: {
@@ -90,10 +92,11 @@ export const quotationSchemas = {
     example: { version: 0, subject: 'Revised inspection quotation' },
   },
   QuotationItem: {
-    type: 'object', required: ['id', 'quotationId', 'itemSizeId', 'position', 'serviceName', 'serviceType', 'itemName', 'size', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'subTotal', 'isActive', ...Object.keys(audit)],
+    type: 'object', required: ['id', 'quotationId', 'itemSizeId', 'position', 'serviceName', 'serviceType', 'itemName', 'size', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'note', 'subTotal', 'isActive', ...Object.keys(audit)],
     properties: {
       id: uuid, quotationId: uuid, itemSizeId: uuid, position: { type: 'integer', minimum: 0 },
       serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for an item without a size.' },
+      note: { type: 'string', maxLength: 5000, nullable: true, description: 'Optional note for this quotation item.' },
       priceSelection: { ...ref('QuotationPriceSelection'), nullable: true, readOnly: true },
       quantityInspection: money, quantityMaintenance: money, priceInspection: money, priceMaintenance: {...money,nullable:true}, subTotal: money, isActive: { type: 'boolean' }, ...audit,
     },

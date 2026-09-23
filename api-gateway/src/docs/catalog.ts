@@ -110,13 +110,13 @@ export const catalogSchemas = {
     id: uuid, itemId: uuid, size: {type:'string',nullable:true}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
     item: object({id:uuid,name:{type:'string'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
     catalogSnapshot:ref('ContractCatalogSnapshot'),catalogActive:{type:'boolean'},
-    priceSource:{type:'string',enum:['PRIMARY','SISTER_COMPANY']},
+    priceSource:{type:'string',enum:['PRIMARY','SISTER_COMPANY','CONTRACT']},
     priceStatus:{type:'string',enum:['AVAILABLE','UNAVAILABLE']},priceMessage:{type:'string',nullable:true},
     priceService:{...decimal,nullable:true},priceInspection:{...decimal,nullable:true},priceMaintenance:{...decimal,nullable:true},
     priceId:{...uuid,nullable:true},priceVersion:{...version,nullable:true},
     contractId:{...uuid,nullable:true},contractVersion:{...version,nullable:true},
     sizeVersion:version,itemVersion:version,serviceVersion:version,
-    contractPrice:{...contractPrice,nullable:true},
+    contractPrice: {...contractPrice,nullable:true},
   }, ['id','itemId','size','item','catalogSnapshot','catalogActive','priceSource','priceStatus','priceService','priceMaintenance','priceId','priceVersion','contractId','contractVersion','sizeVersion','itemVersion','serviceVersion']),
   ResolvedPriceListResponse: envelope(object({company:object({id:uuid,name:{type:'string'},isSisterCompany:{type:'boolean'}}),sizes:{type:'array',items:ref('QuotationSizeOption')},pagination:ref('Pagination')},['company','sizes','pagination'])),
   ItemCatalogHistoryResponse: envelope(object({
@@ -217,7 +217,7 @@ export const catalogPaths = {
       ],
       undefined,
       200,
-      'Returns active item-size options for the selected company and current branch. The response resolves PRIMARY or SISTER_COMPANY pricing based on the company profile, excludes item sizes with an active contract price, and includes pagination. The companyId must belong to the authenticated branch.'
+      'Returns every active item-size option in the authenticated user branch. If the company has an approved contract currently in effect, each size with a currently valid contract price uses CONTRACT pricing; active sizes not present in that contract use normal pricing. If no current contract exists, SISTER_COMPANY pricing is used when the company is marked as a sister company; otherwise PRIMARY pricing is used. The companyId must belong to the authenticated branch.'
     ),
   },
   [`${root}/items/sizes`]: {

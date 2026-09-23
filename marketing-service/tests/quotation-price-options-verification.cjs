@@ -59,7 +59,10 @@ async function main() {
 
     const normal = list.sizes.find(row => row.id === normalSize.id);
     assert.equal(normal.priceService, '100'); assert.equal(normal.priceMaintenance, '20');
-    assert.equal(normal.priceSource,'PRIMARY'); assert.equal(normal.item.service.name,'Original Service'); assert.equal(list.company.id,company.id);
+    assert.equal(normal.priceSource, 'PRIMARY'); assert.equal(normal.item.service.name, 'Original Service'); assert.equal(list.company.id, company.id);
+    const contractOption = list.sizes.find(row => row.id === contractSize.id);
+    assert.equal(contractOption.priceService, '50'); assert.equal(contractOption.priceMaintenance, '5');
+    assert.equal(contractOption.priceSource, 'CONTRACT'); assert.equal(contractOption.contractId, contract.id);
     assert.equal(list.sizes.find(row => row.id === incompleteSize.id).priceStatus, 'AVAILABLE');
     await request('POST', '/quotations', quote(staff.id, [line(normal), line(list.sizes.find(row => row.id === contractSize.id))]), 201);
     await request('POST', '/quotations', quote(staff.id, [{ itemSizeId: normal.id, quantity: '1', unitPrice: '100' }]), 400);
@@ -137,13 +140,14 @@ async function main() {
     const retained = await request('PATCH', `/quotations/${historyQuote.id}`, { version: historyQuote.version, items: [{ id: historyQuote.items[0].id, itemSizeId: contractSize.id, quantityInspection: '3' }] });
     assert.equal(retained.items[0].itemName, 'Original Pipe');
     await request('PATCH', `/quotations/${retained.id}`, { version: retained.version, items: [{ id: retained.items[0].id, itemSizeId: contractSize.id, quantityInspection: '3', unitPrice: '1' }] }, 400);
-    // Inactive or expired contract prices stay unavailable, never normal-price fallback.
+    // Inactive contract prices fall back to normal pricing for the active catalog size.
     await prisma.companyContractPrice.update({ where: { id: cp.id }, data: { isActive: false, version: { increment: 1 } } });
     const unavailable = (await options()).sizes.find(row => row.id === contractSize.id);
-    assert.equal(unavailable.priceStatus, 'UNAVAILABLE');
-    await request('POST', '/quotations', quote(staff.id, [line(freshContractOption)]), 409);
+    assert.equal(unavailable.priceStatus, 'AVAILABLE');
+    assert.equal(unavailable.priceService, '100'); assert.equal(unavailable.priceSource, 'PRIMARY');
+    await request('POST', '/quotations', quote(staff.id, [line(unavailable)]), 201);
     await prisma.companyContract.update({ where: { id: contract.id }, data: { effectiveUntil: new Date('2021-01-01'), version: { increment: 1 } } });
-    assert.equal((await options()).pagination.total, 0);
+    assert.equal((await options()).pagination.total, 5);
     // A different active catalog falls back to sister-company prices despite an unrelated contract.
     const otherService = await prisma.service.create({ data: { officeBranchId: branch, name: 'Other', type: 'OCTG', ...audit } });
     const otherItem = await request('POST', '/items', { serviceId: otherService.id, uom: 'JOINT', name: 'Other Item', sizes: [{ size: 'One' }] }, 201);

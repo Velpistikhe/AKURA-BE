@@ -52,6 +52,7 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
   return {
     itemSizeId: size.id, position, serviceName: resolved.catalogSnapshot.serviceName,
     serviceType: resolved.catalogSnapshot.serviceType as ServiceType, itemName: resolved.catalogSnapshot.itemName, size: resolved.catalogSnapshot.size,
+    note: input.note ?? null,
     priceSelection: json({ ...scopeSnapshot, quantityModel: 'DUAL', priceSource: resolved.priceSource, priceId: resolved.priceId,
       priceVersion: resolved.priceVersion, contractId: resolved.contractId, contractVersion: resolved.contractVersion,
       sizeVersion: resolved.sizeVersion, itemVersion: resolved.itemVersion, serviceVersion: resolved.serviceVersion }),
@@ -201,7 +202,8 @@ export const quotationRepository = {
       const itemsChanged = items !== undefined && (items.length !== activeItems.length || items.some((item, position) => {
         const previous = activeItems[position];
         return !previous || item.id !== previous.id || item.itemSizeId !== previous.itemSizeId
-          || !previous.quantityInspection.equals(item.quantityInspection) || !previous.quantityMaintenance.equals(item.quantityMaintenance);
+          || !previous.quantityInspection.equals(item.quantityInspection) || !previous.quantityMaintenance.equals(item.quantityMaintenance)
+          || previous.note !== (item.note ?? null);
       }));
       let revised = headerChanged || itemsChanged || companyChanged;
       const customerSnapshot = selectedCustomer ?? undefined;
@@ -233,7 +235,7 @@ export const quotationRepository = {
         } });
         const copiedItems = items ? prepared.map(row => row.data) : activeItems.map(row => ({
           itemSizeId: row.itemSizeId, position: row.position, serviceName: row.serviceName, serviceType: row.serviceType,
-          itemName: row.itemName, size: row.size, quantityInspection: row.quantityInspection,
+          itemName: row.itemName, size: row.size, note: row.note, quantityInspection: row.quantityInspection,
           quantityMaintenance: row.quantityMaintenance, priceInspection: row.priceInspection,
           priceMaintenance: row.priceMaintenance, subTotal: row.subTotal,
           priceSelection: row.priceSelection === null ? Prisma.DbNull : json(row.priceSelection), createdById: actor.id,

@@ -16,8 +16,10 @@ const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.
 // Accept decimal strings without passing through floating-point arithmetic.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
 const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
+const note = z.string().trim().max(5000).nullable().optional();
 const item = z.object({
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
+  note,
   quantityInspection: quantity,
   quantityMaintenance: quantity.default('0'),
 }).strict().refine(value => /[1-9]/.test(value.quantityInspection) || /[1-9]/.test(value.quantityMaintenance), 'At least one quantity must be positive');
