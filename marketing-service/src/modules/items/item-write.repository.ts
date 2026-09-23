@@ -248,15 +248,5 @@ export const itemWriteRepository = {
     return result;
   }),
   createContract: (id: string, data: ContractPriceInput, branch: string, actor: AuditActor) => write(branch, tx => createContract(tx, id, data, branch, actor)),
-  upsertContract: (id: string, data: ContractPriceInput & { version?: number }, branch: string, actor: AuditActor) => write(branch, async tx => {
-    const existing = await tx.companyContractPrice.findFirst({ where: { contractId: data.contractId, itemSizeId: id, contract: { company: { officeBranchId: branch, revoked: false } } }, select: { id: true } });
-    if (!existing) {
-      if (data.version !== undefined) throw new HttpError('Contract price no longer exists; reload before retrying', 409);
-      const { version, ...input } = data;
-      return { created: true, price: await createContract(tx, id, input, branch, actor) };
-    }
-    if (data.version === undefined) throw new HttpError('version is required when updating an existing contract price', 400);
-    return { created: false, price: await changeContract(tx, existing.id, { ...data, version: data.version }, branch, actor) };
-  }),
   changeContract: (id: string, data: { version: number; priceService?: string | number; priceMaintenance?: string | number | null; isActive?: boolean }, branch: string, actor: AuditActor, remove = false) => write(branch, tx => changeContract(tx, id, data, branch, actor, remove)),
 };

@@ -69,7 +69,6 @@ for (const inactive of ['service', 'item', 'size']) {
     await assert.rejects(items.savePrice('size', {}, 'branch', actor, true), conflict);
     await assert.rejects(items.createContract('size', { contractId: 'contract' }, 'branch', actor), conflict);
     await assert.rejects(items.changeContract('price', { version: 0 }, 'branch', actor), conflict);
-    await assert.rejects(items.upsertContract('size', { contractId: 'contract', version: 0 }, 'branch', actor), conflict);
   });
 }
 

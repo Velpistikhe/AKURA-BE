@@ -80,7 +80,6 @@ export const catalogSchemas = {
   CatalogVersionRequest: input({ version }, ['version']),
   UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name or uom. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected.' },
   CatalogPriceRequest: { ...input({ ...standard }, ['priceServicePrimary']), description: 'Primary service price is required; sister-company price is optional. A size must retain at least one active primary price.' },
-  UpsertContractPriceRequest: input({ contractId: uuid, version, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
   UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'An active price may be deactivated. Inactive prices cannot be modified or reactivated.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. Inactive service, item, size, price, or stale versions return 409.' },
   CreateContractPriceRequest: input({ contractId: uuid, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
@@ -138,7 +137,7 @@ const filters = [parameter('itemId', uuid), ...['size', 'itemName', 'serviceName
   parameter('sortBy', { type: 'string', enum: ['size'], description: 'Omit for createdAt descending.' }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination];
 const content = (schema: object) => ({ content: { 'application/json': { schema } } });
 const operation = (summary: string, response: string, parameters: object[] = [], body?: string, status = 200, description = '') => ({
-  tags: ['Marketing'], summary, description: body && ['UpdateItemRequest', 'CreateItemRequest', 'AddItemSizeRequest', 'CatalogPriceRequest', 'UpdateCatalogPriceRequest', 'CreateContractPriceRequest', 'UpsertContractPriceRequest', 'UpdateContractPriceRequest', 'CatalogVersionRequest'].includes(body)
+  tags: ['Marketing'], summary, description: body && ['UpdateItemRequest', 'CreateItemRequest', 'AddItemSizeRequest', 'CatalogPriceRequest', 'UpdateCatalogPriceRequest', 'CreateContractPriceRequest', 'UpdateContractPriceRequest', 'CatalogVersionRequest'].includes(body)
     ? `${description} Catalog mutations require an active existing item, size, and price where applicable. A service is optional for items; standalone items may own scopes but an item linked to a service cannot own scopes. Inactive catalog records cannot be modified or reactivated; attempts return 409.`.trim()
     : description, security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
   ...(body ? { requestBody: { required: true, ...content(ref(body)) } } : {}),
@@ -235,7 +234,6 @@ export const catalogPaths = {
   },
   [`${root}/items/sizes/{itemSizeId}/contract-prices`]: {
      post: operation('Create size price for a company contract', 'CompanyContractPriceResponse', [path('itemSizeId')], 'CreateContractPriceRequest', 201, 'The item size and contract must belong to the authenticated user branch. Prices may be added only to DRAFT, REJECTED, SUBMITTED or APPROVED contracts. DRAFT and REJECTED allow any MARKETING-section role; SUBMITTED and APPROVED require ADMIN with MARKETING section. One active price per contract/item size is allowed. Maintenance price is required for services with maintenance. Parent contract version increments.'),
-    put: { ...operation('Create or update a company contract price', 'CompanyContractPriceResponse', [path('itemSizeId')], 'UpsertContractPriceRequest', 200, 'Creation and update follow contract status permissions: DRAFT/REJECTED require MARKETING section; SUBMITTED/APPROVED require ADMIN with MARKETING section. Lookup and write are atomic; existing prices require the current version.'), responses: { ...operation('', 'CompanyContractPriceResponse').responses, 201: { description: 'Created', ...content(ref('CompanyContractPriceResponse')) } } },
   },
   [`${root}/items/contract-prices/{contractPriceId}`]: {
     patch: operation('Update contract price (status-based permissions)', 'CompanyContractPriceResponse', [path('contractPriceId')], 'UpdateContractPriceRequest', 200, 'The contract must belong to the authenticated user branch. DRAFT and REJECTED require any MARKETING-section role; SUBMITTED and APPROVED require ADMIN with MARKETING section. Requires the current price version and records contract-price and contract history.'),

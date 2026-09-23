@@ -5,7 +5,7 @@ import { itemController, listItems } from './item.controller.js';
 import { itemPriceController as prices } from './item-price.controller.js';
 import { contractExcelController } from '../contracts/contract-excel.controller.js';
 import { exportItemSizesSchema } from '../contracts/contract-excel.schemas.js';
-import { itemHistorySchema, versionSchema, updateItemSchema, createItemPriceSchema, updateItemPriceSchema, createContractPriceSchema, updateContractPriceSchema, upsertContractPriceSchema, contractPriceIdSchema } from './item.schemas.js';
+import { itemHistorySchema, versionSchema, updateItemSchema, createItemPriceSchema, updateItemPriceSchema, createContractPriceSchema, updateContractPriceSchema, contractPriceIdSchema } from './item.schemas.js';
 import {
   addItemSizeSchema,
   createItemSchema,
@@ -25,7 +25,6 @@ router.post('/', validate('body', createItemSchema), asyncHandler(itemController
 router.patch('/contract-prices/:contractPriceId', validate('params', contractPriceIdSchema), validate('body', updateContractPriceSchema), asyncHandler(prices.updateContract));
   router.delete('/contract-prices/:contractPriceId', validate('params', contractPriceIdSchema), validate('body', versionSchema), asyncHandler(prices.removeContract));
   router.patch('/sizes/:itemSizeId/price', validate('params', itemSizeIdSchema), validate('body', updateItemPriceSchema), asyncHandler(prices.updatePrice));
-router.put('/sizes/:itemSizeId/contract-prices', validate('params', itemSizeIdSchema), validate('body', upsertContractPriceSchema), asyncHandler(prices.upsertContract));
 router.get('/sizes', validate('query', listItemSizesSchema), asyncHandler(itemController.listSizes));
 router.get('/sizes/contract-price-options/:contractId', validate('params', contractPriceOptionsParamsSchema), validate('query', listContractPriceOptionsSchema), asyncHandler(prices.contractPriceOptions));
 

@@ -128,7 +128,7 @@ Company memiliki `isSisterCompany` (default false). Field `hasContract` sudah di
 | `/items/:itemId` | PATCH | `version`, `name` |
 | `/items/sizes/:itemSizeId` | GET / DELETE | DELETE: `version`; label size tidak dapat diubah |
 | `/items/sizes/:itemSizeId/price` | POST / PATCH | Harga standar; PATCH menggunakan versi harga |
-| `/items/sizes/:itemSizeId/contract-prices` | POST / PUT | `contractId`, `priceService`, `priceMaintenance` |
+| `/items/sizes/:itemSizeId/contract-prices` | POST | `contractId`, `priceService`, `priceMaintenance` |
 | `/items/contract-prices/:contractPriceId` | PATCH / DELETE | Harga kontrak; PATCH/DELETE: versi harga |
 | `/items/:itemId/history` | GET | History item dan seluruh size/harganya; `page`, `limit` |
 | `/items/sizes/:itemSizeId/history` | GET | History size dan harganya; `page`, `limit` |

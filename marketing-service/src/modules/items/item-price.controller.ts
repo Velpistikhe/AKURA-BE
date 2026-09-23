@@ -26,10 +26,6 @@ export const itemPriceController = {
   createPrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true), 201); },
   updatePrice: async (req: Request, res: Response) => { send(req, res, await writes.savePrice(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   createContract: async (req: Request, res: Response) => { send(req, res, await writes.createContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)), 201); },
-  upsertContract: async (req: Request, res: Response) => {
-    const result = await writes.upsertContract(res.locals.params.itemSizeId, res.locals.body, getOfficeBranchId(res), getAuditActor(res));
-    send(req, res, result.price, result.created ? 201 : 200);
-  },
   updateContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res))); },
   removeContract: async (req: Request, res: Response) => { send(req, res, await writes.changeContract(res.locals.params.contractPriceId, res.locals.body, getOfficeBranchId(res), getAuditActor(res), true)); },
   getSize: async (req: Request, res: Response) => {
