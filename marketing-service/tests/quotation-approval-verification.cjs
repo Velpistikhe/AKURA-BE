@@ -21,13 +21,13 @@ async function main() {
   };
   quotationStorage.remove = async (_bucket, key) => { objects.delete(key); };
   const app = express(); app.use(express.json());
-  app.use((req, res, next) => { res.locals.authUser = { id: actor.id, firstName: 'Approval', lastName: 'Test', officeBranchId: req.headers['x-test-branch'] || branch }; next(); });
+  app.use((req, res, next) => { res.locals.authUser = { id: actor.id, firstName: 'Approval', lastName: 'Test', role: req.headers['x-test-role'] || 'ADMIN', section: req.headers['x-test-section'] || 'MARKETING', officeBranchId: req.headers['x-test-branch'] || branch }; next(); });
   app.use('/quotations', routes);
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
-  const request = async (id, body, expected = 200, selectedBranch = branch) => {
+  const request = async (id, body, expected = 200, selectedBranch = branch, role = 'ADMIN', section = 'MARKETING') => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/quotations/${id}/approve`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-test-branch': selectedBranch }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-test-branch': selectedBranch, 'x-test-role': role, 'x-test-section': section }, body: JSON.stringify(body),
     });
     const payload = await response.json(); assert.equal(response.status, expected, JSON.stringify(payload)); return payload.data;
   };
@@ -36,7 +36,7 @@ async function main() {
     officeBranchId: branch, date: new Date('2026-09-13'), jobStart: '2026-10-01',
     inquiryMethod: 'EMAIL', inquiryDate: new Date('2026-09-10'), subject: 'Inspection and maintenance',
     termOfPayment: '30 days', validity: '1 week', tax: 11, taxSourceId: randomUUID(),
-    supplyAkura: 'Inspectors and calibrated equipment', supplyCustomer: 'Access and handling facilities', location: 'Balikpapan', accomplished: '7 days', deliveryReports: '2 working days',
+    supplyAkura: 'Inspectors and calibrated equipment', supplyCustomer: 'Access and handling facilities', location: 'Balikpapan', accomplished: '7 days', deliveryReports: '2 working days', deliveryInvoice: 'Invoice after approval',
     companySnapshot: { id: randomUUID(), name: 'Fixture Customer', type: 'PT', address: 'Jakarta' }, customerSnapshot: 'Fixture Contact',
     staffId: companyStaff.id,
     createdById: actor.id, createdByName: actor.name, subTotal: '275.63', taxAmount: '30.32', total: '305.95', ...changes,
@@ -57,6 +57,11 @@ async function main() {
     assert.equal(quote.no, null); assert.equal(quote.numberYear, null);
     assert.equal(await prisma.quotationSequence.count({ where: { officeBranchId: branch } }), 0);
     await request('invalid', { version: 0 }, 400);
+    const unauthorized = await fixture();
+    await request(unauthorized.id, { version: 0 }, 403, branch, 'USER', 'MARKETING');
+    await request(unauthorized.id, { version: 0 }, 403, branch, 'ADMIN', 'FINANCE');
+    await request(unauthorized.id, { version: 0 }, 404, randomUUID(), 'ADMIN', 'MARKETING');
+    assert.equal((await quotationRepository.findActive(unauthorized.id, branch)).status, 'CREATED');
     for (const invalid of [{}, { version: -1 }, { version: 0, status: 'APPROVED' }, { version: '0' }]) await request(quote.id, invalid, 400);
     await request(quote.id, { version: 0 }, 404, randomUUID());
     await request(quote.id, { version: 3 }, 409);

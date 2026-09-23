@@ -144,9 +144,10 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/approve': {
     post: {
       ...common, summary: 'Approve quotation, generate PDF and store in Neon', parameters: [idParameter],
-      description: 'Requires the current version and active CREATED, SENT or REVISED status. Approval assigns no/numberYear and generates the numbered PDF inside a transaction holding the branch/year sequence lock. Uploads to akura/quotation/{branch}/{id}/r{revision}/{uuid}.pdf before committing status, the optional 1:1 PDF relation and APPROVE history. Failures roll back the number and counter. Approved revisions inherit the original no/year without consuming a number. Returns pdf.url valid for 15 minutes. Retrying the latest approved version returns the same PDF. A stale version returns 409. Historical PDFs remain attached to inactive quotations.',
+      description: 'Requires the current version, an active CREATED, SENT or REVISED quotation, and an authenticated ADMIN user whose section is MARKETING. The quotation must belong to the authenticated user office branch. Approval assigns no/numberYear and generates the numbered PDF inside a transaction holding the branch/year sequence lock. Uploads to akura/quotation/{branch}/{id}/r{revision}/{uuid}.pdf before committing status, the optional 1:1 PDF relation and APPROVE history. Failures roll back the number and counter. Approved revisions inherit the original no/year without consuming a number. Returns pdf.url valid for 15 minutes. Retrying the latest approved version returns the same PDF. A stale version returns 409. Historical PDFs remain attached to inactive quotations.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('ApproveQuotationRequest') } } },
       responses: { ...commonErrors, 200: response('Quotation approved with PDF download URL', 'ApproveQuotationResponse'),
+        403: response('Only ADMIN users in the MARKETING section may approve quotations', 'ErrorResponse'),
         404: response('Active quotation not found in this branch', 'ErrorResponse'),
         409: response('Version conflict, unsupported status or no active items', 'ErrorResponse'),
         503: response('PDF storage unavailable; reload quotation before retrying', 'ErrorResponse') },
