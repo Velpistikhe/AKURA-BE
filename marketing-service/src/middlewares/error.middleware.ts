@@ -10,6 +10,7 @@ export const errorHandler = (error: unknown, req: Request, res: Response, _next:
     status = 409;
     message = 'A record with the same unique value already exists';
   }
-  logger.log(status >= 500 ? 'error' : 'warn', message, { requestId: req.headers['x-request-id'] });
-  res.status(status).json({ status, success: false, message, requestId: req.headers['x-request-id'], ...(env.NODE_ENV === 'development' && error instanceof Error && { stack: error.stack }) });
+  const clientMessage = status >= 500 ? 'Internal server error' : message;
+  logger.log(status >= 500 ? 'error' : 'warn', message, { requestId: req.headers['x-request-id'], error: status >= 500 ? error : undefined });
+  res.status(status).json({ status, success: false, message: clientMessage, requestId: req.headers['x-request-id'], ...(env.NODE_ENV === 'development' && error instanceof Error && { stack: error.stack }) });
 };

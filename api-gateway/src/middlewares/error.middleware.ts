@@ -9,6 +9,8 @@ export const errorHandler = (err: unknown, req: Request, res: Response, _next: N
   const message = getErrorMessage(err);
   const stack = getErrorStack(err);
 
+  const clientMessage = status >= 500 ? 'Internal server error' : message;
+
   logger.error(`Error processing request ${req.method} ${req.url}: ${message}`, {
     requestId,
     error: stack || err,
@@ -17,7 +19,7 @@ export const errorHandler = (err: unknown, req: Request, res: Response, _next: N
   res.status(status).json({
     status,
     success: false,
-    message,
+    message: clientMessage,
     requestId,
     ...(env.NODE_ENV === 'development' && stack && { stack }),
   });

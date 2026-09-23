@@ -9,6 +9,8 @@ export const errorHandler = (err: unknown, req: Request, res: Response, _next: N
   const message = getErrorMessage(err);
   const stack = getErrorStack(err);
 
+  const clientMessage = status >= 500 ? 'Internal server error' : message;
+
   if (status >= 500) {
     logger.error(`Unhandled Server Error [${req.method} ${req.url}]: ${message}`, {
       requestId,
@@ -21,7 +23,7 @@ export const errorHandler = (err: unknown, req: Request, res: Response, _next: N
   res.status(status).json({
     status,
     success: false,
-    message,
+    message: clientMessage,
     requestId,
     ...(env.NODE_ENV === 'development' && stack && { stack }),
   });

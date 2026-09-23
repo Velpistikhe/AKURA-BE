@@ -7,13 +7,14 @@ export const errorHandler = (error: unknown, req: Request, res: Response, _next:
   const status = getErrorStatus(error);
   const message = getErrorMessage(error);
   const stack = getErrorStack(error);
+  const clientMessage = status >= 500 ? 'Internal server error' : message;
   const metadata = { requestId: req.headers['x-request-id'], error: stack || error };
   if (status >= 500) logger.error(message, metadata);
   else logger.warn(message, metadata);
   res.status(status).json({
     status,
     success: false,
-    message,
+    message: clientMessage,
     requestId: req.headers['x-request-id'],
     ...(env.NODE_ENV === 'development' && stack && { stack }),
   });
