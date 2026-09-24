@@ -18,6 +18,7 @@ const requireMarketingAdmin: RequestHandler = (_req, res, next) => {
 const router = Router();
 router.post('/:quotationId/approve', requireMarketingAdmin, validate('params', quotationIdSchema), validate('body', approveQuotationSchema), asyncHandler(quotationController.approve));
 router.get('/', validate('query', listQuotationsSchema), asyncHandler(quotationController.list));
+router.get('/:quotationId', validate('params', quotationIdSchema), asyncHandler(quotationController.get));
 router.patch('/:quotationId', validate('params', quotationIdSchema), validate('body', updateQuotationSchema), asyncHandler(quotationController.update));
 router.post('/:quotationId/items', validate('params', quotationIdSchema), validate('body', addQuotationItemSchema), asyncHandler(quotationController.addItem));
 router.delete('/:quotationId/items/:itemId', validate('params', quotationIdSchema.extend({ itemId: z.string().uuid() })), validate('body', deleteQuotationItemSchema), asyncHandler(quotationController.deleteItem));
