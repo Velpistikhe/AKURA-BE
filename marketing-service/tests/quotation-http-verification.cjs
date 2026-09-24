@@ -100,47 +100,6 @@ async function main() {
     assert.equal(await prisma.quotationItem.count({ where: { quotationId: quote.id } }), 2);
     assert.equal(await prisma.quotationHistory.count({ where: { quotationId: quote.id } }), 2);
     assert.equal((await request('PATCH', path, { version: 1, subject: 'Inactive' })).status, 409);
-    const editable = (await request('POST', '/quotations', input)).body.data;
-    const editPath = `/quotations/${editable.id}`;
-    for (const invalid of [{ subject: 'Missing version' }, { version: 0 }, { version: -1, subject: 'Bad' }, { version: 0, revision: 10 }, { version: 0, items: [] }, { version: 0, status: 'bad' }]) {
-      assert.equal((await request('PATCH', editPath, invalid)).status, 400);
-    }
-    assert.equal((await request('PATCH', '/quotations/bad-id', { version: 0, subject: 'Bad ID' })).status, 400);
-    assert.equal((await request('PATCH', editPath, { version: 0, subject: 'Foreign' }, randomUUID())).status, 404);
-    const headerEdit = await request('PATCH', editPath, { version: 0, date: '2027-01-02', subject: 'Revised header' });
-    assert.equal(headerEdit.status, 200, JSON.stringify(headerEdit.body));
-    assert.equal(headerEdit.body.data.version, 1);
-    assert.equal(headerEdit.body.data.revision, 1);
-    assert.equal(headerEdit.body.data.date, editable.date);
-    assert.equal(headerEdit.body.data.items.length, 2);
-    assert.equal(headerEdit.body.data.no, editable.no);
-    const retained = { id: editable.items[0].id, itemSizeId, quantity: '3', unitPrice: '100.25' };
-    const itemEdit = await request('PATCH', editPath, { version: 1, items: [retained, { itemSizeId, quantity: '1', unitPrice: '25' }] });
-    assert.equal(itemEdit.status, 200);
-    assert.equal(itemEdit.body.data.version, 2);
-    assert.equal(itemEdit.body.data.revision, 2);
-    assert.equal(itemEdit.body.data.items.find(i=>i.id===editable.items[1].id).isActive, false);
-    const beforeFailure = (await request('GET', editPath)).body.data;
-    assert.equal(beforeFailure.items.length, 2);
-    assert.equal((await request('PATCH', editPath, { version: 2, subject: 'Rollback', items: [{ itemSizeId: randomUUID(), quantity: '1', unitPrice: '1' }] })).status, 404);
-    assert.deepEqual((await request('GET', editPath)).body.data, beforeFailure);
-    const race = await Promise.all([
-      request('PATCH', editPath, { version: 2, subject: 'Concurrent header' }),
-      request('PATCH', editPath, { version: 2, items: [{ ...retained, quantity: '4' }] }),
-    ]);
-    assert.deepEqual(race.map(r=>r.status).sort(), [200,409]);
-    const winner = race.find(r=>r.status===200).body.data;
-    assert.equal(winner.version, 3);
-    assert.equal(winner.revision, 3);
-    const statusUpdate = await request('PATCH', editPath, { version: 3, status: 'SENT', invoiceStatus: null });
-    assert.equal(statusUpdate.status, 200);
-    assert.equal(statusUpdate.body.data.version, 4);
-    assert.equal(statusUpdate.body.data.revision, 3);
-    const revisions = await prisma.quotationHistory.findMany({ where: { quotationId: editable.id }, orderBy: { version: 'asc' } });
-    assert.deepEqual(revisions.map(h=>h.version), [0,1,2,3,4]);
-    assert.equal(revisions[0].snapshot.subject, input.subject);
-    assert.equal(revisions[0].snapshot.items[0].quantity, '2.5');
-    console.log('PASS: PATCH header/items, dates, validation, branch isolation, revisions, rollback, history and concurrent header-vs-item conflict.');
     const methods = ['EMAIL', 'WHATSAPP', 'VERBAL', 'JOB_ORDER_REQUEST'];
     const statuses = ['CREATED', 'SENT', 'REJECTED', 'APPROVED', 'REVISED', 'CONFIRMED', 'ON_PROGRESS', 'WORK_ORDER_COMPLETE', 'COMPLETE'];
     for (const [index, status] of statuses.entries()) {

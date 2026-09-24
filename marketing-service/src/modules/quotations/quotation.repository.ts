@@ -5,7 +5,7 @@ import { Prisma, ServiceType } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
-import { createQuotationSchema, updateQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput } from './quotation.schemas.js';
+import { createQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput } from './quotation.schemas.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { lockNextQuotationNumber, quotationDate, quotationNumberYear } from './quotation-number.js';
 import type { QuotationPdfMetadata } from './quotation-approval.service.js';
@@ -167,106 +167,6 @@ export const quotationRepository = {
       });
       return saveRevision(tx, id, actor, 'APPROVE');
     }, { maxWait: 10000, timeout: 60000 });
-  },
-
-  async update(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
-    const { version, items, companyId, date: _clientDate, ...data } = updateQuotationSchema.parse(input);
-    return prisma.$transaction(async (tx) => {
-      await lockCompanyBranch(tx, officeBranchId);
-      const now = new Date();
-      // Atomic compare-and-swap locks the row before touching any children.
-      const claimed = await tx.quotation.updateMany({
-        where: { id, officeBranchId, version, isActive: true },
-        data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
-      });
-      if (!claimed.count) {
-        if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);
-        throw new HttpError('Quotation has changed or is inactive; reload before retrying', 409);
-      }
-      const current = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
-      const headerChanged = Object.entries(data).some(([key, value]) => {
-        if (value === undefined) return false;
-        const previous = current[key as keyof typeof current];
-        return value instanceof Date && previous instanceof Date
-          ? value.getTime() !== previous.getTime() : value !== previous;
-      });
-      const currentCompanyId = (current.companySnapshot as { id: string }).id;
-      const companyChanged = companyId !== undefined && companyId !== currentCompanyId;
-      const staffChanged = data.staffId !== undefined && data.staffId !== current.staffId;
-      if ((companyChanged || staffChanged) && !items) throw new HttpError('Changing customer requires the complete item list', 400);
-      const selectedStaffId = data.staffId ?? current.staffId;
-      const selectedCustomer = companyChanged || staffChanged
-        ? await customer(tx, companyId ?? (data.staffId ? undefined : currentCompanyId), selectedStaffId!, officeBranchId) : null;
-      const context = items ? await standardPriceContext(tx, ((selectedCustomer?.companySnapshot ?? current.companySnapshot) as { id: string }).id, officeBranchId) : null;
-      const activeItems = current.items.filter((item) => item.isActive);
-      const itemsChanged = items !== undefined && (items.length !== activeItems.length || items.some((item, position) => {
-        const previous = activeItems[position];
-        return !previous || item.id !== previous.id || item.itemSizeId !== previous.itemSizeId
-          || !previous.quantityInspection.equals(item.quantityInspection) || !previous.quantityMaintenance.equals(item.quantityMaintenance)
-          || previous.note !== (item.note ?? null);
-      }));
-      let revised = headerChanged || itemsChanged || companyChanged;
-      const customerSnapshot = selectedCustomer ?? undefined;
-      // Resolve all requested prices before mutating anything, including signed historical rows.
-      const prepared: Array<{ id?: string; data: Awaited<ReturnType<typeof newItem>> }> = [];
-      if (items) {
-        for (const [position, item] of items.entries()) {
-          const refreshed = await newItem(tx, item, officeBranchId, actor, position, context!, now);
-          if (item.id) {
-            const previous = current.items.find((row) => row.id === item.id && row.isActive);
-            if (!previous) throw new HttpError('Quotation item not found', 404);
-            if (previous.itemSizeId !== item.itemSizeId) throw new HttpError('Replace the item with a new line to change its catalog reference', 400);
-            if (!previous.priceInspection.equals(refreshed.priceInspection) || String(previous.priceMaintenance) !== String(refreshed.priceMaintenance)
-              || Object.entries(refreshed.priceSelection as Record<string, unknown>).some(([key, value]) => (previous.priceSelection as Record<string, unknown> | null)?.[key] !== value)
-              || previous.serviceType !== refreshed.serviceType || previous.serviceName !== refreshed.serviceName || previous.itemName !== refreshed.itemName || previous.size !== refreshed.size) revised = true;
-          }
-          prepared.push({ id: item.id, data: refreshed });
-        }
-      }
-
-      if (revised && (current.pdfDocument || current.status === 'APPROVED')) {
-        // A PDF is the immutable source of truth for this row. Fork a new draft instead of editing it.
-        const { id: _id, items: _items, pdfDocument: _pdf, createdAt: _createdAt, updatedAt: _updatedAt, ...header } = current;
-        const draft = await tx.quotation.create({ data: {
-          ...header, ...data, ...(companyChanged ? { staffId: selectedStaffId } : {}), ...customerSnapshot,
-          companySnapshot: customerSnapshot?.companySnapshot ?? json(current.companySnapshot),
-          previousQuotationId: id, no: null, numberYear: null, revision: current.revision + 1,
-          status: 'REVISED', invoiceStatus: null, deliveryInvoice: data.deliveryInvoice !== undefined ? data.deliveryInvoice : current.deliveryInvoice, version: 0, isActive: true, createdById: actor.id, createdByName: actor.name, updatedById: null, updatedByName: null,
-        } });
-        const copiedItems = items ? prepared.map(row => row.data) : activeItems.map(row => ({
-          itemSizeId: row.itemSizeId, position: row.position, serviceName: row.serviceName, serviceType: row.serviceType,
-          itemName: row.itemName, size: row.size, note: row.note, quantityInspection: row.quantityInspection,
-          quantityMaintenance: row.quantityMaintenance, priceInspection: row.priceInspection,
-          priceMaintenance: row.priceMaintenance, subTotal: row.subTotal,
-          priceSelection: row.priceSelection === null ? Prisma.DbNull : json(row.priceSelection), createdById: actor.id,
-        }));
-        for (const row of copiedItems) await tx.quotationItem.create({ data: { ...row, quotationId: draft.id } });
-        await tx.quotation.update({ where: { id: draft.id }, data: await totals(tx, draft.id, draft.tax) });
-        await tx.quotation.update({ where: { id }, data: { isActive: false, updatedById: actor.id, updatedByName: actor.name } });
-        await saveRevision(tx, id, actor, 'SUPERSEDE');
-        return saveRevision(tx, draft.id, actor, 'REVISE');
-      }
-
-      // Identical updates of a signed quotation must not touch its item snapshots.
-      if (current.pdfDocument) return saveRevision(tx, id, actor, 'UPDATE');
-      if (items) {
-        const retained = prepared.flatMap(row => row.id ? [row.id] : []);
-        await tx.quotationItem.updateMany({ where: { quotationId: id, isActive: true, id: { notIn: retained } },
-          data: { isActive: false, updatedById: actor.id } });
-        for (const row of prepared) {
-          if (row.id) {
-            const { createdById: _createdById, ...changes } = row.data;
-            await tx.quotationItem.update({ where: { id: row.id }, data: { ...changes, updatedById: actor.id } });
-          } else await tx.quotationItem.create({ data: { ...row.data, quotationId: id } });
-        }
-      }
-      await tx.quotation.update({ where: { id }, data: {
-        ...data, ...(companyChanged ? { staffId: selectedStaffId } : {}), ...customerSnapshot,
-        ...await totals(tx, id, current.tax),
-        updatedById: actor.id, updatedByName: actor.name,
-      } });
-      return saveRevision(tx, id, actor, 'UPDATE');
-    }, { maxWait: 10000, timeout: 20000 });
   },
 
   async deactivate(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {

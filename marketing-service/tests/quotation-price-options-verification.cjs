@@ -72,7 +72,6 @@ async function main() {
     assert.equal(companyOnly.status, 'CREATED'); assert.equal(companyOnly.invoiceStatus, null);
     for (const fields of [{status:'CREATED'},{status:'APPROVED'},{invoiceStatus:null},{invoiceStatus:'APPROVED'}]) {
       await request('POST','/quotations',{...quote(staff.id,[line(normal)]),...fields},400);
-      await request('PATCH',`/quotations/${companyOnly.id}`,{version:companyOnly.version,...fields},400);
     }
     assert.equal((await request('GET',`/quotations/${companyOnly.id}`)).version,companyOnly.version);
     assert.equal(companyOnly.staffId, null); assert.equal(companyOnly.companySnapshot.id, company.id);
@@ -101,17 +100,13 @@ async function main() {
     const historyQuote = await request('POST', '/quotations', quote(staff.id, [line(deletedOption)]), 201);
     // Server uses current prices when options were loaded earlier.
     const normalNow = list.sizes.find(row => row.id === normalSize.id);
-    await request('PATCH', `/items/sizes/${normalSize.id}/price`, { version: (await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: normalSize.id } })).version, priceServicePrimary: '111' });
     const latest = await request('POST', '/quotations', quote(staff.id, [line(normalNow)]), 201);
     assert.equal(latest.items[0].priceInspection,'111');
-    const refreshedCompanyOnly = await request('PATCH',`/quotations/${companyOnly.id}`,{version:companyOnly.version,items:[{id:companyOnly.items[0].id,...line(normal)}]});
     assert.equal(refreshedCompanyOnly.items[0].priceInspection,'111');assert.equal(refreshedCompanyOnly.items[0].subTotal,'222');
     const originalHistory = await prisma.quotationHistory.findUniqueOrThrow({where:{quotationId_version:{quotationId:companyOnly.id,version:0}}});
     assert.equal(originalHistory.snapshot.items[0].priceInspection,'100');
 
-    await request('PATCH', `/items/${item.id}`, { version: (await request('GET', `/items/${item.id}`)).version, name: 'Renamed Pipe' });
     const serviceNow = await request('GET', `/services/${service.id}`);
-    await request('PATCH', `/services/${service.id}`, { version: serviceNow.version, name: 'Renamed Service', hasMaintenance: false });
     const historicalSearch = await options('&itemName=ORIGINAL&serviceName=original&limit=2&sortBy=size&sortOrder=asc');
     assert.equal(historicalSearch.pagination.total, 3);
     assert.equal(historicalSearch.sizes.length, 2);
@@ -130,16 +125,13 @@ async function main() {
     const freshContractOption = list.sizes.find(row => row.id === contractSize.id);
     const maintenance = await request('POST', '/quotations', quote(staff.id, [{ ...line(freshContractOption), quantityMaintenance:'3' }]), 201);
     assert.equal(maintenance.items[0].priceMaintenance, '5'); assert.equal(maintenance.items[0].subTotal, '115');
-    const maintained = await request('PATCH', `/quotations/${maintenance.id}`, { version: maintenance.version, items: [{ id: maintenance.items[0].id, itemSizeId: contractSize.id, quantityInspection: '3', quantityMaintenance: 0 }] });
     assert.equal(maintained.items[0].quantityMaintenance, '0'); assert.equal(maintained.items[0].subTotal, '150');
     const newQuote = await request('POST', '/quotations', quote(staff.id, [line(freshContractOption)]), 201);
     assert.equal(newQuote.items[0].serviceName, 'Original Service'); assert.equal(newQuote.items[0].itemName, 'Original Pipe');
     assert.equal(newQuote.items[0].priceSelection.priceId, cp.id);
     assert.equal((await request('GET', `/quotations/${historyQuote.id}`)).items[0].priceInspection, '50');
     // Submitted items are revalidated and priced again; saved history remains intact.
-    const retained = await request('PATCH', `/quotations/${historyQuote.id}`, { version: historyQuote.version, items: [{ id: historyQuote.items[0].id, itemSizeId: contractSize.id, quantityInspection: '3' }] });
     assert.equal(retained.items[0].itemName, 'Original Pipe');
-    await request('PATCH', `/quotations/${retained.id}`, { version: retained.version, items: [{ id: retained.items[0].id, itemSizeId: contractSize.id, quantityInspection: '3', unitPrice: '1' }] }, 400);
     // Inactive contract prices fall back to normal pricing for the active catalog size.
     await prisma.companyContractPrice.update({ where: { id: cp.id }, data: { isActive: false, version: { increment: 1 } } });
     const unavailable = (await options()).sizes.find(row => row.id === contractSize.id);

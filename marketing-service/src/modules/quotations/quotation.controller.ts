@@ -28,8 +28,5 @@ export const quotationController = {
   async delete(req: Request, res: Response) {
     send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
   },
-  async update(req: Request, res: Response) {
-    // Pass validated raw input: the repository parses date strings itself.
-    send(req, res, 200, 'Quotation updated successfully', await quotationRepository.update(res.locals.params.quotationId, req.body, getOfficeBranchId(res), getAuditActor(res)));
-  },
+
 };

@@ -73,24 +73,6 @@ export const quotationSchemas = {
     type: 'object', additionalProperties: false, required: ['version'],
     properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646, example: 0, description: 'Current quotation version returned by GET or POST. A stale version is rejected with 409.' } },
   },
-  UpdateQuotationItemInput: {
-    type:'object',additionalProperties:false,required:['itemSizeId','quantityInspection'],
-    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server fetches current company prices whenever items are submitted. Prices, source tokens and priceKind are rejected.',
-    properties:{ id:{...uuid,description:'Existing line ID. Omit for a new line.'}, itemSizeId:uuid,
-      quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
-      quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},
-      note:{type:'string',maxLength:5000,nullable:true,description:'Optional note for this quotation item.'},
-    },
-  },
-  UpdateQuotationRequest: {
-    type: 'object', additionalProperties: false, required: ['version'], minProperties: 2,
-    properties: {
-      ...header,
-      version: { type: 'integer', minimum: 0, maximum: 2147483646, description: 'Latest version returned by GET/POST/PATCH; required for every update.' },
-      items: { type: 'array', minItems: 1, maxItems: 100, items: ref('UpdateQuotationItemInput'), description: 'Complete desired active item list. Existing IDs must be unique. Omitted old lines are soft-deleted.' },
-    },
-    example: { version: 0, subject: 'Revised inspection quotation' },
-  },
   QuotationItem: {
     type: 'object', required: ['id', 'quotationId', 'itemSizeId', 'position', 'serviceName', 'serviceType', 'itemName', 'size', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'note', 'subTotal', 'isActive', ...Object.keys(audit)],
     properties: {
@@ -166,18 +148,12 @@ export const quotationPaths = {
     },
     post: {
       ...common, summary: 'Create a quotation with items',
-      description: 'Creates the quotation, 1–100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal × tax / 100, total = subTotal + taxAmount.',
+      description: 'Creates the quotation, 1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal ÃƒÆ’Ã¢â‚¬â€ tax / 100, total = subTotal + taxAmount.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationRequest') } } },
       responses: { ...commonErrors, 201: response('Quotation created with items', 'QuotationResponse'), 404: response('Company staff or catalog size not found or inactive in this branch', 'ErrorResponse'), 409: response('Number limit reached or quotation numbering conflict', 'ErrorResponse') },
     },
   },
   '/api/v1/marketing/quotations/{quotationId}': {
-    patch: {
-      ...common, summary: 'Update quotation header and items', parameters: [idParameter],
-      description: 'Requires version and at least one editable field. Omitted header fields and omitted items remain unchanged. When items is supplied, send the complete desired active list (1-100 lines): include id to retain/edit a line, omit id to add a line, and leave out old lines to soft-delete them. Changing an existing line catalog reference requires replacing the line. Header, items, totals, audit, version, revision and history are saved atomically. Draft updates increment version and keep revision unchanged. Editing approved content creates and RETURNS A NEW quotation ID with version=0, revision=old+1, previousQuotationId=old.id, status=REVISED, no=null, numberYear=null and pdfDocument=null. The old quotation becomes inactive; its content, item snapshots, number and 1:1 PDF remain intact. Identical approved content does not create a revision. Use the returned ID/version for subsequent requests. status/invoiceStatus/no/numberYear/revision/audit/totals cannot be supplied. Concurrent header/item updates with the same version result in one success and one 409. Responses and GET detail include historical item rows. Every item identifies its own isActive state.',
-      requestBody: { required: true, content: { 'application/json': { schema: ref('UpdateQuotationRequest') } } },
-      responses: { ...commonErrors, 200: response('Quotation updated', 'QuotationResponse'), 404: response('Quotation, staff or item not found in this branch', 'ErrorResponse'), 409: response('Version is stale or quotation is inactive; reload before retrying', 'ErrorResponse') },
-    },
     get: {
       ...common, summary: 'Get quotation and its historical PDF', parameters: [idParameter],
       description: 'Returns active or inactive quotation and item snapshots in the current branch, including its optional 1:1 pdfDocument and pdf.url signed for 15 minutes. Other-branch quotations return 404. Operational quotation-references remain active-only.',

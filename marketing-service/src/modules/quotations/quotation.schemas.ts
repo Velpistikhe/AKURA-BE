@@ -43,9 +43,6 @@ const fields = {
 export const createQuotationSchema = z.object(fields).strict()
   .refine(value => !!value.staffId, 'Staff is required')
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
-export const updateQuotationSchema = z.object(fields).partial().extend({
-  version: z.number().int().nonnegative().max(2147483646),
-}).strict().refine((value) => Object.keys(value).some((key) => key !== 'version'), 'At least one editable field is required');
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
 export type QuotationItemInput = z.infer<typeof item>;
