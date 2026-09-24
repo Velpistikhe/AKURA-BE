@@ -493,6 +493,8 @@ model QuotationItem {
   priceMaintenance    Decimal?    @map("price_maintenance") @db.Decimal(18, 2)
   subTotal            Decimal     @map("sub_total") @db.Decimal(18, 2)
   isActive            Boolean     @default(true) @map("is_active")
+  /// Optimistic concurrency token for item mutations.
+  version             Int         @default(0)
   createdById         String      @map("created_by_id") @db.Uuid
   updatedById         String?     @map("updated_by_id") @db.Uuid
   createdAt           DateTime    @default(now()) @map("created_at")

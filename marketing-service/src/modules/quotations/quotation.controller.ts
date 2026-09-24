@@ -28,5 +28,14 @@ export const quotationController = {
   async delete(req: Request, res: Response) {
     send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
   },
+  async update(req: Request, res: Response) {
+    send(req, res, 200, 'Quotation updated successfully', await quotationRepository.update(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
+  },
+  async addItem(req: Request, res: Response) {
+    send(req, res, 201, 'Quotation item added successfully', await quotationRepository.addItem(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
+  },
+  async deleteItem(req: Request, res: Response) {
+    send(req, res, 200, 'Quotation item deleted successfully', await quotationRepository.deleteItem(res.locals.params.quotationId, res.locals.params.itemId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
+  },
 
 };

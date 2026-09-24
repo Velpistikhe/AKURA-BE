@@ -17,12 +17,13 @@ const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
 const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
 const note = z.string().trim().max(5000).nullable().optional();
-const item = z.object({
+const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
   note,
   quantityInspection: quantity,
   quantityMaintenance: quantity.default('0'),
-}).strict().refine(value => /[1-9]/.test(value.quantityInspection) || /[1-9]/.test(value.quantityMaintenance), 'At least one quantity must be positive');
+};
+const item = z.object(itemFields).strict().refine(value => /[1-9]/.test(value.quantityInspection) || /[1-9]/.test(value.quantityMaintenance), 'At least one quantity must be positive');
 const items = z.array(item).min(1).max(100).refine((rows) => {
   const ids = rows.flatMap((row) => row.id ? [row.id] : []);
   return ids.length === new Set(ids).size;
@@ -45,4 +46,24 @@ export const createQuotationSchema = z.object(fields).strict()
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
+
+const editableHeaderFields = {
+  jobStart: fields.jobStart.optional(), inquiryMethod: fields.inquiryMethod.optional(), inquiryDate: fields.inquiryDate.optional(),
+  subject: fields.subject.optional(), termOfPayment: fields.termOfPayment.optional(), validity: fields.validity.optional(),
+  supplyAkura: fields.supplyAkura.optional(), supplyCustomer: fields.supplyCustomer.optional(), location: fields.location.optional(),
+  accomplished: fields.accomplished.optional(), deliveryReports: fields.deliveryReports.optional(), deliveryInvoice: fields.deliveryInvoice.optional(),
+  staffId: fields.staffId.optional(),
+};
+export const updateQuotationSchema = z.object({
+  version: z.number().int().nonnegative().max(2147483646), ...editableHeaderFields,
+}).strict().refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
+export const addQuotationItemSchema = z.object({
+  version: z.number().int().nonnegative().max(2147483646), itemSizeId: itemFields.itemSizeId, note: itemFields.note,
+  quantityInspection: itemFields.quantityInspection, quantityMaintenance: itemFields.quantityMaintenance,
+}).strict();
+export const deleteQuotationItemSchema = z.object({
+  quotationVersion: z.number().int().nonnegative().max(2147483646),
+  itemVersion: z.number().int().nonnegative().max(2147483646),
+}).strict();
 export type QuotationItemInput = z.infer<typeof item>;
+export type UpdateQuotationInput = z.infer<typeof updateQuotationSchema>;

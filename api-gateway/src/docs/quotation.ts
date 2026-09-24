@@ -69,10 +69,14 @@ export const quotationSchemas = {
     properties: { ...header, items: { type: 'array', minItems: 1, maxItems: 100, items: ref('QuotationItemInput') } },
   },
 
-  DeleteQuotationRequest: {
-    type: 'object', additionalProperties: false, required: ['version'],
-    properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646, example: 0, description: 'Current quotation version returned by GET or POST. A stale version is rejected with 409.' } },
+  UpdateQuotationRequest: {
+    type: 'object', additionalProperties: false, required: ['version'], minProperties: 2,
+    description: 'Updates a CREATED quotation only. companyId is immutable and rejected; staffId may change only to an active staff member in the same company and branch. Stale versions return 409.',
+    properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 }, ...header, companyId: { ...uuid, readOnly: true, description: 'Immutable; do not submit.' } },
   },
+  AddQuotationItemRequest: { type: 'object', additionalProperties: false, required: ['version', 'itemSizeId', 'quantityInspection'], properties: { version: { type: 'integer', minimum: 0 }, itemSizeId: uuid, quantityInspection: { oneOf: [{ type: 'string' }, { type: 'number', minimum: 0 }] }, quantityMaintenance: { oneOf: [{ type: 'string' }, { type: 'number', minimum: 0 }], default: '0' }, note: { type: 'string', nullable: true, maxLength: 5000 } } },
+  DeleteQuotationItemRequest: { type: 'object', additionalProperties: false, required: ['quotationVersion', 'itemVersion'], properties: { quotationVersion: { type: 'integer', minimum: 0 }, itemVersion: { type: 'integer', minimum: 0 } } },
+
   QuotationItem: {
     type: 'object', required: ['id', 'quotationId', 'itemSizeId', 'position', 'serviceName', 'serviceType', 'itemName', 'size', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'note', 'subTotal', 'isActive', ...Object.keys(audit)],
     properties: {
@@ -80,7 +84,7 @@ export const quotationSchemas = {
       serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for an item without a size.' },
       note: { type: 'string', maxLength: 5000, nullable: true, description: 'Optional note for this quotation item.' },
       priceSelection: { ...ref('QuotationPriceSelection'), nullable: true, readOnly: true },
-      quantityInspection: money, quantityMaintenance: money, priceInspection: money, priceMaintenance: {...money,nullable:true}, subTotal: money, isActive: { type: 'boolean' }, ...audit,
+      quantityInspection: money, quantityMaintenance: money, priceInspection: money, priceMaintenance: {...money,nullable:true}, subTotal: money, isActive: { type: 'boolean' }, version: { type: 'integer', minimum: 0 }, ...audit,
     },
   },
   Quotation: {
@@ -154,6 +158,11 @@ export const quotationPaths = {
     },
   },
   '/api/v1/marketing/quotations/{quotationId}': {
+    patch: {
+      ...common, summary: 'Update a draft quotation header', parameters: [idParameter],
+      requestBody: { required: true, content: { 'application/json': { schema: ref('UpdateQuotationRequest') } } },
+      responses: { ...commonErrors, 200: response('Quotation updated', 'QuotationResponse'), 404: response('Quotation not found in this branch', 'ErrorResponse'), 409: response('Stale version, inactive quotation, invalid staff, or non-draft quotation', 'ErrorResponse') },
+    },
     get: {
       ...common, summary: 'Get quotation and its historical PDF', parameters: [idParameter],
       description: 'Returns active or inactive quotation and item snapshots in the current branch, including its optional 1:1 pdfDocument and pdf.url signed for 15 minutes. Other-branch quotations return 404. Operational quotation-references remain active-only.',
@@ -164,6 +173,20 @@ export const quotationPaths = {
       description: 'Sets isActive=false on the quotation and active items, increments version, records the actor, and appends history atomically. Stored rows and historical snapshots are preserved. GET retains access to historical data and the associated PDF. Repeated deletion or a stale version returns 409.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('DeleteQuotationRequest') } } },
       responses: { ...commonErrors, 200: response('Quotation and items deactivated', 'QuotationResponse'), 404: response('Quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation changed or is already inactive', 'ErrorResponse') },
+    },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/items': {
+    post: {
+      ...common, summary: 'Add an item to a draft quotation', parameters: [idParameter],
+      requestBody: { required: true, content: { 'application/json': { schema: ref('AddQuotationItemRequest') } } },
+      responses: { ...commonErrors, 201: response('Quotation item added', 'QuotationResponse'), 404: response('Quotation or item size not found in this branch', 'ErrorResponse'), 409: response('Stale version, duplicate item, inactive quotation, or non-draft quotation', 'ErrorResponse') },
+    },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/items/{itemId}': {
+    delete: {
+      ...common, summary: 'Soft delete an item from a draft quotation', parameters: [idParameter, { in: 'path', name: 'itemId', required: true, schema: uuid }],
+      requestBody: { required: true, content: { 'application/json': { schema: ref('DeleteQuotationItemRequest') } } },
+      responses: { ...commonErrors, 200: response('Quotation item deleted', 'QuotationResponse'), 404: response('Quotation or item not found in this branch', 'ErrorResponse'), 409: response('Stale quotation/item version, inactive quotation/item, or non-draft quotation', 'ErrorResponse') },
     },
   },
 };

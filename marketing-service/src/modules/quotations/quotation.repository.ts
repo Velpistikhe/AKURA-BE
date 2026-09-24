@@ -5,7 +5,7 @@ import { Prisma, ServiceType } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
-import { createQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput } from './quotation.schemas.js';
+import { createQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, UpdateQuotationInput } from './quotation.schemas.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { lockNextQuotationNumber, quotationDate, quotationNumberYear } from './quotation-number.js';
 import type { QuotationPdfMetadata } from './quotation-approval.service.js';
@@ -114,6 +114,65 @@ export const quotationRepository = {
       }
       await tx.quotation.update({ where: { id: quote.id }, data: await totals(tx, quote.id, quote.tax) });
       return saveRevision(tx, quote.id, actor, 'CREATE');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+
+  async update(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
+    const data = updateQuotationSchema.parse(input) as UpdateQuotationInput;
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
+      const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
+      if (!current) throw new HttpError('Quotation not found', 404);
+      if (!current.isActive || current.status !== 'CREATED' || current.version !== data.version) {
+        throw new HttpError('Quotation has changed, is inactive, or is not a draft; reload before retrying', 409);
+      }
+      const { version: _version, staffId, ...changes } = data;
+      let customerSnapshot: { customerSnapshot?: string; companySnapshot?: Prisma.InputJsonValue } = {};
+      if (staffId && staffId !== current.staffId) {
+        const companyId = (current.companySnapshot as { id?: string }).id;
+        if (!companyId) throw new HttpError('Quotation company snapshot is invalid', 409);
+        customerSnapshot = await customer(tx, companyId, staffId, officeBranchId);
+      }
+      await tx.quotation.update({ where: { id }, data: {
+        ...changes, ...(staffId ? { staffId } : {}), ...customerSnapshot,
+        version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name,
+      } });
+      return saveRevision(tx, id, actor, 'UPDATE');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+
+  async addItem(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
+    const data = addQuotationItemSchema.parse(input);
+    const itemInput: QuotationItemInput = { itemSizeId: data.itemSizeId, note: data.note, quantityInspection: data.quantityInspection, quantityMaintenance: data.quantityMaintenance };
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
+      const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
+      if (!current) throw new HttpError('Quotation not found', 404);
+      if (!current.isActive || current.status !== 'CREATED' || current.version !== data.version) throw new HttpError('Quotation has changed, is inactive, or is not a draft; reload before retrying', 409);
+      if (current.items.some(row => row.isActive && row.itemSizeId === data.itemSizeId)) throw new HttpError('Item size already exists in this quotation', 409);
+      const companyId = (current.companySnapshot as { id?: string }).id;
+      if (!companyId) throw new HttpError('Quotation company snapshot is invalid', 409);
+      const context = await standardPriceContext(tx, companyId, officeBranchId);
+      const position = current.items.reduce((max, row) => Math.max(max, row.position), -1) + 1;
+      await tx.quotationItem.create({ data: { ...await newItem(tx, itemInput, officeBranchId, actor, position, context!, new Date()), quotationId: id } });
+      await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      return saveRevision(tx, id, actor, 'ADD_ITEM');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+
+  async deleteItem(id: string, itemId: string, input: unknown, officeBranchId: string, actor: AuditActor) {
+    const { quotationVersion, itemVersion } = deleteQuotationItemSchema.parse(input);
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
+      const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
+      if (!current) throw new HttpError('Quotation not found', 404);
+      if (!current.isActive || current.status !== 'CREATED' || current.version !== quotationVersion) throw new HttpError('Quotation has changed, is inactive, or is not a draft; reload before retrying', 409);
+      await tx.$queryRaw`SELECT id FROM "quotation_items" WHERE id = ${itemId}::uuid AND quotation_id = ${id}::uuid FOR UPDATE`;
+      const item = await tx.quotationItem.findFirst({ where: { id: itemId, quotationId: id } });
+      if (!item || !item.isActive || item.version !== itemVersion) throw new HttpError('Quotation item has changed or is inactive; reload before retrying', 409);
+      await tx.quotationItem.update({ where: { id: itemId }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id } });
+      await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      return saveRevision(tx, id, actor, 'DELETE_ITEM');
     }, { maxWait: 10000, timeout: 20000 });
   },
 
