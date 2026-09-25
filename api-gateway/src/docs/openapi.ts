@@ -295,7 +295,7 @@ export const openApiDocument = groupByModule({
       UserProfile: {
         type: 'object',
         required: [
-          'id', 'username', 'firstName', 'lastName', 'role', 'section', 'officeBranchId', 'isActive',
+          'id', 'username', 'firstName', 'lastName', 'email', 'telp', 'role', 'section', 'officeBranchId', 'isActive',
           'version', 'createdAt', 'updatedAt',
         ],
         properties: {
@@ -303,6 +303,8 @@ export const openApiDocument = groupByModule({
           username: { type: 'string', example: 'johndoe' },
           firstName: { type: 'string', example: 'John' },
           lastName: { type: 'string', example: 'Doe' },
+          email: { type: 'string', format: 'email', nullable: true, example: 'user@example.com' },
+          telp: { type: 'string', nullable: true, example: '+62 811 1234 5678' },
           role: schemaRef('UserRole'),
           section: schemaRef('NullableUserSection'),
           officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Office branch ID stored by Auth Service without a cross-database foreign key.' },
@@ -447,6 +449,8 @@ export const openApiDocument = groupByModule({
           },
           firstName: { type: 'string', minLength: 1, example: 'John' },
           lastName: { type: 'string', minLength: 1, example: 'Doe' },
+          email: { type: 'string', format: 'email', nullable: true, maxLength: 255, example: 'john@example.com', description: 'Optional; normalized to lowercase. Send null to clear.' },
+          telp: { type: 'string', nullable: true, maxLength: 50, example: '+62 811 1234 5678', description: 'Optional. Send null to clear.' },
         },
       },
       LoginRequest: {
@@ -463,6 +467,8 @@ export const openApiDocument = groupByModule({
         properties: {
           firstName: { type: 'string', minLength: 1, example: 'John' },
           lastName: { type: 'string', minLength: 1, example: 'Doe' },
+          email: { type: 'string', format: 'email', nullable: true, maxLength: 255, description: 'Optional; normalized to lowercase. Send null to clear. Omit to keep the current value.' },
+          telp: { type: 'string', nullable: true, maxLength: 50, description: 'Optional. Send null to clear. Omit to keep the current value.' },
         },
       },
       ChangePasswordRequest: {
@@ -481,6 +487,8 @@ export const openApiDocument = groupByModule({
           role: schemaRef('UserRole'),
           section: schemaRef('NullableUserSection'),
           officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Sets or clears the user office branch assignment.' },
+          email: { type: 'string', format: 'email', nullable: true, maxLength: 255, description: 'Sets or clears the user email. Normalized to lowercase.' },
+          telp: { type: 'string', nullable: true, maxLength: 50, description: 'Sets or clears the user telephone.' },
           isActive: { type: 'boolean' },
           version: { type: 'integer', minimum: 1 },
         },
@@ -1562,6 +1570,27 @@ export const openApiDocument = groupByModule({
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('User not found'),
           409: errorResponse('Inactive user, self-update, last-app-manager, or concurrent update conflict'),
+          429: errorResponse('Rate limit exceeded'),
+          500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/auth/users/marketing-contacts': {
+      get: {
+        tags: ['User Management'],
+        summary: 'Get active Marketing admin contacts for the current branch',
+        description: 'Read-only directory used by downstream services (Marketing quotation PDF footer). Branch always derives from the authenticated access token; no branch parameter is accepted. App manager role is not required. Returns name, email and telp of active ADMIN users in the MARKETING section, ordered by creation.',
+        security: protectedSecurity,
+        responses: {
+          200: response('Marketing contacts retrieved', { type: 'object', required: ['status', 'success', 'message', 'data'], properties: {
+            status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
+            data: { type: 'object', required: ['contacts'], properties: { contacts: { type: 'array', items: { type: 'object', required: ['name'], properties: {
+              name: { type: 'string', example: 'Artha' }, email: { type: 'string', format: 'email', nullable: true }, telp: { type: 'string', nullable: true },
+            } } } } },
+            requestId: { type: 'string', format: 'uuid' },
+          } }),
+          401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Account is inactive'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },

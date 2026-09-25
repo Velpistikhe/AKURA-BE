@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "test:api": "node tests/api-verification.mjs"
+    "test:api": "node tests/api-verification.mjs",
+    "test:contacts": "node tests/user-contact-fields.test.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.16.1",

@@ -18,7 +18,9 @@ export const authController = {
       body.username,
       body.password,
       body.firstName,
-      body.lastName
+      body.lastName,
+      body.email,
+      body.telp
     );
     res.status(201).json({
       status: 201,
@@ -88,7 +90,9 @@ export const authController = {
     const user = await authService.updateProfile(
       getAuthenticatedUserId(req),
       body.firstName,
-      body.lastName
+      body.lastName,
+      body.email,
+      body.telp
     );
     res.status(200).json({
       status: 200,

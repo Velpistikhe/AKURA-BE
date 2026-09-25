@@ -12,6 +12,8 @@ export const updateUserSchema = z.object({
   role: z.nativeEnum(UserRole).optional(),
   section: z.nativeEnum(UserSection).nullable().optional(),
   officeBranchId: z.string().uuid('Invalid office branch ID').nullable().optional(),
+  email: z.string().trim().email('Invalid email address').max(255).transform(value => value.toLowerCase()).nullable().optional(),
+  telp: z.string().trim().min(1).max(50).nullable().optional(),
   isActive: z.boolean().optional(),
   version: z.number().int().positive(),
 }).strict().refine(

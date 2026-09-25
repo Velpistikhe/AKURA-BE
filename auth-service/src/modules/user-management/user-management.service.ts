@@ -30,6 +30,8 @@ export const userManagementService = {
       const statusChanged = data.isActive !== undefined && data.isActive !== user.isActive;
       const sectionChanged = data.section !== undefined && data.section !== user.section;
       const officeBranchChanged = data.officeBranchId !== undefined && data.officeBranchId !== user.officeBranchId;
+      const emailChanged = data.email !== undefined && data.email !== user.email;
+      const telpChanged = data.telp !== undefined && data.telp !== user.telp;
 
       if (actorId === userId && roleChanged) {
         throw new HttpError('App managers cannot change their own role', 409);
@@ -37,7 +39,7 @@ export const userManagementService = {
       if (actorId === userId && statusChanged) {
         throw new HttpError('App managers cannot change their own active status', 409);
       }
-      if (!roleChanged && !statusChanged && !sectionChanged && !officeBranchChanged) {
+      if (!roleChanged && !statusChanged && !sectionChanged && !officeBranchChanged && !emailChanged && !telpChanged) {
         return userManagementRepository.findById(userId);
       }
 
@@ -53,6 +55,8 @@ export const userManagementService = {
         ...(roleChanged && { role: data.role }),
         ...(sectionChanged && { section: data.section }),
         ...(officeBranchChanged && { officeBranchId: data.officeBranchId }),
+        ...(emailChanged && { email: data.email ?? null }),
+        ...(telpChanged && { telp: data.telp ?? null }),
         ...(statusChanged && { isActive: data.isActive }),
       });
       if (statusChanged && data.isActive === false) {

@@ -32,6 +32,8 @@ model User {
   normalizeUsername String         @unique @map("normalize_username")
   firstName         String         @map("first_name")
   lastName          String         @map("last_name")
+  email             String?        @db.VarChar(255)
+  telp              String?        @db.VarChar(50)
   role              UserRole       @default(USER)
   section           UserSection?
   officeBranchId    String?        @map("office_branch_id") @db.Uuid

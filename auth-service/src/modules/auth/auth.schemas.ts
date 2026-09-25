@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const nullableEmail = z.string().trim().email('Invalid email address').max(255).transform(value => value.toLowerCase()).nullable().optional();
+const nullableTelp = z.string().trim().min(1).max(50).nullable().optional();
+
 export const registerSchema = z.object({
   username: z.string()
     .min(3, 'Username must be at least 3 characters')
@@ -8,6 +11,8 @@ export const registerSchema = z.object({
   passwordConfirmation: z.string().min(1, 'Password confirmation is required'),
   firstName: z.string().trim().min(1, 'First name is required'),
   lastName: z.string().trim().min(1, 'Last name is required'),
+  email: nullableEmail,
+  telp: nullableTelp,
 }).refine((value) => value.password === value.passwordConfirmation, {
   message: 'Password dan konfirmasi password berbeda',
   path: ['passwordConfirmation'],
@@ -21,6 +26,8 @@ export const loginSchema = z.object({
 export const updateProfileSchema = z.object({
   firstName: z.string().trim().min(1, 'First name is required'),
   lastName: z.string().trim().min(1, 'Last name is required'),
+  email: nullableEmail,
+  telp: nullableTelp,
 });
 
 export const changePasswordSchema = z.object({

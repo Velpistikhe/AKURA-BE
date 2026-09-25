@@ -5,6 +5,8 @@ export interface UserSanitized {
   username: string;
   firstName: string;
   lastName: string;
+  email: string | null;
+  telp: string | null;
   role: UserRole;
   section: UserSection | null;
   officeBranchId: string | null;

@@ -3,7 +3,7 @@ import { quotationRepository, approvableStatuses } from './quotation.repository.
 import { approveQuotationSchema } from './quotation.schemas.js';
 import { renderQuotationPdf } from './quotation-pdf.js';
 import { quotationStorage } from './quotation-storage.js';
-import { AuditActor } from '../../types/auth.types.js';
+import { AuditActor, MarketingContact } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
 import { logger } from '../../utils/logger.js';
 
@@ -18,16 +18,16 @@ export const quotationApproval = {
     return quote.pdfDocument ? { ...quote, pdf: { ...quote.pdfDocument,
       ...await quotationStorage.downloadUrl(quote.pdfDocument.bucket, quote.pdfDocument.key) } } : quote;
   },
-  async preview(id: string, officeBranchId: string, actor: AuditActor) {
+  async preview(id: string, officeBranchId: string, actor: AuditActor, contacts: MarketingContact[] = []) {
     const quote = await quotationRepository.findActive(id, officeBranchId);
     const approvedAt = new Date();
-    const pdf = await renderQuotationPdf(quote, actor, approvedAt, true);
+    const pdf = await renderQuotationPdf(quote, actor, approvedAt, true, contacts);
     const fileName = quote.no === null
       ? `quotation-preview-${id}.pdf`
       : `Q-${quote.no}-R${quote.revision}-${quote.numberYear}.pdf`;
     return { pdf, fileName };
   },
-  async approve(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
+  async approve(id: string, input: unknown, officeBranchId: string, actor: AuditActor, contacts: MarketingContact[] = []) {
     const { version } = approveQuotationSchema.parse(input);
     const quote = await quotationRepository.findActive(id, officeBranchId);
     if (quote.version !== version) throw new HttpError('Quotation has changed; reload before retrying', 409);
@@ -45,7 +45,7 @@ export const quotationApproval = {
     try {
       const approved = await quotationRepository.approve(id, version, officeBranchId, actor, async numbered => {
         const approvedAt = new Date();
-        const pdf = await renderQuotationPdf(numbered, actor, approvedAt);
+        const pdf = await renderQuotationPdf(numbered, actor, approvedAt, false, contacts);
         const fileName = `Q-${numbered.no}-R${numbered.revision}-${numbered.numberYear}.pdf`;
         download = await quotationStorage.downloadUrl(bucket, key);
         uploaded = true; // Includes a PUT whose successful response is lost.

@@ -1,15 +1,39 @@
-import { Request, Response } from 'express';
+﻿import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
 import { ListQuotationsInput } from './quotation.schemas.js';
+import { MarketingContact } from '../../types/auth.types.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
+import { serviceUrl, serviceHeaders } from '../../utils/serviceUrl.js';
+import { getAccessToken } from '../../utils/requestTokens.js';
+import { logger } from '../../utils/logger.js';
+
+const loadMarketingContacts = async (req: Request): Promise<MarketingContact[]> => {
+  const token = getAccessToken(req);
+  if (!token) return [];
+  try {
+    const response = await fetch(serviceUrl('auth/users/marketing-contacts'), {
+      headers: { Authorization: `Bearer ${token}`, ...serviceHeaders('auth/users/marketing-contacts'), ...(req.headers['x-request-id'] ? { 'x-request-id': String(req.headers['x-request-id']) } : {}) },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`status ${response.status}`);
+    const body = await response.json() as { data?: { contacts?: MarketingContact[] } };
+    return (body.data?.contacts ?? []).filter(contact => contact && typeof contact.name === 'string');
+  } catch (error) {
+    // Contacts are footer metadata; a directory outage must never block approval or preview.
+    logger.warn('Unable to load marketing contacts for quotation PDF', { error: error instanceof Error ? error.message : String(error) });
+    return [];
+  }
+};
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
 };
 export const quotationController = {
-  async preview(_req: Request, res: Response) {
-    const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, getOfficeBranchId(res), getAuditActor(res));
+  async preview(req: Request, res: Response) {
+    const branch = getOfficeBranchId(res);
+    const contacts = await loadMarketingContacts(req);
+    const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, branch, getAuditActor(res), contacts);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
     res.setHeader('Content-Length', pdf.length);
@@ -17,7 +41,9 @@ export const quotationController = {
     res.status(200).send(pdf);
   },
   async approve(req: Request, res: Response) {
-    send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
+    const branch = getOfficeBranchId(res);
+    const contacts = await loadMarketingContacts(req);
+    send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, branch, getAuditActor(res), contacts));
   },
 
   async list(req: Request, res: Response) {

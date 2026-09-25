@@ -62,7 +62,8 @@ Gateway meneruskan prefix `/api/v1/auth` ke service ini dan menghapus prefix ter
 | `/api/v1/auth/password` | PUT | Access token | Mengganti password |
 | `/api/v1/auth/users` | GET | APP_MANAGER | Daftar dan filter user |
 | `/api/v1/auth/users/:userId` | GET | APP_MANAGER | Detail user |
-| `/api/v1/auth/users/:userId` | PATCH | APP_MANAGER | Mengubah role, section, office branch, dan/atau status user |
+| `/api/v1/auth/users/:userId` | PATCH | APP_MANAGER | Mengubah role, section, office branch, email, telp, dan/atau status user |
+| `/api/v1/auth/users/marketing-contacts` | GET | Access token | Daftar kontak ADMIN MARKETING aktif pada branch pemanggil; dipakai Marketing untuk footer PDF quotation |
 
 Endpoint `/users` dilayani langsung oleh Auth Service. Request wajib melewati API Gateway dan membawa access token milik `APP_MANAGER`. Seluruh pembacaan serta perubahan user dilakukan pada database Auth Service.
 

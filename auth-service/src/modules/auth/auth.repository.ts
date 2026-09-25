@@ -10,7 +10,9 @@ class AuthRepository {
     username: string,
     passwordHash: string,
     firstName: string,
-    lastName: string
+    lastName: string,
+    email?: string | null,
+    telp?: string | null
   ): Promise<User> {
     try {
       const user = await client.user.create({
@@ -19,6 +21,8 @@ class AuthRepository {
           normalizeUsername: username.toLowerCase().trim(),
           firstName: firstName.trim(),
           lastName: lastName.trim(),
+          email: email ?? null,
+          telp: telp ?? null,
         },
       });
       await client.userPassword.create({ data: { userId: user.id, passwordHash } });
@@ -56,6 +60,8 @@ class AuthRepository {
         normalize_username as "normalizeUsername",
         first_name as "firstName",
         last_name as "lastName",
+        email,
+        telp,
         role,
         section,
         office_branch_id as "officeBranchId",
@@ -91,13 +97,17 @@ class AuthRepository {
     userId: string,
     firstName: string,
     lastName: string,
-    expectedVersion: number
+    expectedVersion: number,
+    email?: string | null,
+    telp?: string | null
   ): Promise<User> {
     const updated = await client.user.updateMany({
       where: { id: userId, version: expectedVersion },
       data: {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
+        ...(email !== undefined && { email }),
+        ...(telp !== undefined && { telp }),
         version: { increment: 1 },
       },
     });

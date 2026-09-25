@@ -17,7 +17,8 @@ const quote = {
   termOfPayment: '30 days after invoice receipt', validity: '30 days', location: 'Customer workshop, Jakarta',
   supplyAkura: 'Qualified personnel, inspection equipment and inspection reports.',
   supplyCustomer: 'Access to work area, equipment handling and site facilities.',
-  accomplished: '3 working days after confirmation of order.', deliveryReports: '5 working days after job completion.',
+  accomplished: '3 working days after confirmation of order.', deliveryReports: '5 working days after job completion.', deliveryInvoice: '1 working day after finish inspection report.',
+  jobStart: '3 working days after confirmation PO and as long team is available.',
   items: [
     item(0, 'tubular', 'Tubular Inspection', 'Visual Inspection, Dimensional Inspection, Magnetic Particle Inspection, Cleaning', 'Drill Pipe', '3 1/2 inch', 5, 250000, 5, 100000),
     item(1, 'octg', 'OCTG Inspection', 'Visual Inspection, Thread Inspection, Wall Thickness Measurement', 'Tubing', '2 7/8 inch', 20, 125000),

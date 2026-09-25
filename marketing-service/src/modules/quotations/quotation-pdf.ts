@@ -1,7 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { Prisma } from '@prisma/client';
 import { resolve } from 'node:path';
-import { AuditActor } from '../../types/auth.types.js';
+import { AuditActor, MarketingContact } from '../../types/auth.types.js';
 import { groupQuotationItems } from './quotation-service-groups.js';
 import { quotationNumberYear } from './quotation-number.js';
 
@@ -11,7 +11,7 @@ const dateText = (date: Date) => date.toLocaleDateString('en-GB', { day: 'numeri
 const money = (value: Prisma.Decimal) => value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const months = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
-export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor, approvedAt: Date, preview = false): Promise<Buffer> {
+export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor, approvedAt: Date, preview = false, contacts: MarketingContact[] = []): Promise<Buffer> {
   if (!preview && (quote.no === null || quote.numberYear === null)) throw new Error('Quotation must be numbered by approval before PDF generation');
   const doc = new PDFDocument({ size: 'A4', margins: { top: 110, right: 30, bottom: 45, left: 30 }, bufferPages: true,
     info: { Title: `Quotation ${quote.no} R${quote.revision}`, Author: 'PT. AKURA BINA CITRA' } });
@@ -116,11 +116,13 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     let lineNo = 0;
     for (const group of groupQuotationItems(quote.items)) {
       const serviceLabel = `Type of service: ${group.type.replaceAll('_', ' ')} - ${group.name}`;
-      const groupLabel = serviceLabel;
+      // Service and scope share one cell; omit the scope line when the group has no scopes.
+      const groupScopes = [...new Set([group.inspectionScopes, group.maintenanceScopes].filter(Boolean))].join(', ');
+      const groupLabel = groupScopes ? `${serviceLabel}\nScope of works: ${groupScopes}` : serviceLabel;
       const groupStyle = { boldPrefixes: ['Type of service:', 'Scope of works:'] };
       const groupHeader = () => row([groupLabel], [width], false, false, lineHeader, groupStyle);
       groupHeader();
-      const repeatGroup = () => { lineHeader(); row([serviceLabel], [width], false, false, lineHeader, groupStyle); };
+      const repeatGroup = () => { lineHeader(); row([groupLabel], [width], false, false, lineHeader, groupStyle); };
       for (const chargeType of ['Inspection', 'Maintenance'] as const) {
         const charges = group.items.map(item => ({
           item,
@@ -132,27 +134,44 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
         doc.font('Helvetica').fontSize(9);
         const firstDescription = [charges[0].item.itemName, charges[0].item.size].filter(Boolean).join(' - ');
         const firstHeight = wrap(firstDescription, columns[1] - 10).length * 11 + 12;
-        const scopeLabel = 'Scope of works:';
-        const scopes = chargeType === 'Inspection' ? group.inspectionScopes : group.maintenanceScopes;
-        const scopeText = `${scopeLabel} ${scopes || '-'}`;
         doc.font('Helvetica-Bold');
-        const scopeHeight = wrap(scopeText, width - 10).length * 11 + 12;
-        if (y + scopeHeight + Math.min(firstHeight, 100) > bottom && scopeHeight + firstHeight < bottom - 200) { newPage(); repeatGroup(); }
-        const chargeHeader = () => row([scopeText], [width], false, false, repeatGroup, { boldPrefixes: [scopeLabel] });
-        chargeHeader();
-        const repeatCharge = () => { repeatGroup(); row([scopeLabel], [width], true, false, repeatGroup); };
+        if (y + Math.min(firstHeight, 100) > bottom && firstHeight < bottom - 200) { newPage(); repeatGroup(); }
         for (const { item, qty, price } of charges) {
           if (price === null) throw new Error('Missing quotation price');
           row([String(++lineNo), [item.itemName, item.size].filter(Boolean).join(' - '),
-            qty.toString(), money(price), money(qty.mul(price).toDecimalPlaces(2))], columns, false, false, repeatCharge, { alignments: ['left', 'left', 'center', 'right', 'right'] });
+            qty.toString(), money(price), money(qty.mul(price).toDecimalPlaces(2))], columns, false, false, repeatGroup, { alignments: ['left', 'left', 'center', 'right', 'right'] });
         }
       }
     }
-    row([`Job Location: ${quote.location}`], [width]);
-    for (const [label, value] of [['SUB TOTAL', quote.subTotal], [`TAX ${quote.tax}%`, quote.taxAmount], ['TOTAL PRICE', quote.total]] as const) {
-      row([label, money(value)], [width - 130, 130], true);
-    }
-    y += 18;
+    // Job Location on the left, subtotal block on the right, inside one bordered block (image 2).
+    // Totals follow the reference template: group thousands and omit a zero fractional part.
+    const totalsMoney = (value: Prisma.Decimal) => {
+      const rounded = value.toDecimalPlaces(2);
+      return rounded.equals(rounded.toFixed(0))
+        ? rounded.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+        : money(value);
+    };
+    const totals: Array<[string, Prisma.Decimal]> = [
+      ['SUB TOTAL', quote.subTotal], [`TAX ${quote.tax}%`, quote.taxAmount], ['TOTAL PRICE', quote.total],
+    ];
+    const totalsWidth = 230;
+    const jobRow = 22;
+    const blockTop = y;
+    const blockHeight = jobRow * totals.length;
+    doc.lineWidth(0.4).strokeColor('#777777').rect(left, blockTop, width - totalsWidth, blockHeight).stroke();
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('black')
+      .text(`Job Location : ${quote.location}`, left + 5, blockTop + (blockHeight - 11) / 2, { width: width - totalsWidth - 10, lineBreak: false });
+    totals.forEach(([label, value], index) => {
+      const rowTop = blockTop + index * jobRow;
+      const labelBold = label === 'TOTAL PRICE';
+      doc.lineWidth(0.4).strokeColor('#777777').rect(left + width - totalsWidth, rowTop, totalsWidth / 2, jobRow).stroke();
+      doc.rect(left + width - totalsWidth / 2, rowTop, totalsWidth / 2, jobRow).stroke();
+      doc.font(labelBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('black')
+        .text(label, left + width - totalsWidth + 5, rowTop + (jobRow - 11) / 2, { width: totalsWidth / 2 - 10, align: 'right', lineBreak: false });
+      doc.font(labelBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('black')
+        .text(totalsMoney(value), left + width - totalsWidth / 2 + 5, rowTop + (jobRow - 11) / 2, { width: totalsWidth / 2 - 10, align: 'right', lineBreak: false });
+    });
+    y = blockTop + blockHeight + 18;
     const supplyIntro = 'The proposed price(s) applied with the following conditions:';
     const supplyHeaders = ['Supplied by Akura', 'Supplied by Customer'];
     const supplyValues = [quote.supplyAkura, quote.supplyCustomer];
@@ -168,13 +187,62 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     const supplyHeader = () => row(supplyHeaders, supplyWidths, true, true);
     supplyHeader();
     row(supplyValues, supplyWidths, false, false, supplyHeader); y += 18;
-    paragraph('The good(s) or service(s) will be provided after we receive confirmation of order. Please give attention to the estimation of job / report below:');
-    row(['Job Accomplishment', 'Delivery Inspection Report(s)'], [width / 2, width / 2], true, true, undefined, { center: true });
-    row([quote.accomplished, quote.deliveryReports], [width / 2, width / 2], false, false, undefined, { center: true }); y += 18;
-    paragraph('Thank you for doing business with us. We look forward to rendering service to your company.');
-    row(['Reviewed and Approved By', 'Date Submitted'], [width / 2, width / 2], true, true, undefined, { center: true });
-    row([actor.name, dateText(documentDate)], [width / 2, width / 2], false, false, undefined, { center: true }); y += 12;
-    paragraph('Electronic Copy, no need signature. Save the Earth - go Paperless.');
+    // Estimation block per reference template (image 4): Job Start spans two columns above
+    // Job Accomplishment / Delivery Inspection / Delivery Invoice.
+    paragraph('The good(s) or service(s) will be provided after we receive confirmation of order. Please give attention with the estimation of job / report below :');
+    const estLeft = width * 0.31, estRight = width - estLeft;
+    // Page break for the whole estimation block when it cannot fit.
+    doc.font('Helvetica').fontSize(9);
+    const estimationHeight = 11 + 24 + 11 + 30;
+    if (y + estimationHeight > bottom) newPage();
+    doc.font('Helvetica-Bold').fontSize(9);
+    const jobStartHeader = 24;
+    doc.rect(left, y, estLeft, jobStartHeader).fill('#eeeeee').stroke('#777777');
+    doc.fillColor('black').text('Job Start', left + 5, y + (jobStartHeader - 11) / 2, { width: estLeft - 10, align: 'center', lineBreak: false });
+    doc.rect(left + estLeft, y, estRight, jobStartHeader).stroke('#777777');
+    doc.text(quote.jobStart, left + estLeft + 5, y + (jobStartHeader - 11) / 2, { width: estRight - 10, align: 'center', lineBreak: false });
+    y += jobStartHeader;
+    doc.rect(left, y, estLeft, 11 + 12).fill('#eeeeee').stroke('#777777');
+    doc.fillColor('black').text('Job Accomplishment*', left + 5, y + 6, { width: estLeft - 10, align: 'center', lineBreak: false });
+    doc.rect(left + estLeft, y, estRight / 2, 11 + 12).fill('#eeeeee').stroke('#777777');
+    doc.fillColor('black').text('Delivery Inspection', left + estLeft + 5, y + 6, { width: estRight / 2 - 10, align: 'center', lineBreak: false });
+    doc.rect(left + estLeft + estRight / 2, y, estRight / 2, 11 + 12).fill('#eeeeee').stroke('#777777');
+    doc.fillColor('black').text('Delivery Invoice(s)', left + estLeft + estRight / 2 + 5, y + 6, { width: estRight / 2 - 10, align: 'center', lineBreak: false });
+    y += 23;
+    const estimationValues: string[] = [quote.accomplished, quote.deliveryReports, quote.deliveryInvoice];
+    doc.font('Helvetica').fontSize(9).fillColor('black');
+    const estimationLines = estimationValues.map((value, index) => wrap(value, (index === 0 ? estLeft : estRight / 2) - 10));
+    const estimationRowHeight = Math.max(...estimationLines.map(lines => lines.length)) * 11 + 12;
+    doc.rect(left, y, estLeft, estimationRowHeight).stroke('#777777');
+    estimationLines[0].forEach((line, i) => doc.text(line, left + 5, y + 6 + i * 11, { width: estLeft - 10, align: 'center', lineBreak: false }));
+    doc.rect(left + estLeft, y, estRight / 2, estimationRowHeight).stroke('#777777');
+    estimationLines[1].forEach((line, i) => doc.text(line, left + estLeft + 5, y + 6 + i * 11, { width: estRight / 2 - 10, align: 'center', lineBreak: false }));
+    doc.rect(left + estLeft + estRight / 2, y, estRight / 2, estimationRowHeight).stroke('#777777');
+    estimationLines[2].forEach((line, i) => doc.text(line, left + estLeft + estRight / 2 + 5, y + 6 + i * 11, { width: estRight / 2 - 10, align: 'center', lineBreak: false }));
+    y += estimationRowHeight;
+    paragraph('*) Without additional job, proper handling, good weather condition, security during in service, etc');
+    if (contacts.length) {
+      paragraph('If you have any question(s), please do not hesitate to contact us :');
+      doc.font('Helvetica').fontSize(9).fillColor('black');
+      const longest = Math.max(...contacts.map(contact => doc.widthOfString(contact.name)));
+      for (const contact of contacts) {
+        const details = [contact.email, contact.telp].filter(Boolean).join('  ');
+        if (y + 13 > bottom) newPage();
+        doc.font('Helvetica').fontSize(9)
+          .text(contact.name, left + 10, y, { width: longest + 10, lineBreak: false });
+        doc.text(`– ${details}`, left + 20 + longest, y, { lineBreak: false });
+        y += 13;
+      }
+      y += 6;
+    }
+    paragraph('Thank you for (opportunities) doing business with you. We look forward to render service to your company.');
+    const footerHeaders = ['Prepared By', 'Reviewed and Approved By', 'Date Submitted'];
+    const footerValues = [actor.name, 'Matthews', dateText(documentDate)];
+    row(footerHeaders, [width / 3, width / 3, width / 3], true, true, undefined, { center: true });
+    row(footerValues, [width / 3, width / 3, width / 3], false, false, undefined, { center: true }); y += 12;
+    doc.font('Helvetica-BoldOblique').fontSize(9).fillColor('#2e7d32')
+      .text('Electronic Copy, no need signature. Save the Earth - go Paperless.', left, y, { width, align: 'center' });
+    y += 14;
     newPage();
     // Preserve the supplied template's general terms verbatim, without customer-specific data.
     doc.image(resolve(assets, 'general-terms.png'), left, y, { fit: [width, bottom - y], align: 'center' });

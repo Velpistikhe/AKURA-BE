@@ -5,7 +5,7 @@ import { buildListQuery, buildPagination, defineSortRules } from '../../utils/li
 import { ListUsersInput } from './user-management.schemas.js';
 
 const select = {
-  id: true, username: true, firstName: true, lastName: true, role: true, section: true,
+  id: true, username: true, firstName: true, lastName: true, email: true, telp: true, role: true, section: true,
   officeBranchId: true, isActive: true, version: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.UserSelect;
 
@@ -47,7 +47,7 @@ export const userManagementRepository = {
   async lockById(tx: Prisma.TransactionClient, userId: string): Promise<User | null> {
     const rows = await tx.$queryRaw<User[]>`
       SELECT id, username, normalize_username as "normalizeUsername", first_name as "firstName",
-        last_name as "lastName", role, section, office_branch_id as "officeBranchId",
+        last_name as "lastName", email, telp, role, section, office_branch_id as "officeBranchId",
         is_active as "isActive", version,
         created_at as "createdAt", updated_at as "updatedAt"
       FROM "users" WHERE id = ${userId}::uuid FOR UPDATE
@@ -60,6 +60,8 @@ export const userManagementRepository = {
     role?: UserRole;
     section?: UserSection | null;
     officeBranchId?: string | null;
+    email?: string | null;
+    telp?: string | null;
     isActive?: boolean;
   }): Promise<ManagedUser> {
     const result = await tx.user.updateMany({ where: { id: userId, version }, data: { ...data, version: { increment: 1 } } });

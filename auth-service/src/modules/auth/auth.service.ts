@@ -14,12 +14,14 @@ class AuthService {
     username: string,
     password: string,
     firstName: string,
-    lastName: string
+    lastName: string,
+    email?: string | null,
+    telp?: string | null
   ): Promise<void> {
     const passwordHash = await bcrypt.hash(password, 10);
 
     await prisma.$transaction(async (tx) => {
-      await authRepository.createUser(tx, username, passwordHash, firstName, lastName);
+      await authRepository.createUser(tx, username, passwordHash, firstName, lastName, email, telp);
     });
   }
 
@@ -124,7 +126,13 @@ class AuthService {
     }
   }
 
-  async updateProfile(userId: string, firstName: string, lastName: string): Promise<UserSanitized> {
+  async updateProfile(
+    userId: string,
+    firstName: string,
+    lastName: string,
+    email?: string | null,
+    telp?: string | null
+  ): Promise<UserSanitized> {
     return prisma.$transaction(async (tx) => {
       const user = await authRepository.findUserByIdForUpdate(tx, userId);
       if (!user) {
@@ -136,7 +144,9 @@ class AuthService {
         userId,
         firstName,
         lastName,
-        user.version
+        user.version,
+        email,
+        telp
       );
       return sanitizeUser(updatedUser);
     });
