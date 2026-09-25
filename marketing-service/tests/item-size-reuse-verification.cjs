@@ -12,6 +12,7 @@ async function main() {
     service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Size reuse test', type: 'TUBULAR', createdById: actor.id, createdByName: actor.name } });
     const item = await itemRepository.create({
       serviceId: service.id, uom: 'JOINT', name: 'Pipe',
+      inspectionScopes: [], maintenanceScopes: [],
       sizes: [{ size: 'Large' }],
     }, branch, actor);
     const input = { itemVersion: 0, itemId: item.id, size: 'Large' };
@@ -20,9 +21,15 @@ async function main() {
     assert.equal(item.sizes[0].version, 0);
     assert.equal(item.sizes[0].effectiveUntil, null);
     await assert.rejects(itemRepository.addSize(input, branch, actor), e => e.statusCode === 409);
-    await itemRepository.removeSize(item.sizes[0].id, branch, actor, 1);
+    await itemRepository.removeSize(
+      item.sizes[0].id,
+      branch,
+      actor,
+      (await prisma.itemSize.findUniqueOrThrow({ where: { id: item.sizes[0].id } })).version,
+    );
     const historical = await prisma.itemSize.findUniqueOrThrow({ where: { id: item.sizes[0].id }, include: { price: true } });
     assert.equal(historical.isActive, false);
+    assert.equal(historical.activeKey, null);
     assert(historical.effectiveUntil >= historical.effectiveFrom);
     assert.deepEqual(historical.effectiveUntil, historical.price.effectiveUntil);
     assert.equal(historical.price.isActive, false);

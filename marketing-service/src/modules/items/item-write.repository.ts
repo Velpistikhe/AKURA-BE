@@ -121,7 +121,7 @@ const closeSizes = async (tx: Tx, branch: string, sizes: Prisma.ItemSizeGetPaylo
     createdById: actor.id, createdByName: actor.name,
   }));
   await tx.itemPrice.updateMany({ where: { id: { in: prices.map(price => price.id) } }, data: { ...closed, version: { increment: 1 } } });
-  await tx.itemSize.updateMany({ where: { id: { in: ids } }, data: { ...closed, version: { increment: 1 } } });
+  await tx.itemSize.updateMany({ where: { id: { in: ids } }, data: { ...closed, activeKey: null, version: { increment: 1 } } });
   const audits = [
     ...rows('ITEM_PRICE', prices, closed, 'DEACTIVATE'),
     ...rows('ITEM_SIZE', sizes, { ...closed, activeKey: null }, 'DEACTIVATE'),

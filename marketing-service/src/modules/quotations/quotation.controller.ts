@@ -8,9 +8,18 @@ const send = (req: Request, res: Response, status: number, message: string, data
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
 };
 export const quotationController = {
+  async preview(_req: Request, res: Response) {
+    const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, getOfficeBranchId(res), getAuditActor(res));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdf.length);
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.status(200).send(pdf);
+  },
   async approve(req: Request, res: Response) {
     send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
   },
+
   async list(req: Request, res: Response) {
     send(req, res, 200, 'Quotations retrieved successfully', await quotationRepository.list(restrictListVisibility(res, res.locals.query as ListQuotationsInput), getOfficeBranchId(res)));
   },

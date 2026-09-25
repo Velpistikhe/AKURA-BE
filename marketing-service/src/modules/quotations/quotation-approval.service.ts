@@ -18,6 +18,15 @@ export const quotationApproval = {
     return quote.pdfDocument ? { ...quote, pdf: { ...quote.pdfDocument,
       ...await quotationStorage.downloadUrl(quote.pdfDocument.bucket, quote.pdfDocument.key) } } : quote;
   },
+  async preview(id: string, officeBranchId: string, actor: AuditActor) {
+    const quote = await quotationRepository.findActive(id, officeBranchId);
+    const approvedAt = new Date();
+    const pdf = await renderQuotationPdf(quote, actor, approvedAt, true);
+    const fileName = quote.no === null
+      ? `quotation-preview-${id}.pdf`
+      : `Q-${quote.no}-R${quote.revision}-${quote.numberYear}.pdf`;
+    return { pdf, fileName };
+  },
   async approve(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
     const { version } = approveQuotationSchema.parse(input);
     const quote = await quotationRepository.findActive(id, officeBranchId);

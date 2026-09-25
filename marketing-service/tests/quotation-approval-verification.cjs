@@ -88,7 +88,7 @@ async function main() {
     const retry = await request(quote.id, { version: 1 });
     assert.equal(retry.pdf.key, approved.pdf.key); assert.equal(uploadCount, 1);
     await request(quote.id, { version: 0 }, 409);
-    const { id: _pdfId, ...duplicatePdf } = historical.pdfDocument;
+    const { id: _pdfId, ...duplicatePdf } = approvedSnapshot.pdfDocument;
     await assert.rejects(prisma.quotationPdf.create({ data: { ...duplicatePdf, key: randomUUID(), version: 99 } }), e => e.code === 'P2002');
     assert(objects.has(approved.pdf.key));
 
@@ -105,7 +105,7 @@ async function main() {
     const raced = await fixture();
     let racingEdit;
     afterUpload = async () => {
-      racingEdit = Promise.resolve(null);
+      racingEdit = Promise.resolve({ statusCode: 409 });
     };
     const raceApproved = await request(raced.id, { version: 0 }); afterUpload = undefined;
     assert.equal((await racingEdit).statusCode, 409); assert.equal(raceApproved.no, 2);
@@ -129,6 +129,44 @@ async function main() {
     const many = { ...quote, no: approved.no, numberYear: approved.numberYear, items: Array.from({ length: 100 }, (_, i) => ({ ...quote.items[0], position: i, itemName: `Pipe ${i + 1} - ${'Long description '.repeat(10)}` })) };
     writeFileSync('tmp/quotation-approval-multipage.pdf', await renderQuotationPdf(many, actor, new Date('2026-09-13')));
     console.log('PASS: approval HTTP validation, branch isolation, metadata/history, idempotency, revisions, upload failure cleanup, concurrent changes, status guards and multipage PDF.');
+
+    // PDF preview: inline, no storage, no numbering, no history mutation.
+    const uploadsBeforePreview = uploadCount;
+    const previewRequest = async (id, selectedBranch = branch) => {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/quotations/${id}/pdf`, {
+        method: 'GET', headers: { 'x-test-branch': selectedBranch },
+      });
+      return { response, body: Buffer.from(await response.arrayBuffer()) };
+    };
+    const draft = await fixture();
+    const beforeDraft = await quotationRepository.find(draft.id, branch);
+    const historyBefore = await prisma.quotationHistory.count({ where: { quotationId: draft.id } });
+    const preview = await previewRequest(draft.id);
+    assert.equal(preview.response.status, 200);
+    assert.equal(preview.response.headers.get('content-type'), 'application/pdf');
+    assert.match(preview.response.headers.get('content-disposition'), /^inline; filename="quotation-preview-/);
+    assert.equal(preview.response.headers.get('cache-control'), 'no-store, max-age=0');
+    assert.equal(preview.body.subarray(0, 5).toString(), '%PDF-');
+    const afterDraft = await quotationRepository.find(draft.id, branch);
+    assert.equal(afterDraft.no, null); assert.equal(afterDraft.numberYear, null);
+    assert.equal(afterDraft.pdfDocument, null); assert.equal(afterDraft.version, beforeDraft.version);
+    assert.equal(await prisma.quotationPdf.count({ where: { quotationId: draft.id } }), 0);
+    assert.equal(await prisma.quotationHistory.count({ where: { quotationId: draft.id } }), historyBefore);
+    assert.equal(uploadCount, uploadsBeforePreview);
+    assert.equal((await previewRequest(draft.id, randomUUID())).response.status, 404);
+    assert.equal((await previewRequest(randomUUID())).response.status, 404);
+    const inactivePreview = await fixture({ isActive: false });
+    assert.equal((await previewRequest(inactivePreview.id)).response.status, 404);
+    assert.equal((await previewRequest('invalid')).response.status, 400);
+    // A numbered quotation reuses its official number without generating another stored document.
+    const approvedNumbered = await quotationRepository.find(quote.id, branch);
+    const numberedPreview = await previewRequest(quote.id);
+    assert.equal(numberedPreview.response.status, 200);
+    assert.equal(numberedPreview.response.headers.get('content-disposition'), `inline; filename="Q-${approvedNumbered.no}-R${approvedNumbered.revision}-${approvedNumbered.numberYear}.pdf"`);
+    assert.equal(numberedPreview.body.subarray(0, 5).toString(), '%PDF-');
+    assert.equal(uploadCount, uploadsBeforePreview);
+    assert.equal(await prisma.quotationPdf.count({ where: { quotationId: quote.id } }), 1);
+    console.log('PASS: quotation PDF preview is inline, format-valid, branch isolated, read-only and preserves numbering/storage.');
   } finally {
     await new Promise(resolve => server.close(resolve));
     const where = { quotation: { officeBranchId: branch } };

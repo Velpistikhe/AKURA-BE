@@ -127,6 +127,13 @@ const commonErrors = {
 const common = { tags: ['Quotations'], security: [{ bearerAuth: [] }, { accessTokenCookie: [] }] };
 const idParameter = { in: 'path', name: 'quotationId', required: true, schema: uuid };
 export const quotationPaths = {
+  '/api/v1/marketing/quotations/{quotationId}/pdf': {
+    get: {
+      ...common, summary: 'Preview quotation as PDF without storing it', parameters: [idParameter],
+      description: 'Returns the existing quotation format as an inline PDF generated in memory. Draft quotations use a temporary PREVIEW number and do not update quotation, numbering sequence, history, or QuotationPdf. Approved or numbered quotations use their official number. The quotation must be active and belong to the authenticated office branch. Response is not cached or stored.',
+      responses: { 200: { description: 'Quotation PDF preview', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, ...commonErrors, 404: response('Active quotation not found in this branch', 'ErrorResponse') },
+    },
+  },
   '/api/v1/marketing/quotations/{quotationId}/approve': {
     post: {
       ...common, summary: 'Approve quotation, generate PDF and store in Neon', parameters: [idParameter],

@@ -16,6 +16,7 @@ const requireMarketingAdmin: RequestHandler = (_req, res, next) => {
 };
 
 const router = Router();
+router.get('/:quotationId/pdf', validate('params', quotationIdSchema), asyncHandler(quotationController.preview));
 router.post('/:quotationId/approve', requireMarketingAdmin, validate('params', quotationIdSchema), validate('body', approveQuotationSchema), asyncHandler(quotationController.approve));
 router.get('/', validate('query', listQuotationsSchema), asyncHandler(quotationController.list));
 router.get('/:quotationId', validate('params', quotationIdSchema), asyncHandler(quotationController.get));

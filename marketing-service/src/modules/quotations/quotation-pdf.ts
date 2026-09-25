@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { resolve } from 'node:path';
 import { AuditActor } from '../../types/auth.types.js';
 import { groupQuotationItems } from './quotation-service-groups.js';
+import { quotationNumberYear } from './quotation-number.js';
 
 type PdfQuotation = Prisma.QuotationGetPayload<{ include: { items: true } }>;
 const assets = resolve(__dirname, '../../../assets/quotation');
@@ -10,8 +11,8 @@ const dateText = (date: Date) => date.toLocaleDateString('en-GB', { day: 'numeri
 const money = (value: Prisma.Decimal) => value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const months = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
-export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor, approvedAt: Date): Promise<Buffer> {
-  if (quote.no === null || quote.numberYear === null) throw new Error('Quotation must be numbered by approval before PDF generation');
+export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor, approvedAt: Date, preview = false): Promise<Buffer> {
+  if (!preview && (quote.no === null || quote.numberYear === null)) throw new Error('Quotation must be numbered by approval before PDF generation');
   const doc = new PDFDocument({ size: 'A4', margins: { top: 110, right: 30, bottom: 45, left: 30 }, bufferPages: true,
     info: { Title: `Quotation ${quote.no} R${quote.revision}`, Author: 'PT. AKURA BINA CITRA' } });
   const chunks: Buffer[] = [];
@@ -99,7 +100,9 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     const staffTitle = company.staffTitle === 'mr' ? 'Mr.' : company.staffTitle === 'mrs' ? 'Mrs.' : '';
     if (quote.customerSnapshot) paragraph(`Attn: ${[staffTitle, quote.customerSnapshot].filter(Boolean).join(' ')}`, false, width / 2);
     const documentDate = quote.date ?? approvedAt;
-    const number = `ABC / Q - ${quote.no}${quote.revision ? ` R${quote.revision}` : ''} / ${months[documentDate.getUTCMonth()]} / ${quote.numberYear}`;
+    const number = quote.no === null
+      ? `ABC / Q - PREVIEW / ${months[documentDate.getUTCMonth()]} / ${quote.numberYear ?? quotationNumberYear(documentDate)}`
+      : `ABC / Q - ${quote.no}${quote.revision ? ` R${quote.revision}` : ''} / ${months[documentDate.getUTCMonth()]} / ${quote.numberYear}`;
     const thirds = [width * 0.39, width * 0.34, width * 0.27];
     row(['Subject', 'Inquiry Date', 'Inquiry Method'], thirds, true, true, undefined, { center: true });
     row([quote.subject, dateText(quote.inquiryDate), quote.inquiryMethod.replaceAll('_', ' ')], thirds, false, false, undefined, { center: true });
