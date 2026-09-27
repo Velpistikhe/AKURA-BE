@@ -182,7 +182,7 @@ Seluruh perubahan dilakukan melalui `quotationRepository`: `create`, `update`, d
 
 Saat `items` dikirim pada update, array menjadi daftar lengkap item aktif: sertakan `id` untuk mempertahankan baris, hilangkan `id` untuk menambah baris, dan baris lama yang tidak dikirim dinonaktifkan. Referensi katalog baris existing tidak dapat diganti; buat baris baru. Snapshot baris existing tetap utuh meskipun katalog berubah. Update header tanpa `items` mempertahankan baris sebelumnya.
 
-`quotation_histories` menyimpan snapshot lengkap header dan seluruh baris setiap versi (termasuk baris nonaktif), actor, waktu, dan aksi CREATE/UPDATE/DEACTIVATE. Pasangan quotation/version unik. Repository hanya menambahkan riwayat, tidak mengubah atau menghapusnya. Relasi menggunakan `Restrict` untuk mencegah penghapusan berantai dokumen/riwayat akibat penghapusan data referensi. Deactivate menggunakan soft delete.
+`quotation_histories` menyimpan perubahan field terstruktur (`field`, `label`, `before`, `after`) untuk setiap versi dan actor. Backup lengkap header dan seluruh baris quotation disimpan atomically pada `quotation_snapshots`, termasuk baris nonaktif. Pasangan quotation/version unik. Repository hanya menambahkan riwayat, tidak mengubah atau menghapusnya. Relasi menggunakan `Restrict` untuk mencegah penghapusan berantai dokumen/riwayat akibat penghapusan data referensi. Deactivate menggunakan soft delete.
 
 Endpoint melalui Gateway (akses Marketing dan office branch wajib):
 

@@ -88,8 +88,11 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
       let offset = 0;
       if (y + count * line + 12 > bottom && count * line + 12 <= bottom - 150) { newPage(); repeat?.(); }
       while (offset < count) {
-        if (bottom - y < line + 12) { newPage(); repeat?.(); }
+        let movedToNewPage = false;
+        if (bottom - y < line + 12) { newPage(); movedToNewPage = true; }
         const take = Math.min(count - offset, Math.floor((bottom - y - 12) / line));
+        if (take <= 0) { newPage(); continue; }
+        if (movedToNewPage) repeat?.();
         const height = take * line + 12;
         let x = left;
         for (let cell = 0; cell < values.length; cell++) {
@@ -161,13 +164,6 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     let lineNo = 0;
     for (const group of groupQuotationItems(quote.items)) {
       const serviceLabel = `Type of service: ${group.type.replaceAll('_', ' ')} - ${group.name}`;
-      // Service and scope share one cell; omit the scope line when the group has no scopes.
-      const groupScopes = [...new Set([group.inspectionScopes, group.maintenanceScopes].filter(Boolean))].join(', ');
-      const groupLabel = groupScopes ? `${serviceLabel}\nScope of works: ${groupScopes}` : serviceLabel;
-      const groupStyle = { boldPrefixes: ['Type of service:', 'Scope of works:'], fontSize: fontSizes.table };
-      const groupHeader = () => row([groupLabel], [width], false, false, lineHeader, groupStyle);
-      groupHeader();
-      const repeatGroup = () => { lineHeader(); row([groupLabel], [width], false, false, lineHeader, groupStyle); };
       for (const chargeType of ['Inspection', 'Maintenance'] as const) {
         const charges = group.items.map(item => ({
           item,
@@ -175,12 +171,18 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
           price: chargeType === 'Inspection' ? item.priceInspection : item.priceMaintenance,
         })).filter(charge => charge.qty.greaterThan(0));
         if (!charges.length) continue;
-        // Keep the subgroup heading with at least its first item.
+        const groupScopes = chargeType === 'Inspection' ? group.inspectionScopes : group.maintenanceScopes;
+        const scopeTitle = chargeType === 'Maintenance' ? 'Scope of maintenance:' : 'Scope of works:';
+        const groupLabel = groupScopes ? `${serviceLabel}\n${scopeTitle} ${groupScopes}` : serviceLabel;
+        const groupStyle = { boldPrefixes: ['Type of service:', 'Scope of works:', 'Scope of maintenance:'], fontSize: fontSizes.table };
+        const groupHeaderHeight = wrap(groupLabel, width - 12).length * lineHeight(fontSizes.table) + 12;
         doc.font(fonts.regular).fontSize(fontSizes.table);
         const firstDescription = [charges[0].item.itemName, charges[0].item.size].filter(Boolean).join(' - ');
         const firstHeight = wrap(firstDescription, columns[1] - 12).length * lineHeight(fontSizes.table) + 12;
-        doc.font(fonts.bold);
-        if (y + Math.min(firstHeight, 100) > bottom && firstHeight < bottom - 200) { newPage(); repeatGroup(); }
+        if (y + groupHeaderHeight + firstHeight > bottom) newPage();
+        const groupHeader = () => row([groupLabel], [width], false, false, lineHeader, groupStyle);
+        groupHeader();
+        const repeatGroup = () => { lineHeader(); row([groupLabel], [width], false, false, lineHeader, groupStyle); };
         for (const { item, qty, price } of charges) {
           if (price === null) throw new Error('Missing quotation price');
           row([`${++lineNo}.`, [item.itemName, item.size].filter(Boolean).join(' - '),
@@ -245,8 +247,10 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     // Page break for the whole estimation block when it cannot fit.
     doc.font(fonts.regular).fontSize(fontSizes.value);
     const estimationValueLine = lineHeight(fontSizes.value);
-    // Header cells are two text lines tall; value row height follows wrapped lines.
-    const jobStartHeader = lineHeight(fontSizes.body) + 16;
+    // Preserve the existing bold/body font; only the cell height follows wrapped content.
+    doc.font(fonts.bold).fontSize(fontSizes.body);
+    const jobStartLines = wrap(quote.jobStart, estRight - 12);
+    const jobStartHeader = jobStartLines.length * lineHeight(fontSizes.body) + 12;
     const estimationHeader = lineHeight(fontSizes.body) + 12;
     const estimationValueLines = [quote.accomplished, quote.deliveryReports, quote.deliveryInvoice]
       .map((value, index) => wrap(value, (index === 0 ? estLeft : estRight / 2) - 12));
@@ -259,7 +263,7 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     doc.rect(left, y, estLeft, jobStartHeader).fillAndStroke('#eeeeee', '#777777');
     doc.fillColor('black').text('Job Start', left + 6, y + (jobStartHeader - lineHeight(fontSizes.body)) / 2, { width: estLeft - 12, align: 'center', lineBreak: false });
     doc.rect(left + estLeft, y, estRight, jobStartHeader).stroke('#777777');
-    doc.text(quote.jobStart, left + estLeft + 6, y + (jobStartHeader - lineHeight(fontSizes.body)) / 2, { width: estRight - 12, align: 'center', lineBreak: false });
+    jobStartLines.forEach((line, i) => doc.text(line, left + estLeft + 6, y + (jobStartHeader - jobStartLines.length * lineHeight(fontSizes.body)) / 2 + i * lineHeight(fontSizes.body), { width: estRight - 12, align: 'center', lineBreak: false }));
     y += jobStartHeader;
     doc.rect(left, y, estLeft, estimationHeader).fillAndStroke('#eeeeee', '#777777');
     doc.fillColor('black').text('Job Accomplishment*', left + 6, y + (estimationHeader - lineHeight(fontSizes.body)) / 2, { width: estLeft - 12, align: 'center', lineBreak: false });

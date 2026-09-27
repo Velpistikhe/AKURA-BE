@@ -15,7 +15,7 @@ async function main() {
     customerSnapshot: 'Contact', termOfPayment: '30 days', validity: '30 days', location: 'AKURA BALIKPAPAN',
     supplyAkura: 'Tools', supplyCustomer: 'Access', accomplished: '1 (one) Month',
     deliveryReports: '3 (three) working days after job accomplishment', deliveryInvoice: '1 (one) working day',
-    jobStart: 'As long team is available', tax: D(11), subTotal: D('1438350000'), taxAmount: D('158218500'), total: D('1596568500'),
+    jobStart: '3 (three) working days after confirmation PT and as long team is available', tax: D(11), subTotal: D('1438350000'), taxAmount: D('158218500'), total: D('1596568500'),
   };
   const line = (position, priceSelection, itemName, qty = '2') => ({
     position, isActive: true, serviceName: 'Inspection', serviceType: 'TUBULAR', itemName, size: 'Large',
@@ -49,12 +49,16 @@ async function main() {
   };
 
   // 1. Service and scope share one row; a group without scopes omits the scope line entirely.
-  const withScope = await capture([line(0, { serviceId: 's1', serviceScopes: 'Visual Inspection, Cleaning', inspectionScopes: 'Visual Inspection', maintenanceScopes: 'Cleaning' }, 'Drill Pipe')]);
-  // row() renders bold prefixes as separate text calls: prefix then remainder.
-  assert(withScope.includes('Type of service:'));
-  assert(withScope.some(text => text.includes('TUBULAR - Inspection')));
+  const withScope = await capture([
+    line(0, { serviceId: 's1', serviceScopes: 'Visual Inspection, Cleaning', inspectionScopes: 'Visual Inspection', maintenanceScopes: 'Cleaning' }, 'Inspection Item'),
+    { ...line(1, { serviceId: 's1', serviceScopes: 'Visual Inspection, Cleaning', inspectionScopes: 'Visual Inspection', maintenanceScopes: 'Cleaning' }, 'Maintenance Item'), quantityInspection: D('0'), quantityMaintenance: D('1'), priceMaintenance: D('200000') },
+  ]);
+  // Each charge type uses the scope that belongs to that charge; scopes must not be merged.
   assert(withScope.includes('Scope of works:'));
-  assert(withScope.some(text => text.includes('Visual Inspection, Cleaning')));
+  assert(withScope.includes('Scope of maintenance:'));
+  assert(withScope.some(text => text.includes('Visual Inspection')));
+  assert(withScope.some(text => text.includes('Cleaning')));
+  assert(!withScope.some(text => text.includes('Visual Inspection, Cleaning')));
   const noScope = await capture([line(0, { serviceId: 's1', serviceScopes: '', inspectionScopes: '', maintenanceScopes: '' }, 'Drill Pipe')]);
   assert(!noScope.includes('Scope of works:'), 'scope line must be omitted when empty');
   assert(!noScope.some(text => text.includes('Scope of works: -')), 'placeholder scope must not render');

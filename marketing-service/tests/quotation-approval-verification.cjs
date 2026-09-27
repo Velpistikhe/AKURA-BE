@@ -172,6 +172,7 @@ async function main() {
     const where = { quotation: { officeBranchId: branch } };
     await prisma.quotation.updateMany({ where: { officeBranchId: branch }, data: { previousQuotationId: null } });
     await prisma.quotationPdf.deleteMany({ where });
+    await prisma.quotationSnapshot.deleteMany({ where });
     await prisma.quotationHistory.deleteMany({ where });
     await prisma.quotationItem.deleteMany({ where });
     await prisma.quotation.deleteMany({ where: { officeBranchId: branch } });

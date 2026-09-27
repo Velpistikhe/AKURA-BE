@@ -39,7 +39,10 @@ export const quotationSchemas = {
     type: 'object', additionalProperties: false, required: ['version'], properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 } },
   },
   QuotationHistory: {
-    type: 'object', properties: { id: uuid, quotationId: uuid, version: { type: 'integer' }, action: { type: 'string' }, snapshot: { type: 'object', additionalProperties: true }, createdById: uuid, createdByName: { type: 'string' }, createdBy: { type: 'object', properties: { id: uuid, name: { type: 'string' } }, required: ['id', 'name'] }, createdAt: timestamp },
+    type: 'object', properties: { id: uuid, quotationId: uuid, version: { type: 'integer' }, action: { type: 'string' }, changes: { type: 'array', items: { type: 'object', properties: { field: { type: 'string' }, label: { type: 'string' }, before: {}, after: {} }, required: ['field', 'label', 'before', 'after'] } }, createdById: uuid, createdByName: { type: 'string' }, createdBy: { type: 'object', properties: { id: uuid, name: { type: 'string' } }, required: ['id', 'name'] }, createdAt: timestamp },
+  },
+  QuotationSnapshot: {
+    type: 'object', properties: { id: uuid, quotationId: uuid, version: { type: 'integer' }, action: { type: 'string' }, snapshot: { type: 'object', additionalProperties: true }, createdById: uuid, createdByName: { type: 'string' }, createdAt: timestamp },
   },
   QuotationHistoryResponse: envelope({ quotationId: uuid, history: { type: 'array', items: ref('QuotationHistory') }, pagination: ref('Pagination') }),
   ApproveQuotationRequest: {
@@ -192,7 +195,7 @@ export const quotationPaths = {
         { in: 'query', name: 'sortBy', schema: { type: 'string', enum: ['version', 'createdAt', 'action'], default: 'version' } },
         { in: 'query', name: 'sortOrder', schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' } },
       ],
-      description: 'Returns append-only quotation snapshots for the authenticated branch, including inactive quotations. Supports action filtering, sorting and pagination. History is read-only.',
+       description: 'Returns field-level quotation changes for the authenticated branch. Full quotation backups are stored separately and are not included in this paginated response. Supports action filtering, sorting and pagination. History is read-only.',
       responses: { ...commonErrors, 200: response('Quotation history retrieved', 'QuotationHistoryResponse'), 404: response('Quotation not found in this branch', 'ErrorResponse') },
     },
   },

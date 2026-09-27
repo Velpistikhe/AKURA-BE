@@ -124,6 +124,7 @@ async function main() {
     console.log('PASS: quotation HTTP create/list/detail/delete, item array, date parsing, totals, validation, rollback, branch isolation, conflicts, and preserved soft-deleted rows/history.');
   } finally {
     await new Promise(resolve => server.close(resolve));
+    await prisma.quotationSnapshot.deleteMany({ where: { quotation: { officeBranchId: branch } } });
     await prisma.quotationHistory.deleteMany({ where: { quotation: { officeBranchId: branch } } });
     await prisma.quotationItem.deleteMany({ where: { quotation: { officeBranchId: branch } } });
     await prisma.quotation.deleteMany({ where: { officeBranchId: branch } });

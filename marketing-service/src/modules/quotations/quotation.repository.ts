@@ -12,6 +12,7 @@ import type { QuotationPdfMetadata } from './quotation-approval.service.js';
 import { serviceScopeInclude, serviceScopeSnapshot } from './quotation-service-groups.js';
 
 const include = { pdfDocument: true, items: { orderBy: { position: 'asc' as const } } };
+const detailInclude = { pdfDocument: true, items: { where: { isActive: true }, orderBy: { position: 'asc' as const } } };
 export const approvableStatuses = ['SUBMITTED'] as const;
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 
@@ -68,10 +69,31 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
   };
 }
 
-async function saveRevision(tx: Prisma.TransactionClient, id: string, actor: AuditActor, action: string) {
+const historyFields = [
+  ['no', 'Quotation number'], ['numberYear', 'Quotation year'], ['date', 'Quotation date'], ['jobStart', 'Job start'],
+  ['inquiryMethod', 'Inquiry method'], ['inquiryDate', 'Inquiry date'], ['subject', 'Subject'], ['termOfPayment', 'Term of payment'],
+  ['validity', 'Validity'], ['tax', 'Tax'], ['supplyAkura', 'Akura supply'], ['supplyCustomer', 'Customer supply'],
+  ['location', 'Location'], ['accomplished', 'Accomplished'], ['deliveryReports', 'Delivery reports'], ['deliveryInvoice', 'Delivery invoice'],
+  ['staffId', 'Staff'], ['customerSnapshot', 'Customer'], ['companySnapshot', 'Company'], ['status', 'Status'], ['invoiceStatus', 'Invoice status'],
+  ['subTotal', 'Subtotal'], ['taxAmount', 'Tax amount'], ['total', 'Total'], ['revision', 'Revision'], ['isActive', 'Active status'],
+  ['items', 'Quotation items'],
+] as const;
+const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+const historyChanges = (before: Record<string, unknown> | null, after: Record<string, unknown>, action: string) => historyFields.flatMap(([field, label]) => {
+  const previous = before?.[field] ?? null;
+  const current = after[field] ?? null;
+  return action === 'CREATE' || action === 'CREATE_REVISION' || !equal(previous, current) ? [{ field, label, before: action === 'CREATE' || action === 'CREATE_REVISION' ? null : previous, after: current }] : [];
+});
+
+async function saveRevision(tx: Prisma.TransactionClient, id: string, actor: AuditActor, action: string, before: Record<string, unknown> | null = null) {
   const quote = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
+  const previous = before ?? (await tx.quotationSnapshot.findFirst({ where: { quotationId: id, version: { lt: quote.version } }, orderBy: { version: 'desc' }, select: { snapshot: true } }))?.snapshot;
+  const snapshot = json(quote);
   await tx.quotationHistory.create({ data: {
-      quotationId: id, version: quote.version, action, snapshot: json(quote), createdById: actor.id, createdByName: actor.name,
+    quotationId: id, version: quote.version, action, changes: json(historyChanges(previous as Record<string, unknown> | null, snapshot as Record<string, unknown>, action)), createdById: actor.id, createdByName: actor.name,
+  } });
+  await tx.quotationSnapshot.create({ data: {
+    quotationId: id, version: quote.version, action, snapshot, createdById: actor.id, createdByName: actor.name,
   } });
   return quote;
 }
@@ -86,7 +108,7 @@ async function totals(tx: Prisma.TransactionClient, id: string, tax: Prisma.Deci
 // All header/item writes go through this aggregate. Never update items independently.
 export const quotationRepository = {
   async find(id: string, officeBranchId: string) {
-    const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId }, include });
+    const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId }, include: detailInclude });
     if (!quote) throw new HttpError('Quotation not found', 404);
     return quote;
   },
@@ -100,7 +122,7 @@ export const quotationRepository = {
       prisma.quotationHistory.findMany({ where, orderBy: [orderBy, { id: input.sortOrder }], skip: (input.page - 1) * input.limit, take: input.limit }),
       prisma.quotationHistory.count({ where }),
     ], { isolationLevel: 'RepeatableRead' });
-    return { quotationId: id, history: history.map(entry => ({ ...entry, createdBy: { id: entry.createdById, name: entry.createdByName } })), pagination: buildPagination(input.page, input.limit, total) };
+    return { quotationId: id, history: history.map(entry => ({ ...entry, changes: entry.changes, createdBy: { id: entry.createdById, name: entry.createdByName } })), pagination: buildPagination(input.page, input.limit, total) };
   },
   async list({ page, limit, isActive }: ListQuotationsInput, officeBranchId: string) {
     const where = { officeBranchId, isActive };
@@ -154,7 +176,7 @@ export const quotationRepository = {
         ...changes, ...(staffId ? { staffId } : {}), ...customerSnapshot,
         version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name,
       } });
-      return saveRevision(tx, id, actor, 'UPDATE');
+      return saveRevision(tx, id, actor, 'UPDATE', current as unknown as Record<string, unknown>);
     }, { maxWait: 10000, timeout: 20000 });
   },
 
@@ -173,7 +195,7 @@ export const quotationRepository = {
       const position = current.items.reduce((max, row) => Math.max(max, row.position), -1) + 1;
       await tx.quotationItem.create({ data: { ...await newItem(tx, itemInput, officeBranchId, actor, position, context!, new Date()), quotationId: id } });
       await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
-      return saveRevision(tx, id, actor, 'ADD_ITEM');
+      return saveRevision(tx, id, actor, 'ADD_ITEM', current as unknown as Record<string, unknown>);
     }, { maxWait: 10000, timeout: 20000 });
   },
 
@@ -189,7 +211,7 @@ export const quotationRepository = {
       if (!item || !item.isActive || item.version !== itemVersion) throw new HttpError('Quotation item has changed or is inactive; reload before retrying', 409);
       await tx.quotationItem.update({ where: { id: itemId }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
-      return saveRevision(tx, id, actor, 'DELETE_ITEM');
+      return saveRevision(tx, id, actor, 'DELETE_ITEM', current as unknown as Record<string, unknown>);
     }, { maxWait: 10000, timeout: 20000 });
   },
 

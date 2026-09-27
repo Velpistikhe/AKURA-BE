@@ -102,6 +102,9 @@ async function main() {
     assert.equal(snapshotHistory.at(-1).snapshot.customerSnapshot, 'Replacement contact');
     assert.equal(replacement.items.filter(i => i.isActive).length, 1);
     assert.equal(replacement.items.find(i => i.id === quote.items[0].id).isActive, false);
+    const detail = await repository.find(quote.id, branch);
+    assert.equal(detail.items.length, 1);
+    assert(detail.items.every(item => item.isActive));
     assert.equal(replacement.subTotal.toFixed(2), '25.00');
     const removed = await repository.deactivate(quote.id, { version: 3 }, branch, editor);
     assert.equal(removed.isActive, false);
@@ -133,6 +136,7 @@ async function main() {
     console.log('Quotation integration checks passed: totals, concurrent updates, rollback, snapshots, audit, branch isolation, soft deletion, nullable invoice updates.');
   } finally {
     // Only fixtures belonging to this randomly generated branch are removed.
+    await prisma.quotationSnapshot.deleteMany({ where: { quotation: { officeBranchId: branch } } });
     await prisma.quotationHistory.deleteMany({ where: { quotation: { officeBranchId: branch } } });
     await prisma.quotationItem.deleteMany({ where: { quotation: { officeBranchId: branch } } });
     await prisma.quotation.deleteMany({ where: { officeBranchId: branch } });

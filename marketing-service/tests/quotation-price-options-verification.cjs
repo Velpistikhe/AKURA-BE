@@ -104,7 +104,7 @@ async function main() {
     assert.equal(latest.items[0].priceInspection,'111');
     assert.equal(refreshedCompanyOnly.items[0].priceInspection,'111');assert.equal(refreshedCompanyOnly.items[0].subTotal,'222');
     const originalHistory = await prisma.quotationHistory.findUniqueOrThrow({where:{quotationId_version:{quotationId:companyOnly.id,version:0}}});
-    assert.equal(originalHistory.snapshot.items[0].priceInspection,'100');
+    assert.equal(originalHistory.changes.find(change => change.field === 'items').after[0].priceInspection,'100');
 
     const serviceNow = await request('GET', `/services/${service.id}`);
     const historicalSearch = await options('&itemName=ORIGINAL&serviceName=original&limit=2&sortBy=size&sortOrder=asc');
@@ -172,6 +172,7 @@ async function main() {
   } finally {
     await new Promise(resolve => server.close(resolve));
     const quotes = { quotation: { officeBranchId: branch } };
+    await prisma.quotationSnapshot.deleteMany({ where: quotes });
     await prisma.quotationHistory.deleteMany({ where: quotes });
     await prisma.quotationItem.deleteMany({ where: quotes });
     await prisma.quotation.deleteMany({ where: { officeBranchId: branch } });

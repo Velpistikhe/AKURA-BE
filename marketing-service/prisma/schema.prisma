@@ -444,6 +444,7 @@ model Quotation {
   updatedAt           DateTime           @updatedAt @map("updated_at")
   items               QuotationItem[]
   history             QuotationHistory[]
+  snapshots           QuotationSnapshot[]
 
   @@unique([officeBranchId, numberYear, no, revision])
   @@index([officeBranchId, isActive, createdAt])
@@ -508,19 +509,35 @@ model QuotationItem {
 }
 
 model QuotationHistory {
-  id          String    @id @default(uuid()) @db.Uuid
-  quotationId String    @map("quotation_id") @db.Uuid
-  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
-  version     Int
-  action      String    @db.VarChar(20)
-  /// Complete quotation and item state after this revision. Append-only in the repository.
-  snapshot    Json
-  createdById   String   @map("created_by_id") @db.Uuid
-  createdByName String   @map("created_by_name")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id            String    @id @default(uuid()) @db.Uuid
+  quotationId   String    @map("quotation_id") @db.Uuid
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  version       Int
+  action        String    @db.VarChar(20)
+  /// Field-level changes. Each entry contains field, label, before and after.
+  changes       Json      @default("[]")
+  createdById   String    @map("created_by_id") @db.Uuid
+  createdByName String    @map("created_by_name")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@unique([quotationId, version])
   @@map("quotation_histories")
+}
+
+model QuotationSnapshot {
+  id            String    @id @default(uuid()) @db.Uuid
+  quotationId   String    @map("quotation_id") @db.Uuid
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  version       Int
+  action        String    @db.VarChar(20)
+  snapshot      Json
+  createdById   String    @map("created_by_id") @db.Uuid
+  createdByName String    @map("created_by_name")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([quotationId, version])
+  @@index([quotationId, createdAt])
+  @@map("quotation_snapshots")
 }
 
 model TaxCache {

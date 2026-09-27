@@ -454,6 +454,7 @@ async function main() {
   } finally {
     await new Promise((resolve) => server.close(resolve));
     const where = { officeBranchId: branch };
+    await prisma.quotationSnapshot.deleteMany({ where: { quotation: where } });
     await prisma.quotationHistory.deleteMany({ where: { quotation: where } });
     await prisma.quotationItem.deleteMany({ where: { quotation: where } });
     await prisma.quotation.deleteMany({ where });
