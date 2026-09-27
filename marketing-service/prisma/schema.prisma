@@ -363,7 +363,7 @@ enum InquiryMethod {
 
 enum QuotationStatus {
   CREATED
-  SENT
+  SUBMITTED
   REJECTED
   APPROVED
   REVISED

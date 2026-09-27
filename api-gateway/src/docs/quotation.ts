@@ -32,6 +32,12 @@ export const quotationSchemas = {
       approvedAt: timestamp, approvedById: uuid, approvedByName: { type: 'string' }, createdAt: timestamp,
     },
   },
+  SubmitQuotationRequest: {
+    type: 'object', additionalProperties: false, required: ['version'], properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 } },
+  },
+  RejectQuotationRequest: {
+    type: 'object', additionalProperties: false, required: ['version'], properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 } },
+  },
   ApproveQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['version'],
     properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646, example: 0 } },
@@ -52,7 +58,7 @@ export const quotationSchemas = {
     description: 'Inquiry channel. Values are case-sensitive.',
   },
   QuotationStatus: {
-    type: 'string', enum: ['CREATED', 'SENT', 'REJECTED', 'APPROVED', 'REVISED', 'CONFIRMED', 'ON_PROGRESS', 'WORK_ORDER_COMPLETE', 'COMPLETE'],
+    type: 'string', enum: ['CREATED', 'SUBMITTED', 'REJECTED', 'APPROVED', 'REVISED', 'CONFIRMED', 'ON_PROGRESS', 'WORK_ORDER_COMPLETE', 'COMPLETE'],
     description: 'Quotation status. Managed by the server; initialized to CREATED on creation. Values are case-sensitive.',
   },
   QuotationItemInput: {
@@ -137,7 +143,7 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/approve': {
     post: {
       ...common, summary: 'Approve quotation, generate PDF and store in Neon', parameters: [idParameter],
-      description: 'Requires the current version, an active CREATED, SENT or REVISED quotation, and an authenticated ADMIN user whose section is MARKETING. The quotation must belong to the authenticated user office branch. Approval assigns no/numberYear and generates the numbered PDF inside a transaction holding the branch/year sequence lock. Uploads to akura/quotation/{branch}/{id}/r{revision}/{uuid}.pdf before committing status, the optional 1:1 PDF relation and APPROVE history. Failures roll back the number and counter. Approved revisions inherit the original no/year without consuming a number. Returns pdf.url valid for 15 minutes. Retrying the latest approved version returns the same PDF. A stale version returns 409. Historical PDFs remain attached to inactive quotations.',
+      description: 'Requires the current version, an active SUBMITTED quotation, and an authenticated ADMIN user whose section is MARKETING. The quotation must belong to the authenticated user office branch. Approval assigns no/numberYear and generates the numbered PDF inside a transaction holding the branch/year sequence lock. Uploads to akura/quotation/{branch}/{id}/r{revision}/{uuid}.pdf before committing status, the optional 1:1 PDF relation and APPROVE history. Failures roll back the number and counter. Approved revisions inherit the original no/year without consuming a number. Returns pdf.url valid for 15 minutes. Retrying the latest approved version returns the same PDF. A stale version returns 409. Historical PDFs remain attached to inactive quotations.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('ApproveQuotationRequest') } } },
       responses: { ...commonErrors, 200: response('Quotation approved with PDF download URL', 'ApproveQuotationResponse'),
         403: response('Only ADMIN users in the MARKETING section may approve quotations', 'ErrorResponse'),
@@ -145,6 +151,15 @@ export const quotationPaths = {
         409: response('Version conflict, unsupported status or no active items', 'ErrorResponse'),
         503: response('PDF storage unavailable; reload quotation before retrying', 'ErrorResponse') },
     },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/revise': {
+    post: { ...common, summary: 'Create a new revision from an approved quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('ApproveQuotationRequest') } } }, responses: { ...commonErrors, 201: response('Quotation revision created', 'QuotationResponse'), 403: response('Only ADMIN users in MARKETING may revise', 'ErrorResponse'), 409: response('Quotation must be active APPROVED with current version', 'ErrorResponse') } },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/submit': {
+    post: { ...common, summary: 'Submit a created quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('SubmitQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation submitted', 'QuotationResponse'), 409: response('Quotation is not CREATED or version is stale', 'ErrorResponse') } },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/reject': {
+    post: { ...common, summary: 'Reject a submitted quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('RejectQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation rejected', 'QuotationResponse'), 403: response('Only ADMIN users in MARKETING may reject', 'ErrorResponse'), 409: response('Quotation is not SUBMITTED or version is stale', 'ErrorResponse') } },
   },
   '/api/v1/marketing/quotations': {
     get: {
@@ -177,7 +192,7 @@ export const quotationPaths = {
     },
     delete: {
       ...common, summary: 'Soft delete a quotation', parameters: [idParameter],
-      description: 'Sets isActive=false on the quotation and active items, increments version, records the actor, and appends history atomically. Stored rows and historical snapshots are preserved. GET retains access to historical data and the associated PDF. Repeated deletion or a stale version returns 409.',
+      description: 'Sets isActive=false. If this is a revision, the original quotation is atomically restored to APPROVED and active. Requires the current version and branch ownership.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('DeleteQuotationRequest') } } },
       responses: { ...commonErrors, 200: response('Quotation and items deactivated', 'QuotationResponse'), 404: response('Quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation changed or is already inactive', 'ErrorResponse') },
     },

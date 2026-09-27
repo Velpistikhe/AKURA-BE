@@ -12,8 +12,14 @@ import type { QuotationPdfMetadata } from './quotation-approval.service.js';
 import { serviceScopeInclude, serviceScopeSnapshot } from './quotation-service-groups.js';
 
 const include = { pdfDocument: true, items: { orderBy: { position: 'asc' as const } } };
-export const approvableStatuses = ['CREATED', 'SENT', 'REVISED'] as const;
+export const approvableStatuses = ['SUBMITTED'] as const;
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
+
+export const canEditQuotation = (status: string, actor: AuditActor): boolean => {
+  if (actor.section !== 'MARKETING') return false;
+  if (status === 'CREATED' || status === 'REJECTED') return true;
+  return status === 'SUBMITTED' && actor.role === 'ADMIN';
+};
 const amount = (value: Prisma.Decimal) => {
   const rounded = value.toDecimalPlaces(2);
   if (rounded.greaterThan('9999999999999999.99')) throw new HttpError('Quotation amount exceeds supported precision', 400);
@@ -123,8 +129,8 @@ export const quotationRepository = {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
       const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
       if (!current) throw new HttpError('Quotation not found', 404);
-      if (!current.isActive || current.status !== 'CREATED' || current.version !== data.version) {
-        throw new HttpError('Quotation has changed, is inactive, or is not a draft; reload before retrying', 409);
+      if (!current.isActive || !canEditQuotation(current.status, actor) || current.version !== data.version) {
+        throw new HttpError('Quotation has changed, is inactive, or cannot be edited by this user; reload before retrying', 409);
       }
       const { version: _version, staffId, ...changes } = data;
       let customerSnapshot: { customerSnapshot?: string; companySnapshot?: Prisma.InputJsonValue } = {};
@@ -148,7 +154,7 @@ export const quotationRepository = {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
       const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
       if (!current) throw new HttpError('Quotation not found', 404);
-      if (!current.isActive || current.status !== 'CREATED' || current.version !== data.version) throw new HttpError('Quotation has changed, is inactive, or is not a draft; reload before retrying', 409);
+      if (!current.isActive || !canEditQuotation(current.status, actor) || current.version !== data.version) throw new HttpError('Quotation has changed, is inactive, or cannot be edited by this user; reload before retrying', 409);
       if (current.items.some(row => row.isActive && row.itemSizeId === data.itemSizeId)) throw new HttpError('Item size already exists in this quotation', 409);
       const companyId = (current.companySnapshot as { id?: string }).id;
       if (!companyId) throw new HttpError('Quotation company snapshot is invalid', 409);
@@ -166,7 +172,7 @@ export const quotationRepository = {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
       const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
       if (!current) throw new HttpError('Quotation not found', 404);
-      if (!current.isActive || current.status !== 'CREATED' || current.version !== quotationVersion) throw new HttpError('Quotation has changed, is inactive, or is not a draft; reload before retrying', 409);
+      if (!current.isActive || !canEditQuotation(current.status, actor) || current.version !== quotationVersion) throw new HttpError('Quotation has changed, is inactive, or cannot be edited by this user; reload before retrying', 409);
       await tx.$queryRaw`SELECT id FROM "quotation_items" WHERE id = ${itemId}::uuid AND quotation_id = ${id}::uuid FOR UPDATE`;
       const item = await tx.quotationItem.findFirst({ where: { id: itemId, quotationId: id } });
       if (!item || !item.isActive || item.version !== itemVersion) throw new HttpError('Quotation item has changed or is inactive; reload before retrying', 409);
@@ -174,6 +180,22 @@ export const quotationRepository = {
       await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       return saveRevision(tx, id, actor, 'DELETE_ITEM');
     }, { maxWait: 10000, timeout: 20000 });
+  },
+
+  async submit(id: string, version: number, officeBranchId: string, actor: AuditActor) {
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true, status: 'CREATED' }, data: { status: 'SUBMITTED', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      if (!updated.count) throw new HttpError('Quotation has changed or cannot be submitted; reload before retrying', 409);
+      return saveRevision(tx, id, actor, 'SUBMIT');
+    });
+  },
+
+  async reject(id: string, version: number, officeBranchId: string, actor: AuditActor) {
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true, status: 'SUBMITTED' }, data: { status: 'REJECTED', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      if (!updated.count) throw new HttpError('Quotation has changed or cannot be rejected; reload before retrying', 409);
+      return saveRevision(tx, id, actor, 'REJECT');
+    });
   },
 
   async approve(id: string, version: number, officeBranchId: string, actor: AuditActor,
@@ -228,19 +250,57 @@ export const quotationRepository = {
     }, { maxWait: 10000, timeout: 60000 });
   },
 
+  async revise(id: string, version: number, officeBranchId: string, actor: AuditActor) {
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
+      const source = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
+      if (!source) throw new HttpError('Quotation not found', 404);
+      if (!source.isActive || source.status !== 'APPROVED' || source.version !== version) {
+        throw new HttpError('Only an active APPROVED quotation with the current version can be revised', 409);
+      }
+      const revised = await tx.quotation.update({ where: { id }, data: {
+        status: 'REVISED', isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name,
+      }, include });
+      const copy = await tx.quotation.create({ data: {
+        officeBranchId: source.officeBranchId, no: source.no, numberYear: source.numberYear,
+        previousQuotationId: source.id, date: source.date, jobStart: source.jobStart,
+        inquiryMethod: source.inquiryMethod, inquiryDate: source.inquiryDate, subject: source.subject,
+        termOfPayment: source.termOfPayment, validity: source.validity, tax: source.tax, taxSourceId: source.taxSourceId,
+        supplyAkura: source.supplyAkura, supplyCustomer: source.supplyCustomer, location: source.location,
+        accomplished: source.accomplished, deliveryReports: source.deliveryReports, deliveryInvoice: source.deliveryInvoice,
+        staffId: source.staffId, customerSnapshot: source.customerSnapshot, companySnapshot: json(source.companySnapshot),
+        status: 'CREATED', invoiceStatus: null, subTotal: source.subTotal, taxAmount: source.taxAmount, total: source.total,
+        revision: source.revision + 1, isActive: true, createdById: actor.id, createdByName: actor.name,
+        items: { create: source.items.filter(item => item.isActive).map(item => ({
+          itemSizeId: item.itemSizeId, position: item.position, serviceName: item.serviceName, serviceType: item.serviceType,
+          itemName: item.itemName, size: item.size, note: item.note, quantityInspection: item.quantityInspection,
+          quantityMaintenance: item.quantityMaintenance, priceInspection: item.priceInspection, priceMaintenance: item.priceMaintenance,
+          subTotal: item.subTotal, priceSelection: item.priceSelection ? json(item.priceSelection) : undefined,
+          isActive: true, version: 0, createdById: actor.id,
+        })) },
+      }, include });
+      await saveRevision(tx, revised.id, actor, 'REVISE');
+      return saveRevision(tx, copy.id, actor, 'CREATE_REVISION');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
   async deactivate(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
     const { version } = deactivateQuotationSchema.parse(input);
     return prisma.$transaction(async (tx) => {
-      const claimed = await tx.quotation.updateMany({
-        where: { id, officeBranchId, version, isActive: true },
-        data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
-      });
+      const claimed = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       if (!claimed.count) {
         if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);
         throw new HttpError('Quotation has changed or is inactive; reload before retrying', 409);
       }
       await tx.quotationItem.updateMany({ where: { quotationId: id, isActive: true }, data: { isActive: false, updatedById: actor.id } });
-      return saveRevision(tx, id, actor, 'DEACTIVATE');
+      const deleted = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
+      await saveRevision(tx, id, actor, 'DEACTIVATE');
+      if (deleted.previousQuotationId) {
+        const parent = await tx.quotation.findFirst({ where: { id: deleted.previousQuotationId, officeBranchId, status: 'REVISED', isActive: false } });
+        if (!parent) throw new HttpError('Original quotation cannot be restored', 409);
+        const restored = await tx.quotation.update({ where: { id: parent.id }, data: { status: 'APPROVED', isActive: true, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, include });
+        await saveRevision(tx, restored.id, actor, 'RESTORE_APPROVED');
+      }
+      return deleted;
     });
   },
 

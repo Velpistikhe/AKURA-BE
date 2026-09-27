@@ -70,12 +70,21 @@ export const quotationController = {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.status(200).send(pdf);
   },
+  async submit(req: Request, res: Response) {
+    send(req, res, 200, 'Quotation submitted successfully', await quotationRepository.submit(res.locals.params.quotationId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res)));
+  },
+  async reject(req: Request, res: Response) {
+    send(req, res, 200, 'Quotation rejected successfully', await quotationRepository.reject(res.locals.params.quotationId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res)));
+  },
+  async revise(req: Request, res: Response) {
+    send(req, res, 201, 'Quotation revised successfully', await quotationRepository.revise(res.locals.params.quotationId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res)));
+  },
   async approve(req: Request, res: Response) {
+
     const branch = getOfficeBranchId(res);
     const contacts = await loadContactsFromRequest(req, branch);
     send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, branch, getAuditActor(res), contacts));
   },
-
   async list(req: Request, res: Response) {
     send(req, res, 200, 'Quotations retrieved successfully', await quotationRepository.list(restrictListVisibility(res, res.locals.query as ListQuotationsInput), getOfficeBranchId(res)));
   },

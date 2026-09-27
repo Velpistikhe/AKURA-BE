@@ -46,6 +46,9 @@ export const createQuotationSchema = z.object(fields).strict()
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
+export const submitQuotationSchema = deactivateQuotationSchema;
+export const rejectQuotationSchema = deactivateQuotationSchema;
+export const reviseQuotationSchema = deactivateQuotationSchema;
 
 const editableHeaderFields = {
   jobStart: fields.jobStart.optional(), inquiryMethod: fields.inquiryMethod.optional(), inquiryDate: fields.inquiryDate.optional(),
