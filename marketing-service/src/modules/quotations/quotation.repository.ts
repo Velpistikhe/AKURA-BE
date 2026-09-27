@@ -64,14 +64,14 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
       sizeVersion: resolved.sizeVersion, itemVersion: resolved.itemVersion, serviceVersion: resolved.serviceVersion }),
     quantityInspection, quantityMaintenance, priceInspection, priceMaintenance,
     subTotal: amount(amount(quantityInspection.mul(priceInspection)).add(amount(quantityMaintenance.mul(priceMaintenance ?? 0)))),
-    createdById: actor.id,
+    createdById: actor.id, createdByName: actor.name,
   };
 }
 
 async function saveRevision(tx: Prisma.TransactionClient, id: string, actor: AuditActor, action: string) {
   const quote = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
   await tx.quotationHistory.create({ data: {
-      quotationId: id, version: quote.version, action, snapshot: json(quote), createdById: actor.id,
+      quotationId: id, version: quote.version, action, snapshot: json(quote), createdById: actor.id, createdByName: actor.name,
   } });
   return quote;
 }
@@ -91,6 +91,17 @@ export const quotationRepository = {
     return quote;
   },
   findPdf: (bucket: string, key: string) => prisma.quotationPdf.findUnique({ where: { bucket_key: { bucket, key } } }),
+  async history(id: string, officeBranchId: string, input: { page: number; limit: number; action?: string; sortBy: 'version' | 'createdAt' | 'action'; sortOrder: 'asc' | 'desc' }) {
+    const quotation = await prisma.quotation.findFirst({ where: { id, officeBranchId }, select: { id: true } });
+    if (!quotation) throw new HttpError('Quotation not found', 404);
+    const where = { quotationId: id, ...(input.action ? { action: input.action } : {}) };
+    const orderBy = { [input.sortBy]: input.sortOrder } as Prisma.QuotationHistoryOrderByWithRelationInput;
+    const [history, total] = await prisma.$transaction([
+      prisma.quotationHistory.findMany({ where, orderBy: [orderBy, { id: input.sortOrder }], skip: (input.page - 1) * input.limit, take: input.limit }),
+      prisma.quotationHistory.count({ where }),
+    ], { isolationLevel: 'RepeatableRead' });
+    return { quotationId: id, history: history.map(entry => ({ ...entry, createdBy: { id: entry.createdById, name: entry.createdByName } })), pagination: buildPagination(input.page, input.limit, total) };
+  },
   async list({ page, limit, isActive }: ListQuotationsInput, officeBranchId: string) {
     const where = { officeBranchId, isActive };
     const [quotations, total] = await prisma.$transaction([
@@ -176,7 +187,7 @@ export const quotationRepository = {
       await tx.$queryRaw`SELECT id FROM "quotation_items" WHERE id = ${itemId}::uuid AND quotation_id = ${id}::uuid FOR UPDATE`;
       const item = await tx.quotationItem.findFirst({ where: { id: itemId, quotationId: id } });
       if (!item || !item.isActive || item.version !== itemVersion) throw new HttpError('Quotation item has changed or is inactive; reload before retrying', 409);
-      await tx.quotationItem.update({ where: { id: itemId }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id } });
+      await tx.quotationItem.update({ where: { id: itemId }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       return saveRevision(tx, id, actor, 'DELETE_ITEM');
     }, { maxWait: 10000, timeout: 20000 });
@@ -184,8 +195,8 @@ export const quotationRepository = {
 
   async submit(id: string, version: number, officeBranchId: string, actor: AuditActor) {
     return prisma.$transaction(async (tx) => {
-      const updated = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true, status: 'CREATED' }, data: { status: 'SUBMITTED', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
-      if (!updated.count) throw new HttpError('Quotation has changed or cannot be submitted; reload before retrying', 409);
+      const updated = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true, status: { in: ['CREATED', 'REJECTED'] } }, data: { status: 'SUBMITTED', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      if (!updated.count) throw new HttpError('Quotation has changed or cannot be submitted from its current status; reload before retrying', 409);
       return saveRevision(tx, id, actor, 'SUBMIT');
     });
   },
@@ -275,8 +286,8 @@ export const quotationRepository = {
           itemSizeId: item.itemSizeId, position: item.position, serviceName: item.serviceName, serviceType: item.serviceType,
           itemName: item.itemName, size: item.size, note: item.note, quantityInspection: item.quantityInspection,
           quantityMaintenance: item.quantityMaintenance, priceInspection: item.priceInspection, priceMaintenance: item.priceMaintenance,
-          subTotal: item.subTotal, priceSelection: item.priceSelection ? json(item.priceSelection) : undefined,
-          isActive: true, version: 0, createdById: actor.id,
+           subTotal: item.subTotal, priceSelection: item.priceSelection ? json(item.priceSelection) : undefined,
+           isActive: true, version: 0, createdById: actor.id, createdByName: actor.name,
         })) },
       }, include });
       await saveRevision(tx, revised.id, actor, 'REVISE');
@@ -291,7 +302,7 @@ export const quotationRepository = {
         if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);
         throw new HttpError('Quotation has changed or is inactive; reload before retrying', 409);
       }
-      await tx.quotationItem.updateMany({ where: { quotationId: id, isActive: true }, data: { isActive: false, updatedById: actor.id } });
+      await tx.quotationItem.updateMany({ where: { quotationId: id, isActive: true }, data: { isActive: false, updatedById: actor.id, updatedByName: actor.name } });
       const deleted = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
       await saveRevision(tx, id, actor, 'DEACTIVATE');
       if (deleted.previousQuotationId) {
@@ -304,7 +315,4 @@ export const quotationRepository = {
     });
   },
 
-  history: (id: string, officeBranchId: string) => prisma.quotationHistory.findMany({
-    where: { quotationId: id, quotation: { officeBranchId } }, orderBy: { version: 'asc' },
-  }),
 };

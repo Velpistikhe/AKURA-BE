@@ -42,7 +42,7 @@ async function main() {
     createdById: actor.id, createdByName: actor.name, subTotal: '275.63', taxAmount: '30.32', total: '305.95', ...changes,
     items: { create: { itemSizeId: size.id, position: 0, serviceName: 'Tubular inspection', serviceType: 'TUBULAR',
       itemName: 'Drill Pipe', size: '4 inch', quantityInspection: '2.5', quantityMaintenance: '1.25', priceInspection: '100.25',
-      priceMaintenance: '20', subTotal: '275.63', createdById: actor.id } },
+      priceMaintenance: '20', subTotal: '275.63', createdById: actor.id, createdByName: actor.name } },
   }, include: { items: true, pdfDocument: true } });
   try {
     service = await prisma.service.create({ data: { officeBranchId: branch, name: 'PDF test', type: 'TUBULAR', hasMaintenance: true, ...audit,

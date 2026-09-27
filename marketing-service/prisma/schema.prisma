@@ -496,7 +496,9 @@ model QuotationItem {
   /// Optimistic concurrency token for item mutations.
   version             Int         @default(0)
   createdById         String      @map("created_by_id") @db.Uuid
+  createdByName       String      @default("System Migration") @map("created_by_name")
   updatedById         String?     @map("updated_by_id") @db.Uuid
+  updatedByName       String?     @map("updated_by_name")
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
 
@@ -513,8 +515,9 @@ model QuotationHistory {
   action      String    @db.VarChar(20)
   /// Complete quotation and item state after this revision. Append-only in the repository.
   snapshot    Json
-  createdById String    @map("created_by_id") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at")
+  createdById   String   @map("created_by_id") @db.Uuid
+  createdByName String   @map("created_by_name")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   @@unique([quotationId, version])
   @@map("quotation_histories")

@@ -46,6 +46,9 @@ async function main() {
     assert.equal(quote.taxAmount.toFixed(2), '27.57');
     assert.equal(quote.total.toFixed(2), '278.20');
     assert.equal(quote.items[0].createdById, actor.id);
+    assert.equal(quote.items[0].createdByName, actor.name);
+    assert.equal(quote.items[0].updatedById, null);
+    assert.equal(quote.items[0].updatedByName, null);
     assert.equal(quote.items[0].note, 'Initial item note');
     await assert.rejects(repository.update(quote.id, { version: 0, subject: 'Foreign' }, randomUUID(), editor), e => e.statusCode === 404);
     const race = await Promise.allSettled([

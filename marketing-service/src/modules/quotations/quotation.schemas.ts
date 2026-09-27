@@ -49,6 +49,13 @@ export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;
 export const rejectQuotationSchema = deactivateQuotationSchema;
 export const reviseQuotationSchema = deactivateQuotationSchema;
+export const quotationHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  action: z.string().trim().min(1).max(20).optional(),
+  sortBy: z.enum(['version', 'createdAt', 'action']).default('version'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+}).strict();
 
 const editableHeaderFields = {
   jobStart: fields.jobStart.optional(), inquiryMethod: fields.inquiryMethod.optional(), inquiryDate: fields.inquiryDate.optional(),

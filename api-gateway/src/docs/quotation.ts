@@ -38,6 +38,10 @@ export const quotationSchemas = {
   RejectQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['version'], properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 } },
   },
+  QuotationHistory: {
+    type: 'object', properties: { id: uuid, quotationId: uuid, version: { type: 'integer' }, action: { type: 'string' }, snapshot: { type: 'object', additionalProperties: true }, createdById: uuid, createdByName: { type: 'string' }, createdBy: { type: 'object', properties: { id: uuid, name: { type: 'string' } }, required: ['id', 'name'] }, createdAt: timestamp },
+  },
+  QuotationHistoryResponse: envelope({ quotationId: uuid, history: { type: 'array', items: ref('QuotationHistory') }, pagination: ref('Pagination') }),
   ApproveQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['version'],
     properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646, example: 0 } },
@@ -156,7 +160,7 @@ export const quotationPaths = {
     post: { ...common, summary: 'Create a new revision from an approved quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('ApproveQuotationRequest') } } }, responses: { ...commonErrors, 201: response('Quotation revision created', 'QuotationResponse'), 403: response('Only ADMIN users in MARKETING may revise', 'ErrorResponse'), 409: response('Quotation must be active APPROVED with current version', 'ErrorResponse') } },
   },
   '/api/v1/marketing/quotations/{quotationId}/submit': {
-    post: { ...common, summary: 'Submit a created quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('SubmitQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation submitted', 'QuotationResponse'), 409: response('Quotation is not CREATED or version is stale', 'ErrorResponse') } },
+    post: { ...common, summary: 'Submit a created or rejected quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('SubmitQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation submitted', 'QuotationResponse'), 409: response('Quotation is not CREATED or REJECTED, or version is stale', 'ErrorResponse') } },
   },
   '/api/v1/marketing/quotations/{quotationId}/reject': {
     post: { ...common, summary: 'Reject a submitted quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('RejectQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation rejected', 'QuotationResponse'), 403: response('Only ADMIN users in MARKETING may reject', 'ErrorResponse'), 409: response('Quotation is not SUBMITTED or version is stale', 'ErrorResponse') } },
@@ -174,9 +178,22 @@ export const quotationPaths = {
     },
     post: {
       ...common, summary: 'Create a quotation with items',
-      description: 'Creates the quotation, 1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal ÃƒÆ’Ã¢â‚¬â€ tax / 100, total = subTotal + taxAmount.',
+      description: 'Creates the quotation, 1-100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal * tax / 100, total = subTotal + taxAmount.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationRequest') } } },
       responses: { ...commonErrors, 201: response('Quotation created with items', 'QuotationResponse'), 404: response('Company staff or catalog size not found or inactive in this branch', 'ErrorResponse'), 409: response('Number limit reached or quotation numbering conflict', 'ErrorResponse') },
+    },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/history': {
+    get: {
+      ...common, summary: 'Get quotation history', parameters: [idParameter,
+        { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+        { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        { in: 'query', name: 'action', schema: { type: 'string', maxLength: 20 } },
+        { in: 'query', name: 'sortBy', schema: { type: 'string', enum: ['version', 'createdAt', 'action'], default: 'version' } },
+        { in: 'query', name: 'sortOrder', schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' } },
+      ],
+      description: 'Returns append-only quotation snapshots for the authenticated branch, including inactive quotations. Supports action filtering, sorting and pagination. History is read-only.',
+      responses: { ...commonErrors, 200: response('Quotation history retrieved', 'QuotationHistoryResponse'), 404: response('Quotation not found in this branch', 'ErrorResponse') },
     },
   },
   '/api/v1/marketing/quotations/{quotationId}': {
