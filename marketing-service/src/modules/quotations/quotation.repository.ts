@@ -11,8 +11,19 @@ import { lockNextQuotationNumber, quotationDate, quotationNumberYear } from './q
 import type { QuotationPdfMetadata } from './quotation-approval.service.js';
 import { serviceScopeInclude, serviceScopeSnapshot } from './quotation-service-groups.js';
 
+const listSelect = {
+  id: true, officeBranchId: true, no: true, numberYear: true, date: true,
+  subject: true, customerSnapshot: true, companySnapshot: true,
+  status: true, invoiceStatus: true, subTotal: true, taxAmount: true, total: true,
+  version: true, revision: true, isActive: true,
+  createdById: true, createdByName: true, updatedById: true, updatedByName: true,
+  createdAt: true, updatedAt: true,
+} satisfies Prisma.QuotationSelect;
+
+type QuotationListRow = Prisma.QuotationGetPayload<{ select: typeof listSelect }>;
 const include = { pdfDocument: true, items: { orderBy: { position: 'asc' as const } } };
 const detailInclude = { pdfDocument: true, items: { where: { isActive: true }, orderBy: { position: 'asc' as const } } };
+
 export const approvableStatuses = ['SUBMITTED'] as const;
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 
@@ -124,14 +135,44 @@ export const quotationRepository = {
     ], { isolationLevel: 'RepeatableRead' });
     return { quotationId: id, history: history.map(entry => ({ ...entry, changes: entry.changes, createdBy: { id: entry.createdById, name: entry.createdByName } })), pagination: buildPagination(input.page, input.limit, total) };
   },
-  async list({ page, limit, isActive }: ListQuotationsInput, officeBranchId: string) {
-    const where = { officeBranchId, isActive };
-    const [quotations, total] = await prisma.$transaction([
-      prisma.quotation.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit,
-        include }),
-      prisma.quotation.count({ where }),
-    ]);
-    return { quotations, pagination: buildPagination(page, limit, total) };
+  async list(input: ListQuotationsInput, officeBranchId: string) {
+    const { page, limit, isActive, dateFrom, dateTo, no, status, company, invoiceStatus } = input;
+    return prisma.$transaction(async (tx) => {
+      // companySnapshot is intentionally immutable historical JSON. Resolve matching
+      // quotation IDs with PostgreSQL ILIKE so the search remains case-insensitive.
+      const companyIds = company
+        ? (await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+            SELECT id FROM quotations
+            WHERE office_branch_id = ${officeBranchId}::uuid
+              AND company_snapshot->>'name' ILIKE ${`%${company.replace(/[\\%_]/g, '\\$&')}%`}
+          `)).map(row => row.id)
+        : undefined;
+      const where: Prisma.QuotationWhereInput = {
+        officeBranchId,
+        ...(isActive === undefined ? {} : { isActive }),
+        ...(dateFrom || dateTo ? { date: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } } : {}),
+        ...(no === undefined ? {} : { no }),
+        ...(status === undefined ? {} : { status }),
+        ...(invoiceStatus === undefined ? {} : { invoiceStatus }),
+        ...(company ? { id: { in: companyIds ?? [] } } : {}),
+      };
+      const [quotations, total] = await Promise.all([
+        tx.quotation.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit, select: listSelect }),
+        tx.quotation.count({ where }),
+      ]);
+      return {
+        quotations: (quotations as QuotationListRow[]).map(({ companySnapshot, ...quotation }) => {
+          const snapshot = typeof companySnapshot === 'object' && companySnapshot !== null
+            ? companySnapshot as { id?: unknown; name?: unknown } : {};
+          return {
+            ...quotation,
+            companyId: typeof snapshot.id === 'string' ? snapshot.id : null,
+            companyName: typeof snapshot.name === 'string' ? snapshot.name : null,
+          };
+        }),
+        pagination: buildPagination(page, limit, total),
+      };
+    });
   },
   async findActive(id: string, officeBranchId: string) {
     const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId, isActive: true },

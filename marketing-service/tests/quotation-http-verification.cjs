@@ -32,11 +32,15 @@ async function main() {
       staffs: { create: { name: 'Contact', normalizeName: branch, title: 'mr' } },
     }, include: { staffs: true } });
     service = await prisma.service.create({ data: {
-      officeBranchId: branch, name: 'Inspection', type: 'TUBULAR',
+      officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', createdById: actor, createdByName: 'HTTP Test',
       itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', uom: 'JOINT', createdById: actor, createdByName: 'HTTP Test',
-        sizes: { create: { size: 'Large', createdById: actor, createdByName: 'HTTP Test' } } } },
+        sizes: { create: [
+          { size: 'Large', createdById: actor, createdByName: 'HTTP Test', price: { create: { priceServicePrimary: '100.25', priceServiceSisterCompany: '80', createdById: actor, createdByName: 'HTTP Test' } } },
+          { size: 'Small', createdById: actor, createdByName: 'HTTP Test', price: { create: { priceServicePrimary: '50', priceServiceSisterCompany: '40', createdById: actor, createdByName: 'HTTP Test' } } },
+        ] } } },
     }, include: { itemCatalog: { include: { sizes: true } } } });
     const itemSizeId = service.itemCatalog[0].sizes[0].id;
+    const secondItemSizeId = service.itemCatalog[0].sizes[1].id;
     const input = {
     jobStart: '2026-10-01',
 
@@ -86,6 +90,19 @@ async function main() {
     assert.deepEqual(list.body.data.quotations.map(q => q.id), [quote.id]);
     assert.equal(list.body.data.pagination.total, 1);
     assert.equal(list.body.data.quotations[0].revision, 0);
+    assert.equal(Object.hasOwn(list.body.data.quotations[0], 'items'), false);
+    assert.equal(list.body.data.quotations[0].companyName, 'HTTP test');
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal((await request('GET', `/quotations?company=ttp&dateFrom=${today}&dateTo=${today}&no=1&status=CREATED`)).body.data.pagination.total, 1);
+    assert.equal((await request('GET', '/quotations?company=missing')).body.data.pagination.total, 0);
+    assert.equal((await request('GET', '/quotations?invoiceStatus=CREATED')).body.data.pagination.total, 0);
+    assert.equal((await request('GET', '/quotations?invoiceStatus=null')).body.data.pagination.total, 1);
+    assert.equal((await request('GET', '/quotations?status=APPROVED')).body.data.pagination.total, 0);
+    assert.equal((await request('GET', '/quotations?dateFrom=2099-01-01')).body.data.pagination.total, 0);
+    assert.equal((await request('GET', '/quotations?dateFrom=2026-09-11&dateTo=2026-09-10')).status, 400);
+    assert.equal((await request('GET', '/quotations?status=unknown')).status, 400);
+    assert.equal((await request('GET', '/quotations?invoiceStatus=unknown')).status, 400);
+    assert.equal((await request('GET', '/quotations?no=0')).status, 400);
     assert.equal((await request('GET', '/quotations?page=-1')).status, 400);
     assert.equal((await request('GET', '/quotations/bad-id')).status, 400);
     assert.equal((await request('DELETE', path, {})).status, 400);

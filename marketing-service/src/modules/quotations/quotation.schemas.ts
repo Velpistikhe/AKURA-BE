@@ -1,12 +1,20 @@
 import { z } from 'zod';
-import { InquiryMethod } from '@prisma/client';
+import { InquiryMethod, InvoiceStatus, QuotationStatus } from '@prisma/client';
 
 export const quotationIdSchema = z.object({ quotationId: z.string().uuid() }).strict();
 export const listQuotationsSchema = z.object({
   isActive: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
+  dateFrom: z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`)).optional(),
+  dateTo: z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`)).optional(),
+  no: z.coerce.number().int().min(1).max(2147483647).optional(),
+  status: z.nativeEnum(QuotationStatus).optional(),
+  company: z.string().trim().min(1).max(255).optional(),
+  invoiceStatus: z.preprocess(value => value === 'null' ? null : value, z.nativeEnum(InvoiceStatus).nullable().optional()),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-}).strict();
+}).strict().refine(value => !value.dateFrom || !value.dateTo || value.dateFrom <= value.dateTo, {
+  message: 'dateFrom must be on or before dateTo', path: ['dateTo'],
+});
 export type ListQuotationsInput = z.infer<typeof listQuotationsSchema>;
 
 const text = z.string().trim().min(1).max(255);

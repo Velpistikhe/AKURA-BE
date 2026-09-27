@@ -123,10 +123,20 @@ export const quotationSchemas = {
       items: { type: 'array', items: ref('QuotationItem') },
     },
   },
+  QuotationListRow: {
+    type: 'object',
+    required: ['id', 'officeBranchId', 'date', 'no', 'numberYear', 'subject', 'customerSnapshot', 'companyId', 'companyName', 'status', 'invoiceStatus', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'createdAt', 'updatedAt'],
+    properties: {
+      id: uuid, officeBranchId: uuid, date: { ...timestamp, nullable: true }, no: { type: 'integer', nullable: true }, numberYear: { type: 'integer', nullable: true },
+      subject: text, customerSnapshot: { type: 'string' }, companyId: { ...uuid, nullable: true }, companyName: { type: 'string', nullable: true },
+      status: ref('QuotationStatus'), invoiceStatus: ref('InvoiceStatus'), subTotal: money, taxAmount: money, total: money,
+      version: { type: 'integer' }, revision: { type: 'integer' }, isActive: { type: 'boolean' }, createdAt: timestamp, updatedAt: timestamp,
+    },
+  },
   QuotationResponse: envelope(ref('Quotation')),
   QuotationListResponse: envelope({
     type: 'object', required: ['quotations', 'pagination'],
-    properties: { quotations: { type: 'array', items: ref('Quotation') }, pagination: ref('Pagination') },
+    properties: { quotations: { type: 'array', items: ref('QuotationListRow') }, pagination: ref('Pagination') },
   }),
 };
 const response = (description: string, name: string) => ({ description, content: { 'application/json': { schema: ref(name) } } });
@@ -171,9 +181,15 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations': {
     get: {
       ...common, summary: 'List all quotations in the current branch',
-      description: 'Returns quotations exclusively within the authenticated user office branch. Only ADMIN may view inactive quotations; other roles always use isActive=true, overriding isActive=false. ADMIN may omit isActive for both states or filter either state. Pagination counts follow the enforced filter. Nested historical item rows retain their original state. Stored totals represent the document totals, not a sum of historical inactive lines. Ordered by createdAt descending, then ID descending.',
+      description: 'Returns quotation list rows exclusively within the authenticated user office branch. List rows omit quotation items, PDF metadata, long document text and the full company snapshot; use GET detail for complete documents. Only ADMIN may view inactive quotations; other roles always use isActive=true, overriding isActive=false. Filters: date range is inclusive on the quotation date, no is exact, status and invoiceStatus are exact enum values, and company is a case-insensitive partial match on the captured company name. Pagination counts follow all enforced filters. Ordered by createdAt descending, then ID descending.',
       parameters: [
         { in: 'query', name: 'isActive', description: 'ADMIN may select either state; all other roles always receive active quotations.', schema: { type: 'string', enum: ['true', 'false'] } },
+        { in: 'query', name: 'dateFrom', description: 'Inclusive quotation date lower bound.', schema: { type: 'string', format: 'date' } },
+        { in: 'query', name: 'dateTo', description: 'Inclusive quotation date upper bound. Must be on or after dateFrom.', schema: { type: 'string', format: 'date' } },
+        { in: 'query', name: 'no', description: 'Exact quotation number. Drafts with null number are excluded when supplied.', schema: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+        { in: 'query', name: 'status', schema: ref('QuotationStatus') },
+        { in: 'query', name: 'company', description: 'Case-insensitive partial match on companySnapshot.name.', schema: { type: 'string', minLength: 1, maxLength: 255 } },
+        { in: 'query', name: 'invoiceStatus', schema: ref('InvoiceStatus') },
         { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
         { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
       ],

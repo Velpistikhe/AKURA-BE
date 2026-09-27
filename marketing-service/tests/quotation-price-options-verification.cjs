@@ -158,8 +158,7 @@ async function main() {
     assert.equal(listing.pagination.total, await prisma.quotation.count({ where: { officeBranchId: branch } }));
     const removedRow = listing.quotations.find(row => row.id === removed.id);
     assert.equal(removedRow.isActive, false);
-    assert.equal(removedRow.items.length, removed.items.length);
-    assert.ok(removedRow.items.every(row => row.isActive === false));
+    assert.equal(Object.hasOwn(removedRow, 'items'), false);
     assert.ok(listing.quotations.some(row => row.isActive));
     const otherListing = await request('GET', '/quotations?limit=100', undefined, 200, otherBranch);
     assert.equal(otherListing.pagination.total, 0);
