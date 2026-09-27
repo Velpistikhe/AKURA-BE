@@ -4,35 +4,65 @@ import { quotationRepository } from './quotation.repository.js';
 import { ListQuotationsInput } from './quotation.schemas.js';
 import { MarketingContact } from '../../types/auth.types.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
-import { serviceUrl, serviceHeaders } from '../../utils/serviceUrl.js';
 import { getAccessToken } from '../../utils/requestTokens.js';
-import { logger } from '../../utils/logger.js';
-
-const loadMarketingContacts = async (req: Request): Promise<MarketingContact[]> => {
-  const token = getAccessToken(req);
-  if (!token) return [];
-  try {
-    const response = await fetch(serviceUrl('auth/users/marketing-contacts'), {
-      headers: { Authorization: `Bearer ${token}`, ...serviceHeaders('auth/users/marketing-contacts'), ...(req.headers['x-request-id'] ? { 'x-request-id': String(req.headers['x-request-id']) } : {}) },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) throw new Error(`status ${response.status}`);
-    const body = await response.json() as { data?: { contacts?: MarketingContact[] } };
-    return (body.data?.contacts ?? []).filter(contact => contact && typeof contact.name === 'string');
-  } catch (error) {
-    // Contacts are footer metadata; a directory outage must never block approval or preview.
-    logger.warn('Unable to load marketing contacts for quotation PDF', { error: error instanceof Error ? error.message : String(error) });
-    return [];
-  }
-};
+import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
+import { loadMarketingContacts } from '../user-sync/marketing-contact.repository.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
 };
+const CONTACTS_PATH = 'auth/users/marketing-contacts';
+
+export interface QuotationContactDependencies {
+  branch: string;
+  accessToken?: string;
+  loadLocal?: (branch: string) => Promise<MarketingContact[]>;
+  fetchImpl?: typeof fetch;
+}
+
+const loadLocalContacts = async (branch: string): Promise<MarketingContact[]> => {
+  try { return await loadMarketingContacts(branch); }
+  catch { return []; }
+};
+
+const parseContacts = (payload: unknown): MarketingContact[] => {
+  const contacts = (payload as { data?: { contacts?: unknown } } | null)?.data?.contacts;
+  if (!Array.isArray(contacts)) return [];
+  return contacts.flatMap((contact): MarketingContact[] => {
+    if (!contact || typeof contact !== 'object') return [];
+    const { name, email, telp } = contact as Record<string, unknown>;
+    if (typeof name !== 'string' || !name.trim()) return [];
+    return [{ name: name.trim(), email: typeof email === 'string' ? email : null, telp: typeof telp === 'string' ? telp : null }];
+  }).slice(0, 20);
+};
+
+/**
+ * Local read model first; when it has no rows (for example, before the first
+ * user-sync event is delivered), fall back to the legacy Auth directory. Branch
+ * always comes from the caller's access token on the Auth side, never from the
+ * client. Any failure returns the local result so PDF generation is never blocked.
+ */
+export const loadQuotationContacts = async ({ branch, accessToken, loadLocal = loadLocalContacts, fetchImpl = fetch }: QuotationContactDependencies): Promise<MarketingContact[]> => {
+  const local = await loadLocal(branch);
+  if (local.length || !accessToken) return local;
+  try {
+    const response = await fetchImpl(serviceUrl(CONTACTS_PATH), {
+      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000),
+      headers: { authorization: `Bearer ${accessToken}`, ...serviceHeaders(CONTACTS_PATH) },
+    });
+    if (!response.ok) return local;
+    return parseContacts(await response.json());
+  } catch { return local; }
+};
+
+/** Convenience wrapper for HTTP controllers: resolves branch + token from the request. */
+export const loadContactsFromRequest = (req: Request, branch: string): Promise<MarketingContact[]> =>
+  loadQuotationContacts({ branch, accessToken: getAccessToken(req) });
+
 export const quotationController = {
   async preview(req: Request, res: Response) {
     const branch = getOfficeBranchId(res);
-    const contacts = await loadMarketingContacts(req);
+    const contacts = await loadContactsFromRequest(req, branch);
     const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, branch, getAuditActor(res), contacts);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
@@ -42,7 +72,7 @@ export const quotationController = {
   },
   async approve(req: Request, res: Response) {
     const branch = getOfficeBranchId(res);
-    const contacts = await loadMarketingContacts(req);
+    const contacts = await loadContactsFromRequest(req, branch);
     send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, branch, getAuditActor(res), contacts));
   },
 

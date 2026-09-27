@@ -5,12 +5,21 @@ interface ServiceRouteConfig {
   target: string;
   gatewaySecret: string;
   authRequired: boolean;
-  internalCaller?: 'finance-service';
+  internalCaller?: 'finance-service' | 'auth-service';
   pathRewrite: Record<string, string>;
   description: string;
 }
 
 export const servicesConfig: ServiceRouteConfig[] = [
+  {
+    prefix: '/api/v1/marketing/internal/users/events',
+    target: env.MARKETING_SERVICE_URL,
+    gatewaySecret: env.MARKETING_SERVICE_GATEWAY_SECRET,
+    authRequired: false,
+    internalCaller: 'auth-service',
+    pathRewrite: { '^/': '/internal/users/events' },
+    description: 'Internal Auth user read-model delivery to Marketing',
+  },
   {
     prefix: '/api/v1/marketing/internal/taxes/events',
     target: env.MARKETING_SERVICE_URL,

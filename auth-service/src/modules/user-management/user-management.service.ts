@@ -3,6 +3,8 @@ import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 import { ListUsersInput, UpdateUserInput } from './user-management.schemas.js';
 import { userManagementRepository } from './user-management.repository.js';
+import { enqueueUserSync } from '../user-sync/user-sync.service.js';
+import { wakeUserSync } from '../user-sync/user-sync.delivery.js';
 
 const ensureActiveVersion = (user: { version: number; isActive: boolean }, version: number): void => {
   if (user.version !== version) {
@@ -13,6 +15,11 @@ const ensureActiveVersion = (user: { version: number; isActive: boolean }, versi
   }
 };
 
+// Marketing caches only active users holding BOTH the ADMIN role and the
+// MARKETING section within an assigned office branch.
+const isMarketingAdminCandidate = (user: { role: string; section: string | null; isActive: boolean; officeBranchId: string | null }): boolean =>
+  user.role === 'ADMIN' && user.section === 'MARKETING' && user.isActive && Boolean(user.officeBranchId);
+
 export const userManagementService = {
   list: (input: ListUsersInput) => userManagementRepository.list(input),
   async get(userId: string) {
@@ -20,8 +27,8 @@ export const userManagementService = {
     if (!user) throw new HttpError('User not found', 404);
     return user;
   },
-  update(actorId: string, userId: string, data: UpdateUserInput) {
-    return prisma.$transaction(async (tx) => {
+  async update(actorId: string, userId: string, data: UpdateUserInput) {
+    const updated = await prisma.$transaction(async (tx) => {
       const user = await userManagementRepository.lockById(tx, userId);
       if (!user) throw new HttpError('User not found', 404);
       ensureActiveVersion(user, data.version);
@@ -62,7 +69,15 @@ export const userManagementService = {
       if (statusChanged && data.isActive === false) {
         await userManagementRepository.revokeRefreshTokens(tx, userId);
       }
+      // Marketing only caches active ADMIN MARKETING users: enqueue when either
+      // the previous or resulting snapshot is (or was) a candidate, so eligible
+      // users are added/updated and users that lose eligibility are removed.
+      if (isMarketingAdminCandidate(user) || isMarketingAdminCandidate(updated)) {
+        await enqueueUserSync(tx, updated);
+      }
       return updated;
     });
+    wakeUserSync();
+    return updated;
   },
 };

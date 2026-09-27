@@ -63,7 +63,10 @@ Gateway meneruskan prefix `/api/v1/auth` ke service ini dan menghapus prefix ter
 | `/api/v1/auth/users` | GET | APP_MANAGER | Daftar dan filter user |
 | `/api/v1/auth/users/:userId` | GET | APP_MANAGER | Detail user |
 | `/api/v1/auth/users/:userId` | PATCH | APP_MANAGER | Mengubah role, section, office branch, email, telp, dan/atau status user |
-| `/api/v1/auth/users/marketing-contacts` | GET | Access token | Daftar kontak ADMIN MARKETING aktif pada branch pemanggil; dipakai Marketing untuk footer PDF quotation |
+| `/api/v1/auth/users/marketing-contacts` | GET | Access token | Daftar kontak ADMIN MARKETING aktif pada branch pemanggil (read-only legacy; Marketing kini membaca local read model yang disinkronkan lewat `POST /api/v1/marketing/internal/users/events`) |
+
+- `POST /api/v1/marketing/internal/users/events` adalah endpoint internal yang menerima snapshot user dari Auth Service. Endpoint ini bukan endpoint frontend dan wajib melewati API Gateway dengan credential service serta `USER_SYNC_SECRET`.
+- Enqueue outbox selalu membangunkan worker delivery setelah transaksi commit, sehingga event langsung dikirim tanpa menunggu restart Auth Service.
 
 Endpoint `/users` dilayani langsung oleh Auth Service. Request wajib melewati API Gateway dan membawa access token milik `APP_MANAGER`. Seluruh pembacaan serta perubahan user dilakukan pada database Auth Service.
 

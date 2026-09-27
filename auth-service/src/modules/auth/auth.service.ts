@@ -1,3 +1,6 @@
+import { enqueueUserSync } from '../user-sync/user-sync.service.js';
+import { wakeUserSync } from '../user-sync/user-sync.delivery.js';
+
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../config/db.js';
@@ -8,6 +11,7 @@ import { createRefreshTokenExpiry } from '../../utils/tokenExpiry.js';
 import { createAuthTokens, verifyRefreshToken } from '../../utils/tokens.js';
 import { sanitizeUser } from '../../utils/userMapper.js';
 import { env } from '../../config/env.js';
+import { logger } from '../../utils/logger.js';
 
 class AuthService {
   async register(
@@ -133,13 +137,13 @@ class AuthService {
     email?: string | null,
     telp?: string | null
   ): Promise<UserSanitized> {
-    return prisma.$transaction(async (tx) => {
+    const updatedUser = await prisma.$transaction(async (tx) => {
       const user = await authRepository.findUserByIdForUpdate(tx, userId);
       if (!user) {
         throw new HttpError('User not found', 404);
       }
 
-      const updatedUser = await authRepository.updateProfileAtomic(
+      const updated = await authRepository.updateProfileAtomic(
         tx,
         userId,
         firstName,
@@ -148,8 +152,19 @@ class AuthService {
         email,
         telp
       );
-      return sanitizeUser(updatedUser);
+      if (updated.role === 'ADMIN' && updated.section === 'MARKETING' && updated.isActive && updated.officeBranchId) {
+        await enqueueUserSync(tx, updated);
+      } else {
+        logger.debug('Profile updated without Marketing sync eligibility', {
+          userId, role: updated.role, section: updated.section, isActive: updated.isActive, officeBranchId: updated.officeBranchId,
+        });
+      }
+      return updated;
     });
+    // The outbox row is committed; wake the delivery worker so it is pushed
+    // immediately instead of waiting for a restart (or a pre-existing schedule).
+    wakeUserSync();
+    return sanitizeUser(updatedUser);
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<UserSanitized> {

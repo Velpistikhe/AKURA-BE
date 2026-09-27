@@ -3,6 +3,8 @@ import { operationalPaths, operationalSchemas } from './operational-documents.js
 import { catalogPaths, catalogSchemas } from './catalog.js';
 import { quotationPaths, quotationSchemas } from './quotation.js';
 import { taxPaths } from './tax.js';
+import { userSyncPaths } from './user-sync.js';
+
 import { groupByModule } from './module-tags.js';
 
 const schemaRef = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -1262,6 +1264,7 @@ export const openApiDocument = groupByModule({
   paths: {
     ...quotationPaths,
     ...taxPaths,
+    ...userSyncPaths,
     ...operationalPaths,
     ...workOrderPaths,
     ...catalogPaths,

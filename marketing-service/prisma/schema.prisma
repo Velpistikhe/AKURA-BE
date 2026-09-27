@@ -546,3 +546,31 @@ model TaxCacheRevision {
 
   @@map("tax_cache_revisions")
 }
+
+/// Local Marketing read model. Rows exist only for users that are simultaneously
+/// ADMIN, MARKETING and active in an assigned office branch.
+model MarketingAdminUser {
+  id              String   @id @db.Uuid
+  officeBranchId  String   @map("office_branch_id") @db.Uuid
+  username        String
+  firstName       String   @map("first_name")
+  lastName        String   @map("last_name")
+  email           String?  @db.VarChar(255)
+  telp            String?  @db.VarChar(50)
+  sourceVersion   Int      @map("source_version")
+  sourceCreatedAt DateTime @map("source_created_at")
+  sourceUpdatedAt DateTime @map("source_updated_at")
+
+  @@index([officeBranchId, sourceCreatedAt, id])
+  @@map("marketing_admin_users")
+}
+
+/// Last Auth user-snapshot version processed per user. Metadata only; it keeps
+/// reordered or retried events from resurrecting a removed read-model row.
+model MarketingUserSyncRevision {
+  userId  String   @id @map("user_id") @db.Uuid
+  version Int
+  eventId String   @map("event_id") @db.Uuid
+
+  @@map("marketing_user_sync_revisions")
+}

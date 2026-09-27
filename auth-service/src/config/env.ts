@@ -18,10 +18,23 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().regex(/^\d+(ms|s|m|h|d)$/).default('7d'),
   JWT_REFRESH_IDLE_TIMEOUT_MINUTES: z.string().regex(/^[1-9]\d*$/).default('60')
     .transform((value) => Number.parseInt(value, 10)),
+  API_GATEWAY_URL: z.string()
+    .url('API_GATEWAY_URL must be a valid URL')
+    .transform((value) => value.replace(/\/$/, ''))
+    .optional(),
+  USER_SYNC_SECRET: z.string().min(32).optional(),
 }).refine(
   (value) => Boolean(value.JWT_ACCESS_PRIVATE_KEY_PATH || value.JWT_ACCESS_PRIVATE_KEY_BASE64),
   { message: 'JWT_ACCESS_PRIVATE_KEY_PATH or JWT_ACCESS_PRIVATE_KEY_BASE64 is required' }
-);
+).superRefine((value, context) => {
+  if (value.USER_SYNC_SECRET && !value.API_GATEWAY_URL) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['API_GATEWAY_URL'],
+      message: 'API_GATEWAY_URL is required when USER_SYNC_SECRET is configured',
+    });
+  }
+});
 
 const result = envSchema.safeParse(process.env);
 if (!result.success) {

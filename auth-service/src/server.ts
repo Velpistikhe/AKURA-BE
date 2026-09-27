@@ -1,4 +1,5 @@
 import app from './app.js';
+import { startUserSync } from './modules/user-sync/user-sync.delivery.js';
 import { connectDb, disconnectDb } from './config/db.js';
 import { env } from './config/env.js';
 import { getErrorMessage } from './utils/errorDetails.js';
@@ -7,6 +8,7 @@ import { logger } from './utils/logger.js';
 const startServer = async (): Promise<void> => {
   try {
     await connectDb();
+    const stopUserSync = startUserSync();
     const server = app.listen(env.PORT, () => {
       logger.info(`Auth Microservice is running on port ${env.PORT} [${env.NODE_ENV}]`);
       logger.info(`Health check: http://localhost:${env.PORT}/health`);
@@ -14,6 +16,7 @@ const startServer = async (): Promise<void> => {
 
     const gracefulShutdown = (signal: string): void => {
       logger.info(`Received ${signal}. Gracefully shutting down Auth Microservice...`);
+      stopUserSync();
       server.close(() => {
         void disconnectDb().finally(() => {
           logger.info('HTTP server and Prisma Client disconnected.');

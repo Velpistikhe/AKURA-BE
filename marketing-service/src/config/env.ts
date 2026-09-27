@@ -12,6 +12,7 @@ const schema = z.object({
     .url('API_GATEWAY_URL must be a valid URL')
     .transform((value) => value.replace(/\/$/, '')),
   TAX_SYNC_SECRET: z.string().min(32).optional(),
+  USER_SYNC_SECRET: z.string().min(32).optional(),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),
   AWS_ENDPOINT_URL_S3: z.string().url().optional(),

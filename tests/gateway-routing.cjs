@@ -22,6 +22,13 @@ async function main() {
     deliveries++;
     res.json({ success: true, eventId: req.body.eventId });
   });
+  downstream.post('/internal/users/events', (req, res) => {
+    assert.equal(req.headers['x-service-secret'], undefined);
+    assert.equal(req.headers['x-service-name'], undefined);
+    if (req.headers['x-user-sync-secret'] !== 'sync-secret') return res.sendStatus(403);
+    deliveries++;
+    res.json({ success: true, eventId: req.body.eventId });
+  });
   const target = await listen(downstream);
   let gateway;
   try {
@@ -54,9 +61,21 @@ async function main() {
     assert.equal((await fetch(`${base}/api/v1/marketing/companies`, { headers })).status, 401);
     const spec = await (await fetch(`${base}/api-docs.json`)).json();
     assert(spec.paths['/api/v1/marketing/internal/taxes/events']);
+    assert(spec.paths['/api/v1/marketing/internal/users/events']);
     assert.equal(spec.paths['/internal/taxes/events'], undefined);
     assert.equal(spec.paths['/api/v1/marketing/internal/taxes/events'].post.servers, undefined);
-    console.log('PASS: actual gateway proxy, Finance-only tax delivery, header replacement, JWT requirement and Swagger gateway paths.');
+    assert.equal(spec.paths['/api/v1/marketing/internal/users/events'].post.servers, undefined);
+    const userEndpoint = `${base}/api/v1/marketing/internal/users/events`;
+    assert.equal((await fetch(userEndpoint, { method: 'POST', headers, body: '{}' })).status, 403);
+    const userAccepted = await fetch(userEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-service-name': 'auth-service', 'x-service-secret': 'auth-secret', 'x-user-sync-secret': 'sync-secret' },
+      body: JSON.stringify({ eventId: 'test-user-event' }),
+    });
+    assert.equal(userAccepted.status, 200);
+    assert.deepEqual(await userAccepted.json(), { success: true, eventId: 'test-user-event' });
+    assert.equal((await fetch(userEndpoint, { method: 'POST', headers: { ...headers, 'x-service-name': 'finance-service', 'x-service-secret': 'finance-secret' }, body: '{}' })).status, 403);
+    console.log('PASS: actual gateway proxy, Finance-only tax delivery, Auth-only user delivery, header replacement, JWT requirement and Swagger gateway paths.');
   } finally {
     if (gateway) await new Promise(resolve => gateway.close(resolve));
     await new Promise(resolve => target.close(resolve));
