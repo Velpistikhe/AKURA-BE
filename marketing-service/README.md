@@ -68,6 +68,8 @@ Field `description` tidak digunakan pada service, inspection scope, maintenance 
 
 Semua endpoint CRUD hanya menerima request dari API Gateway dan memerlukan user aktif dengan role `ADMIN`/`APP_MANAGER` atau section `MARKETING`. JWKS dan profil user Auth Service diakses melalui `API_GATEWAY_URL`; Marketing tidak menyimpan URL maupun secret Auth Service. `GATEWAY_SECRET` Marketing hanya berlaku untuk koneksi inbound Gateway ke Marketing dan harus berbeda dari secret service lain.
 
+Pengecualian development: dengan `DIRECT_MFE_ACCESS=true` (hanya sah pada `NODE_ENV=development`), Marketing Service menerima request langsung dari MFE Marketing lokal tanpa header `x-gateway-secret`. Mode ini tidak pernah aktif di Vercel/production; secret yang tetap dikirim namun salah tetap ditolak. Identitas `x-user-id`, `x-user-role`, dan `x-office-branch-id` disuntik dari JWT yang sudah diverifikasi sehingga pemalsuan identitas tetap gagal pada pemeriksaan `authorize`. Seluruh pemeriksaan JWT, akun aktif, section/role, dan cabang tetap berlaku tanpa pengecualian. `API_GATEWAY_URL` menunjuk gateway yang dapat menjangkau Auth (pada topologi hybrid, gateway Vercel).
+
 ## Filter, sort, dan pagination
 
 Endpoint daftar menerima `page` (default `1`), `limit` (default `20`, maksimum `100`), `sortBy`, dan `sortOrder` (`asc`/`desc`). Seluruh query filter dan sort menggunakan allowlist; query yang tidak dikenal menghasilkan response `400`.

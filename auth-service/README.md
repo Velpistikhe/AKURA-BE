@@ -110,7 +110,7 @@ Authorization: Bearer <access-token>
 
 Refresh token untuk endpoint refresh dan logout hanya dibaca dari cookie `refreshToken` atau header `x-refresh-token`. Request body tidak digunakan sebagai sumber token.
 
-Token tidak dikembalikan di response JSON. Endpoint register, login, dan refresh mengirim token melalui header `Set-Cookie`.
+Refresh token tidak pernah dikembalikan di response JSON; token tersebut hanya dikirim melalui header `Set-Cookie`. Access token juga dikirim melalui `Set-Cookie` dan, untuk endpoint login dan refresh, kembali tersedia pada field `data.accessToken` di response body; `GET /me` mengecho token yang sudah diverifikasi pada field `accessToken` top-level. Hal ini memungkinkan MFE development mengirim `Authorization: Bearer` ke microservice yang diakses langsung tanpa cookie lintas domain.
 
 ## Validasi request
 

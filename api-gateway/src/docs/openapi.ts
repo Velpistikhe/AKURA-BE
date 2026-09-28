@@ -335,6 +335,10 @@ export const openApiDocument = groupByModule({
           success: { type: 'boolean', enum: [true] },
           message: { type: 'string' },
           data: schemaRef('UserProfile'),
+          accessToken: {
+            type: 'string',
+            description: 'Present only on GET /api/v1/auth/me: the already verified access token, echoed so development microfrontends can restore a Bearer token after a reload.',
+          },
           requestId: { type: 'string', format: 'uuid' },
         },
       },
@@ -347,8 +351,34 @@ export const openApiDocument = groupByModule({
           message: { type: 'string' },
           data: {
             type: 'object',
-            required: ['user'],
-            properties: { user: schemaRef('UserProfile') },
+            required: ['user', 'accessToken'],
+            properties: {
+              user: schemaRef('UserProfile'),
+              accessToken: {
+                type: 'string',
+                description: 'Signed access token, also set as the httpOnly accessToken cookie. Returned so development microfrontends can send Authorization: Bearer to a directly accessed microservice. The refresh token is never returned in the body.',
+              },
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
+      TokenRefreshResponse: {
+        type: 'object',
+        required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string' },
+          data: {
+            type: 'object',
+            required: ['accessToken'],
+            properties: {
+              accessToken: {
+                type: 'string',
+                description: 'Rotated access token, also set as the httpOnly accessToken cookie. The rotated refresh token stays only in the httpOnly cookie.',
+              },
+            },
           },
           requestId: { type: 'string', format: 'uuid' },
         },
@@ -1421,7 +1451,7 @@ export const openApiDocument = groupByModule({
       post: {
         tags: ['Authentication'],
         summary: 'Authenticate a user and start a token session',
-        description: 'Authenticates by username and sets an access token whose payload follows AccessTokenClaims, including the full name claim.',
+        description: 'Authenticates by username and sets an access token whose payload follows AccessTokenClaims, including the full name claim. The response body also carries the access token so development microfrontends can authenticate direct microservice calls; the refresh token remains httpOnly cookie only.',
         requestBody: { required: true, ...jsonContent(schemaRef('LoginRequest')) },
         responses: {
           200: { ...response('Login successful', schemaRef('AuthUserResponse')), headers: tokenCookieHeaders },
@@ -1437,10 +1467,10 @@ export const openApiDocument = groupByModule({
       post: {
         tags: ['Authentication'],
         summary: 'Rotate a refresh token and issue a new token pair',
-        description: 'The refresh token is read only from the refreshToken cookie or x-refresh-token header. Rotation is rejected when the token is invalid, expired, revoked, reused, or exceeds the configured idle timeout (60 minutes by default). Every rejected token clears both accessToken and refreshToken cookies. A successful rotation records the latest activity time.',
+        description: 'The refresh token is read only from the refreshToken cookie or x-refresh-token header. Rotation is rejected when the token is invalid, expired, revoked, reused, or exceeds the configured idle timeout (60 minutes by default). Every rejected token clears both accessToken and refreshToken cookies. A successful rotation records the latest activity time and returns the rotated access token in the response body for development microfrontends.',
         parameters: refreshTokenParameters,
         responses: {
-          200: { ...response('Token refreshed', schemaRef('MessageResponse')), headers: tokenCookieHeaders },
+          200: { ...response('Token refreshed', schemaRef('TokenRefreshResponse')), headers: tokenCookieHeaders },
           400: errorResponse('Refresh token is missing'),
           401: { ...errorResponse('Refresh token is invalid, expired, revoked, reused, or idle beyond the configured limit'), headers: clearedTokenCookieHeaders },
           403: { ...errorResponse('Account is inactive'), headers: clearedTokenCookieHeaders },

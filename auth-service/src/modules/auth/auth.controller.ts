@@ -9,7 +9,7 @@ import { authService } from './auth.service.js';
 import { getAuthenticatedUserId } from '../../utils/authenticatedUser.js';
 import { clearTokenCookies, setTokenCookies } from '../../utils/cookies.js';
 import { HttpError, RefreshTokenRejectedError } from '../../utils/httpError.js';
-import { getRefreshToken } from '../../utils/requestTokens.js';
+import { getAccessToken, getRefreshToken } from '../../utils/requestTokens.js';
 
 export const authController = {
   async register(req: Request, res: Response): Promise<void> {
@@ -38,7 +38,10 @@ export const authController = {
       status: 200,
       success: true,
       message: 'Login successful',
-      data: { user: result.user },
+      // The refresh token stays in the httpOnly cookie only. The access token is
+      // also returned so development microfrontends can authenticate direct
+      // microservice calls with Authorization: Bearer.
+      data: { user: result.user, accessToken: result.tokens.accessToken },
       requestId: req.headers['x-request-id'],
     });
   },
@@ -55,6 +58,9 @@ export const authController = {
         status: 200,
         success: true,
         message: 'Token refreshed successfully',
+        // Keeps the rotated access token available to development
+        // microfrontends that authenticate direct microservice calls.
+        data: { accessToken: tokens.accessToken },
         requestId: req.headers['x-request-id'],
       });
     } catch (error) {
@@ -81,6 +87,9 @@ export const authController = {
       success: true,
       message: 'Profile retrieved successfully',
       data: user,
+      // The already verified access token is echoed so development
+      // microfrontends can restore a Bearer token after a page reload.
+      accessToken: getAccessToken(req),
       requestId: req.headers['x-request-id'],
     });
   },

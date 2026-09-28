@@ -117,6 +117,34 @@ async function totals(tx: Prisma.TransactionClient, id: string, tax: Prisma.Deci
 }
 
 // All header/item writes go through this aggregate. Never update items independently.
+/**
+ * Builds the branch-scoped quotation list predicate.
+ * Active-only visibility deliberately includes inactive REVISED rows: revising marks the
+ * superseded quotation REVISED/inactive, and it must stay listed as part of the revision lineage.
+ * Other inactive rows remain hidden unless the caller explicitly requests isActive=false.
+ */
+export const buildQuotationListWhere = (
+  input: ListQuotationsInput,
+  officeBranchId: string,
+  companyIds?: string[],
+): Prisma.QuotationWhereInput => {
+  const { isActive, dateFrom, dateTo, no, status, company, invoiceStatus } = input;
+  const visibility: Prisma.QuotationWhereInput | undefined = isActive === false
+    ? { isActive: false }
+    : isActive === true
+      ? { OR: [{ isActive: true }, { status: 'REVISED' }] }
+      : undefined;
+  const filters: Prisma.QuotationWhereInput = {
+    ...(dateFrom || dateTo ? { date: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } } : {}),
+    ...(no === undefined ? {} : { no }),
+    ...(status === undefined ? {} : { status }),
+    ...(invoiceStatus === undefined ? {} : { invoiceStatus }),
+    ...(company ? { id: { in: companyIds ?? [] } } : {}),
+  };
+  const clauses = [...(visibility ? [visibility] : []), ...(Object.keys(filters).length ? [filters] : [])];
+  return { officeBranchId, ...(clauses.length ? { AND: clauses } : {}) };
+};
+
 export const quotationRepository = {
   async find(id: string, officeBranchId: string) {
     const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId }, include: detailInclude });
@@ -136,7 +164,7 @@ export const quotationRepository = {
     return { quotationId: id, history: history.map(entry => ({ ...entry, changes: entry.changes, createdBy: { id: entry.createdById, name: entry.createdByName } })), pagination: buildPagination(input.page, input.limit, total) };
   },
   async list(input: ListQuotationsInput, officeBranchId: string) {
-    const { page, limit, isActive, dateFrom, dateTo, no, status, company, invoiceStatus } = input;
+    const { page, limit, company } = input;
     return prisma.$transaction(async (tx) => {
       // companySnapshot is intentionally immutable historical JSON. Resolve matching
       // quotation IDs with PostgreSQL ILIKE so the search remains case-insensitive.
@@ -147,15 +175,7 @@ export const quotationRepository = {
               AND company_snapshot->>'name' ILIKE ${`%${company.replace(/[\\%_]/g, '\\$&')}%`}
           `)).map(row => row.id)
         : undefined;
-      const where: Prisma.QuotationWhereInput = {
-        officeBranchId,
-        ...(isActive === undefined ? {} : { isActive }),
-        ...(dateFrom || dateTo ? { date: { ...(dateFrom ? { gte: dateFrom } : {}), ...(dateTo ? { lte: dateTo } : {}) } } : {}),
-        ...(no === undefined ? {} : { no }),
-        ...(status === undefined ? {} : { status }),
-        ...(invoiceStatus === undefined ? {} : { invoiceStatus }),
-        ...(company ? { id: { in: companyIds ?? [] } } : {}),
-      };
+      const where = buildQuotationListWhere(input, officeBranchId, companyIds);
       const [quotations, total] = await Promise.all([
         tx.quotation.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit, select: listSelect }),
         tx.quotation.count({ where }),

@@ -224,6 +224,17 @@ try {
   check('Login starts a token session after registration', initialLogin.status === 200 && Boolean(functionalCookies), {
     status: initialLogin.status,
   });
+  const bodyAccessToken = initialLogin.body?.data?.accessToken;
+  check(
+    'Login returns the access token in the response body alongside the HttpOnly cookie',
+    typeof bodyAccessToken === 'string' && bodyAccessToken.length > 0 && bodyAccessToken === cookieValue(functionalCookies, 'accessToken'),
+    { dataType: typeof bodyAccessToken, matchesCookie: bodyAccessToken === cookieValue(functionalCookies, 'accessToken') },
+  );
+  check(
+    'Login never returns the refresh token in the response body',
+    initialLogin.body?.data?.refreshToken === undefined,
+    { keys: initialLogin.body?.data ? Object.keys(initialLogin.body.data) : null },
+  );
 
   const accessToken = cookieValue(functionalCookies, 'accessToken');
   const accessHeader = accessToken ? decodeJwtPart(accessToken, 0) : {};
@@ -409,6 +420,14 @@ try {
     acc[result.status] = (acc[result.status] || 0) + 1;
     return acc;
   }, {});
+  const refreshWinner = refreshRace.find((result) => result.status === 200);
+  check(
+    'Successful refresh returns the rotated access token without exposing refresh token',
+    refreshWinner?.body?.data?.accessToken
+      && refreshWinner.body.data.refreshToken === undefined
+      && refreshWinner.body.data.accessToken === cookieValue(refreshWinner.cookies, 'accessToken'),
+    { status: refreshWinner?.status, hasAccessToken: Boolean(refreshWinner?.body?.data?.accessToken), hasRefreshToken: Boolean(refreshWinner?.body?.data?.refreshToken) },
+  );
   const rejectedRefreshes = refreshRace.filter((result) => result.status === 401);
   check('Concurrent refresh allows the old token only once and clears rejected cookies',
     refreshStatuses[200] === 1
@@ -416,7 +435,6 @@ try {
       && rejectedRefreshes.every((result) => tokenCookiesCleared(result.cookies)),
     { ...refreshStatuses, rejectedCookiesCleared: rejectedRefreshes.every((result) => tokenCookiesCleared(result.cookies)) });
 
-  const refreshWinner = refreshRace.find((result) => result.status === 200);
   const winnerRefreshToken = cookieValue(refreshWinner?.cookies || '', 'refreshToken');
   const usedRaceRefreshToken = cookieValue(raceCookies, 'refreshToken');
   const [usedTokenRow, newTokenRow] = await Promise.all([
