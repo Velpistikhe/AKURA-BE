@@ -1,8 +1,26 @@
 import { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env.js';
+import { isDirectMfeAccess } from '../utils/directAccess.js';
 
 export const verifyGatewaySecret = (req: Request, res: Response, next: NextFunction): void => {
-  if (req.headers['x-gateway-secret'] !== env.GATEWAY_SECRET) {
+  const gatewaySecret = req.headers['x-gateway-secret'];
+  const isFinanceRoute = req.path === '/finance'
+    || req.path.startsWith('/finance/')
+    || req.path === '/taxes'
+    || req.path.startsWith('/taxes/')
+    || req.path === '/invoices'
+    || req.path.startsWith('/invoices/')
+    || req.path === '/proforma-invoices'
+    || req.path.startsWith('/proforma-invoices/');
+
+  // Direct development access applies only to user-facing Finance routes.
+  // Internal tax delivery and health checks remain gateway-only.
+  if (gatewaySecret === undefined && isFinanceRoute && isDirectMfeAccess()) {
+    next();
+    return;
+  }
+
+  if (gatewaySecret !== env.GATEWAY_SECRET) {
     res.status(403).json({
       status: 403,
       success: false,

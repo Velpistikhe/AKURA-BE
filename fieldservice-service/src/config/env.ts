@@ -11,8 +11,15 @@ const envSchema = z.object({
   API_GATEWAY_URL: z.string({ required_error: 'API_GATEWAY_URL is required' })
     .url('API_GATEWAY_URL must be a valid URL')
     .transform((value) => value.replace(/\/$/, '')),
+  // Direct browser access is development-only and never bypasses user auth.
+  DIRECT_MFE_ACCESS: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  DIRECT_MFE_ORIGIN: z.string().url().default('http://localhost:4173'),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),
+}).superRefine((value, context) => {
+  if (value.DIRECT_MFE_ACCESS && value.NODE_ENV !== 'development') {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['DIRECT_MFE_ACCESS'], message: 'DIRECT_MFE_ACCESS is only allowed when NODE_ENV is development' });
+  }
 });
 
 const result = envSchema.safeParse(process.env);

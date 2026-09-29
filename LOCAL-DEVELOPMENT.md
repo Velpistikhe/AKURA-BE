@@ -6,24 +6,25 @@ Jalankan gateway (5000), Auth (5001), App Manager (5002), Marketing (5003), Fina
 
 Service selalu memeriksa `x-gateway-secret`, termasuk localhost, development, production, health dan preflight. Tidak ada bypass berdasarkan alamat loopback. Jangan berikan secret internal kepada frontend. JWT, akun aktif, section/role, dan cabang tetap diperiksa.
 
-## Hybrid: auth di Vercel, Marketing lokal diakses langsung
+## Hybrid development: Auth di Vercel, MFE dan service lokal
 
-Untuk development lokal yang memakai Auth pada Vercel:
+Untuk mengembangkan Marketing, Field Service, atau Finance secara lokal dengan Auth pada gateway Vercel:
 
-- Shell (login, session, menu) memakai gateway Vercel `https://akura-api-gateway.vercel.app` (`VITE_API_BASE_URL` pada `akura-shell/.env.development`). Login mengembalikan `accessToken` pada body response (refresh token tetap cookie httpOnly) dan menyimpannya di memory, lalu meneruskannya ke MFE Marketing lewat prop.
-- MFE Marketing memanggil Marketing Service lokal secara langsung (`VITE_API_BASE_URL=http://localhost:5003`) dengan `Authorization: Bearer <accessToken>`; endpoint auth MFE (`/auth/*`) tetap ke gateway Vercel dengan cookie. Route selain Marketing (mis. work order Field Service) tetap lewat gateway.
-- Marketing Service lokal mengaktifkan `DIRECT_MFE_ACCESS=true` (hanya sah pada `NODE_ENV=development`, ditolak pada environment lain). Header `x-gateway-secret` yang hilang diterima hanya pada mode ini; secret yang salah tetap ditolak. Identitas (`x-user-id`, `x-user-role`, `x-office-branch-id`) disuntik dari JWT yang sudah diverifikasi.
-- JWT diverifikasi lokal via JWKS dari `API_GATEWAY_URL=https://akura-api-gateway.vercel.app` (di-cache); cek profil/section/branch juga melalui gateway Vercel. Tidak ada autentikasi per request ke Vercel selain JWKS yang di-cache dan `auth/me` yang memang wajib.
-- CORS Marketing Service memakai `origin: true` dan mengizinkan preflight lokal, tetapi tanpa secret internal; permintaan tetap wajib membawa JWT valid.
+- Shell lokal menggunakan `VITE_API_BASE_URL` ke gateway deployment Development. Shell menyimpan access token hanya di memory dan meneruskannya ke MFE.
+- MFE lokal mengirim request data langsung ke service lokal: Marketing `http://localhost:5003`, Finance `http://localhost:5004`, dan Field Service `http://localhost:5005`, memakai `Authorization: Bearer <accessToken>`.
+- Route Auth (`/auth/*`) tetap menuju gateway Vercel agar refresh token cookie httpOnly berasal dari host yang sama. Finance juga tetap meneruskan referensi Marketing (`/marketing/*`) melalui gateway.
+- Set `DIRECT_MFE_ACCESS=true` hanya pada `.env` lokal tiap service dan `DIRECT_MFE_ORIGIN=http://localhost:4173` (origin browser Shell, bukan port remote MFE). Akses langsung hanya berlaku di `NODE_ENV=development` dan tidak pernah di Vercel. Secret gateway yang salah tetap ditolak.
+- Bypass secret hanya untuk route data Marketing, Finance (`/finance/*`, `/taxes/*`, `/invoices/*`, `/proforma-invoices/*`) dan Field Service (`/fieldservice/*`, `/work-orders/*`). Health dan endpoint internal tetap gateway-only. JWT, profil aktif, role/section, dan branch tetap diverifikasi.
+- Jalankan Marketing (5003), Finance (5004), Field Service (5005), MFE remote (4175/4176/4177), Shell (4173), dan Auth/API Gateway Vercel Development. Restart Vite setelah mengubah `.env.development`.
 
-Topologi penuh lokal (semua service lokal di belakang gateway `localhost:5000`) tetap berlaku bila `DIRECT_MFE_ACCESS` di-set `false`.
+Mode topologi penuh lokal tetap tersedia: arahkan MFE ke gateway `http://localhost:5000/api/v1` dan set `DIRECT_MFE_ACCESS=false` pada semua service.
 
-Panggilan profil, JWKS, dan referensi antarservice menggunakan `API_GATEWAY_URL` dengan `x-service-name` dan `x-service-secret` milik service pemanggil (nilai `GATEWAY_SECRET`). Gateway memverifikasi pemanggil, memvalidasi JWT bila diperlukan, lalu menambahkan secret serta identitas pengguna untuk tujuan. Gateway sendiri mengambil JWKS dari Auth dengan secret Auth untuk menghindari siklus autentikasi.
+## Aturan akses dan komunikasi service
 
-Event pajak dikirim Finance ke `/api/v1/marketing/internal/taxes/events` pada gateway. Endpoint hanya menerima POST dengan kredensial Finance dan `x-tax-sync-secret`; tidak memerlukan sesi pengguna. Marketing tetap memverifikasi gateway secret dan tax sync secret.
+Panggilan profil, JWKS, dan referensi antarservice menggunakan `API_GATEWAY_URL` dengan `x-service-name` dan `x-service-secret` milik service pemanggil. Browser tidak menerima atau mengirim secret internal. Gateway memverifikasi pemanggil, memvalidasi JWT bila diperlukan, lalu menambahkan secret serta identitas pengguna untuk service tujuan.
 
-Untuk deployment, gunakan URL gateway HTTPS pada `API_GATEWAY_URL` dan `TAX_DELIVERY_TARGETS`. Hanya gateway menyimpan URL service tujuan serta secret masing-masing tujuan. Atur variabel Vercel sesuai konfigurasi baru dan deploy ulang semua service; perubahan file lokal tidak mengubah environment Vercel otomatis.
+Event pajak Finance tetap dikirim ke Marketing melalui gateway `/api/v1/marketing/internal/taxes/events`; event internal tidak memakai bypass akses langsung.
 
-Untuk kombinasi lokal/deployment, ubah URL tujuan hanya pada gateway. `AUTH_JWKS_URL` harus menunjuk Auth yang sama dengan `AUTH_SERVICE_URL`. Service deployment tidak dapat menghubungi localhost komputer developer; konfigurasi komunikasi balik harus menggunakan gateway yang dapat dijangkau service tersebut. Browser tetap mengakses satu gateway, bukan service langsung.
+Untuk deployment, set URL gateway HTTPS dan environment terpisah pada Vercel Development/Production. Jangan set `DIRECT_MFE_ACCESS=true` pada deployment Vercel. Perubahan file lokal tidak mengubah environment Vercel.
 
-Uji aturan gateway dan komunikasi antarservice tanpa database: `node tests/local-access.cjs`.
+Jalankan test aturan gateway dan akses lokal tanpa database: `node tests/local-access.cjs`.

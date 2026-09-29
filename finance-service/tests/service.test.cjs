@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 process.env.NODE_ENV = 'test';
+process.env.DIRECT_MFE_ACCESS = 'false';
 process.env.DATABASE_URL ??= 'postgresql://postgres:password@localhost:5432/akura_finance?schema=public';
 process.env.GATEWAY_SECRET = 'test-service-secret';
 process.env.API_GATEWAY_URL = 'http://127.0.0.1:1';

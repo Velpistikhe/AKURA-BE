@@ -11,6 +11,8 @@ Express/TypeScript service with quotation-linked document modules. Default port:
 
 `GET /api/v1/finance/health` through the gateway requires a valid access token. Direct `/health` requires the service gateway secret and reports process liveness only. JWT validation for domain routes uses the Auth JWKS through the gateway; forwarded identity headers are not trusted as authentication.
 
+Development setup: `DIRECT_MFE_ACCESS=true` permits the local Finance MFE to call `/finance/*` directly on `localhost:5004` with its Shell-provided Bearer token. Set `DIRECT_MFE_ORIGIN` to the browser Shell origin (usually `http://localhost:4173`). This option is valid only with `NODE_ENV=development` and is disabled on Vercel; internal service calls, health checks, and requests with an incorrect gateway secret remain protected. User JWT, active profile, section/role, and branch checks still apply. In production keep direct access disabled and use the API Gateway.
+
 Commands: `npm run build`, `npm start`, `npm run typecheck`, `npm test`.
 
 Domain routes belong in `src/modules` and are registered in `src/routes/index.ts`. Authentication is applied before the router. The service owns its PostgreSQL database. Set DATABASE_URL to its own database, run npm run db:push, then npm run build. Never point DATABASE_URL at another service database. Swagger is maintained in `api-gateway/src/docs/operational-documents.ts` and `openapi.ts`.

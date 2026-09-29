@@ -7,12 +7,13 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import routes from './routes/index.js';
+import { corsOrigin } from './utils/corsOrigin.js';
 
 const app: Express = express();
 
 app.use(helmet());
 app.use(verifyGatewaySecret);
-app.use(cors({ origin: true, credentials: true, exposedHeaders: ['Content-Disposition'] }));
+app.use(cors({ origin: corsOrigin, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
@@ -34,6 +35,10 @@ app.get('/health', (req: Request, res: Response) => {
 
 app.use(authenticate);
 app.use(routes);
+// The local Finance microfrontend in direct development access calls this
+// service with the gateway-style /finance prefix (the gateway strips it for
+// proxied requests, so both mounts resolve to the same router).
+app.use('/finance', routes);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({

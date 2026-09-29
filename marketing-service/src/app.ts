@@ -2,24 +2,16 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
-import { env } from './config/env.js';
-import { isDirectMfeAccess } from './utils/directAccess.js';
 import { authenticate } from './middlewares/auth.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
+import { corsOrigin } from './utils/corsOrigin.js';
 import routes from './routes/index.js';
 import taxEvents from './modules/taxes/tax-events.routes.js';
 import userSyncEvents from './modules/user-sync/user-sync-events.routes.js';
 
 const app: Express = express();
-const corsOrigin = (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void): void => {
-  if (!origin || (isDirectMfeAccess() && origin === env.DIRECT_MFE_ORIGIN) || !isDirectMfeAccess()) {
-    callback(null, true);
-    return;
-  }
-  callback(null, false);
-};
 app.use(helmet());
 app.use(verifyGatewaySecret);
 app.use(cors({ origin: corsOrigin, credentials: true, exposedHeaders: ['Content-Disposition'] }));

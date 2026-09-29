@@ -35,6 +35,10 @@ async function run(service) {
     API_GATEWAY_URL: 'http://localhost:5999', JWT_REFRESH_SECRET: 'test-refresh',
     JWT_ACCESS_PRIVATE_KEY_BASE64: 'test-placeholder',
   });
+  // Direct-access mode defaults off for the generic guard matrix; each direct
+  // access test toggles env.DIRECT_MFE_ACCESS explicitly.
+  const directServices = ['marketing-service', 'finance-service', 'fieldservice-service'];
+  Object.assign(process.env, { DIRECT_MFE_ACCESS: 'false', DIRECT_MFE_ORIGIN: 'http://localhost:4173' });
   const { env } = localRequire(path.join(root, 'src/config/env.ts'));
   const { verifyGatewaySecret } = localRequire(path.join(root, 'src/middlewares/gateway.middleware.ts'));
   function guard(address, headers = {}, requestPath = '/marketing/companies') {
@@ -55,25 +59,31 @@ async function run(service) {
       }
     }
   }
-  if (service === 'marketing-service') {
+  if (directServices.includes(service)) {
     // Direct development access: only a missing header is tolerated, only in
     // development, and only off Vercel. A wrong secret is always rejected.
+    const domainPath = service === 'marketing-service' ? '/marketing/companies'
+      : service === 'finance-service' ? '/finance/taxes'
+        : '/fieldservice/work-orders';
     env.NODE_ENV = 'development';
     process.env.VERCEL = '0';
     env.DIRECT_MFE_ACCESS = true;
-    assert.equal(guard('127.0.0.1').passed, true);
-    assert.equal(guard('127.0.0.1', { 'x-gateway-secret': 'wrong' }).status, 403);
-    // Internal tax/user-sync delivery stays gateway-only even in direct mode.
-    assert.equal(guard('127.0.0.1', {}, '/internal/taxes/events').status, 403);
-    assert.equal(guard('127.0.0.1', {}, '/internal/users/events').status, 403);
+    assert.equal(guard('127.0.0.1', {}, domainPath).passed, true);
+    assert.equal(guard('127.0.0.1', { 'x-gateway-secret': 'wrong' }, domainPath).status, 403);
+    // Health and internal delivery endpoints stay gateway-only in direct mode.
+    assert.equal(guard('127.0.0.1', {}, '/health').status, 403);
+    if (service === 'marketing-service') {
+      assert.equal(guard('127.0.0.1', {}, '/internal/taxes/events').status, 403);
+      assert.equal(guard('127.0.0.1', {}, '/internal/users/events').status, 403);
+    }
     process.env.VERCEL = '1';
-    assert.equal(guard('127.0.0.1').status, 403);
+    assert.equal(guard('127.0.0.1', {}, domainPath).status, 403);
     process.env.VERCEL = '0';
     env.NODE_ENV = 'production';
-    assert.equal(guard('127.0.0.1').status, 403);
+    assert.equal(guard('127.0.0.1', {}, domainPath).status, 403);
     env.NODE_ENV = 'development';
     env.DIRECT_MFE_ACCESS = false;
-    assert.equal(guard('127.0.0.1').status, 403);
+    assert.equal(guard('127.0.0.1', {}, domainPath).status, 403);
     console.log(`${service}: direct development access toggles only the missing-header case`);
   }
   env.NODE_ENV = 'development';
@@ -166,43 +176,56 @@ async function run(service) {
       profile.isActive = false;
       assert.equal((await fetch(url, { headers })).status, 403);
     }
-    if (service === 'marketing-service') {
-      // Direct development access: the local Marketing MFE reaches this service
-      // without the gateway secret, identity headers are injected from the
-      // verified JWT, and CORS allows the local MFE origin.
+    if (directServices.includes(service)) {
+      // Direct development access: the local MFE reaches this service without
+      // the gateway secret, CORS allows only the configured MFE origin, and
+      // the verified JWT remains mandatory.
       env.DIRECT_MFE_ACCESS = true;
       profile.isActive = true;
+      const domainPrefix = service === 'marketing-service' ? '/marketing'
+        : service === 'finance-service' ? '/finance' : '/fieldservice';
       const directApp = express();
       directApp.use((req, res, next) => {
-        if (req.path.startsWith('/marketing/')) {
+        if (req.path.startsWith(`${domainPrefix}/`)) {
           next();
           return;
         }
         res.status(403).end();
       });
       directApp.use(localRequire(path.join(root, 'src/middlewares/gateway.middleware.ts')).verifyGatewaySecret);
-      directApp.use(cors({ origin: true, credentials: true }));
+      const { corsOrigin } = localRequire(path.join(root, 'src/utils/corsOrigin.ts'));
+      directApp.use(cors({ origin: corsOrigin, credentials: true }));
       directApp.use(localRequire(path.join(root, 'src/middlewares/auth.middleware.ts')).authenticate);
-      const { requireMarketingAccess } = localRequire(path.join(root, 'src/middlewares/authorize.middleware.ts'));
-      directApp.use((req, res, next) => requireMarketingAccess(req, res, next).catch(next));
-      directApp.get('/marketing/protected', (req, res) => res.json({ ok: true, userId: req.headers['x-user-id'] }));
+      if (service === 'marketing-service') {
+        const { requireMarketingAccess } = localRequire(path.join(root, 'src/middlewares/authorize.middleware.ts'));
+        directApp.use((req, res, next) => requireMarketingAccess(req, res, next).catch(next));
+      }
+      directApp.get(`${domainPrefix}/protected`, (req, res) => res.json({ ok: true, userId: req.headers['x-user-id'] }));
       const directServer = await listen(directApp);
       try {
-        const directUrl = `http://127.0.0.1:${directServer.address().port}/marketing/protected`;
+        const directUrl = `http://127.0.0.1:${directServer.address().port}${domainPrefix}/protected`;
         const directPreflight = await fetch(directUrl, { method: 'OPTIONS', headers: { Origin: 'http://localhost:4173', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
         assert.equal(directPreflight.status, 204);
         assert.equal(directPreflight.headers.get('access-control-allow-origin'), 'http://localhost:4173');
+        const foreignPreflight = await fetch(directUrl, { method: 'OPTIONS', headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
+        assert.equal(foreignPreflight.headers.get('access-control-allow-origin'), null);
         assert.equal((await fetch(directUrl)).status, 401);
         assert.equal((await fetch(directUrl, { headers: { Authorization: 'Bearer invalid' } })).status, 401);
         const directForbidden = await fetch(directUrl, { headers: { Authorization: `Bearer ${token}`, 'x-user-id': 'forged' } });
-        assert.equal(directForbidden.status, 401);
+        if (service === 'marketing-service') assert.equal(directForbidden.status, 401);
         const directOk = await fetch(directUrl, { headers: { Authorization: `Bearer ${token}` } });
         assert.equal(directOk.status, 200);
-        assert.deepEqual(await directOk.json(), { ok: true, userId: 'user-1' });
-        profile.isActive = false;
-        assert.equal((await fetch(directUrl, { headers: { Authorization: `Bearer ${token}` } })).status, 403);
-        profile.isActive = true;
-        console.log(`${service}: direct development access with Bearer, injected identity and CORS passed`);
+        if (service === 'marketing-service') {
+          assert.deepEqual(await directOk.json(), { ok: true, userId: 'user-1' });
+          profile.isActive = false;
+          assert.equal((await fetch(directUrl, { headers: { Authorization: `Bearer ${token}` } })).status, 403);
+          profile.isActive = true;
+        } else {
+          // These services derive actor identity from the verified profile,
+          // not from client identity headers.
+          assert.deepEqual(await directOk.json(), { ok: true });
+        }
+        console.log(`${service}: direct development access with Bearer and restricted CORS passed`);
       } finally {
         await new Promise(resolve => directServer.close(resolve));
         env.DIRECT_MFE_ACCESS = false;

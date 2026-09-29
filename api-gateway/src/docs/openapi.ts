@@ -77,7 +77,7 @@ export const openApiDocument = groupByModule({
   info: {
     title: 'Akura API Gateway',
     version: '2.7.0',
-    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway; direct service access without the target-specific internal gateway secret is rejected in every environment, including localhost. Frontends must send login, refresh and all API requests to the same gateway host. Internal service requests also use the gateway.',
+    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway in production; opted-in local Marketing, Finance and Field Service microfrontends may call their own service directly during development with a valid Bearer token. Any request carrying the target-specific internal gateway secret must still present the correct secret. Frontends must send login, refresh and all API requests to the same gateway host unless using the documented local direct-service development mode. Internal service requests also use the gateway.',
   },
   servers: [
     {

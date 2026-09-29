@@ -7,12 +7,13 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import routes from './routes/index.js';
+import { corsOrigin } from './utils/corsOrigin.js';
 
 const app: Express = express();
 
 app.use(helmet());
 app.use(verifyGatewaySecret);
-app.use(cors({ origin: true, credentials: true, exposedHeaders: ['Content-Disposition'] }));
+app.use(cors({ origin: corsOrigin, credentials: true, exposedHeaders: ['Content-Disposition'] }));
 app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
@@ -34,6 +35,9 @@ app.get('/health', (req: Request, res: Response) => {
 
 app.use(authenticate);
 app.use(routes);
+// Direct development access calls this service with the gateway-style
+// /fieldservice prefix; proxied requests have that prefix removed by gateway.
+app.use('/fieldservice', routes);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({

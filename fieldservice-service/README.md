@@ -6,6 +6,8 @@ Configure `.env` from `.env.example`, run `npm ci`, and run `npm run build`. Use
 
 Run `npm test` for the service boundary and Work Order integration checks.
 
+Development direct access: set `DIRECT_MFE_ACCESS=true` and `DIRECT_MFE_ORIGIN` to the browser Shell origin (usually `http://localhost:4173`). The local MFE then calls `/fieldservice/*` on `localhost:5005` with `Authorization: Bearer` instead of the gateway. Direct access is valid only in `NODE_ENV=development`, never on Vercel; a wrong gateway secret is still rejected and `/health` remains gateway-only. JWT, active profile, section/role, and branch checks are unchanged. Keep it disabled in production and use the API Gateway.
+
 ## Work Orders
 
 Endpoint: `/api/v1/fieldservice/work-orders` through the gateway. GET/POST collection and GET/PATCH/DELETE `/:id`. Access requires an active profile and matching authenticated branch. POST and DELETE require section MARKETING; PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass these write restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is loaded from Auth, never from client-submitted fields or headers.
