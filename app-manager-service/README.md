@@ -23,7 +23,7 @@ Gateway meneruskan prefix `/api/v1/app-manager` ke service dan menghapus prefix 
 | `/api/v1/app-manager/menu-items/:menuItemId` | GET, PATCH, DELETE | Detail, perubahan, atau penghapusan menu item |
 | `/api/v1/app-manager/office-branches` | GET, POST | Daftar atau membuat cabang kantor |
 | `/api/v1/app-manager/office-branches/options` | GET | Pilihan cabang kantor berisi `id` dan `name` |
-| `/api/v1/app-manager/office-branches/:officeBranchId` | GET, PATCH, DELETE | Detail, perubahan, atau penghapusan cabang kantor |
+| `/api/v1/app-manager/office-branches/:officeBranchId` | GET, PATCH | Detail atau perubahan cabang kantor (kecuali nama) |
 
 Pengelolaan user tersedia di `/api/v1/auth/users`, bukan di App Manager Service.
 

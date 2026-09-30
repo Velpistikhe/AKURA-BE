@@ -62,7 +62,7 @@ Gateway meneruskan prefix `/api/v1/auth` ke service ini dan menghapus prefix ter
 | `/api/v1/auth/password` | PUT | Access token | Mengganti password |
 | `/api/v1/auth/users` | GET | APP_MANAGER | Daftar dan filter user |
 | `/api/v1/auth/users/:userId` | GET | APP_MANAGER | Detail user |
-| `/api/v1/auth/users/:userId` | PATCH | APP_MANAGER | Mengubah role, section, office branch, email, telp, dan/atau status user |
+| `/api/v1/auth/users/:userId` | PATCH | APP_MANAGER | Mengubah role, section, pasangan office branch (`officeBranchId` + `branch`), email, telp, dan/atau status user |
 | `/api/v1/auth/users/marketing-contacts` | GET | Access token | Daftar kontak ADMIN MARKETING aktif pada branch pemanggil (read-only legacy; Marketing kini membaca local read model yang disinkronkan lewat `POST /api/v1/marketing/internal/users/events`) |
 
 - `POST /api/v1/marketing/internal/users/events` adalah endpoint internal yang menerima snapshot user dari Auth Service. Endpoint ini bukan endpoint frontend dan wajib melewati API Gateway dengan credential service serta `USER_SYNC_SECRET`.
@@ -95,12 +95,29 @@ Update user menggunakan satu request `PATCH` atomik. `version` wajib dikirim dan
   "role": "USER",
   "section": "MARKETING",
   "officeBranchId": "44c3fffd-1987-4935-bff4-07fd3cc72f1d",
+  "branch": "Kantor Pusat",
   "isActive": true,
   "version": 1
 }
 ```
 
-`section` dan `officeBranchId` dapat diisi `null`. Auth Service hanya menyimpan UUID office branch tanpa foreign key karena data office branch dimiliki database App Manager Service.
+`section` dan pasangan `officeBranchId`/`branch` dapat diisi `null`. Auth Service menyimpan UUID office branch tanpa foreign key karena data office branch dimiliki database App Manager Service, dan menyimpan nama tampilan cabang pada kolom `office_branch_name` agar response selalu dapat menampilkan `branch`. `officeBranchId` dan `branch` wajib dikirim bersama (nullable pair): keduanya `null` untuk melepas penugasan, atau keduanya berisi nilai; pasangan yang tidak lengkap menghasilkan response `400`. Nilai `branch` dikirim oleh caller sebagai pasangan `officeBranchId`, sehingga id dan nama cabang yang tersimpan selalu konsisten.
+
+### Profil dan daftar user
+
+Seluruh response user (`GET /me`, `GET /users`, `GET /users/:userId`, `PATCH /users/:userId`, login) mempertahankan `officeBranchId` dan menambahkan field `branch` berisi nama office branch yang tersimpan (`null` bila user belum memiliki cabang).
+
+### History user
+
+Setiap perubahan data user dicatat atomik pada tabel `user_histories` (append-only, satu transaksi dengan mutasinya):
+
+- `CREATE` saat registrasi, `beforeSnapshot` bernilai `null`.
+- `UPDATE` pada perubahan profil sendiri dan seluruh update administratif `APP_MANAGER` (role, section, office branch, email, telp, status).
+- `PASSWORD_CHANGE` pada perubahan password; nilai password tidak pernah disimpan (hanya action-nya).
+- Setiap baris menyimpan `beforeSnapshot` (data lama), `snapshot` (data baru), `changes` (array per field: `field`, `before`, `after`), `version`, serta actor (`createdById`, `createdByName`).
+- Perubahan cabang selalu terekam pada field `officeBranchId` dan `branch` sehingga riwayat menyimpan nama cabang lama dan baru, bukan hanya ID.
+
+History tidak tersedia lewat endpoint API; bacanya langsung dari tabel `user_histories` atau tool observability internal.
 
 Token dapat dikirim melalui HTTP-only cookie. Access token juga dapat dikirim melalui header:
 

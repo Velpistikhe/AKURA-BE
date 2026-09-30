@@ -27,7 +27,4 @@ export const officeBranchController = {
       res.locals.body as UpdateOfficeBranchInput,
     ));
   },
-  async delete(req: Request, res: Response): Promise<void> {
-    send(req, res, 200, 'Office branch deleted successfully', await officeBranchService.delete((res.locals.params as OfficeBranchParams).officeBranchId));
-  },
 };

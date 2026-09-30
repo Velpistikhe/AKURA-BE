@@ -97,10 +97,6 @@ class OfficeBranchRepository {
       return throwHeadConflict(error);
     }
   }
-
-  delete(id: string): Promise<ManagedOfficeBranch> {
-    return prisma.officeBranch.delete({ where: { id }, select: officeBranchSelect });
-  }
 }
 
 export const officeBranchRepository = new OfficeBranchRepository();

@@ -215,6 +215,16 @@ try {
       registrationRefreshTokens,
     },
   );
+  const registrationHistory = functionalUserId
+    ? await prisma.userHistory.findFirst({ where: { userId: functionalUserId }, orderBy: { version: 'asc' } })
+    : null;
+  check('Registration records CREATE history with a full snapshot and no password fields',
+    registrationHistory?.action === 'CREATE'
+      && registrationHistory.beforeSnapshot === null
+      && registrationHistory.snapshot?.username === functionalUsername
+      && !JSON.stringify(registrationHistory.snapshot).toLowerCase().includes('password')
+      && registrationHistory.createdById === functionalUserId,
+    { action: registrationHistory?.action, beforeSnapshot: registrationHistory?.beforeSnapshot });
 
   const initialLogin = await request(gatewayUrl, '/api/v1/auth/login', {
     method: 'POST',
@@ -257,6 +267,14 @@ try {
 
   const me = await request(gatewayUrl, '/api/v1/auth/me', { headers: { cookie: functionalCookies } });
   check('Get profile with access cookie', me.status === 200 && me.body?.data?.id === functionalUserId, { status: me.status });
+  check(
+    'Profile exposes branch name alongside officeBranchId',
+    me.status === 200
+      && Object.hasOwn(me.body?.data ?? {}, 'branch')
+      && me.body?.data?.branch === null
+      && me.body?.data?.officeBranchId === null,
+    { branch: me.body?.data?.branch, officeBranchId: me.body?.data?.officeBranchId },
+  );
 
   const refreshAsAccess = await request(gatewayUrl, '/api/v1/auth/me', {
     headers: { cookie: `accessToken=${cookieValue(functionalCookies, 'refreshToken') || ''}` },

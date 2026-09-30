@@ -98,10 +98,17 @@ try {
     'OpenAPI operation count',
     { status: 200, body: { message: 'OpenAPI is complete' } },
     [200],
-    () => Object.values(openApi.body.paths).reduce(
-      (total, path) => total + Object.keys(path).filter((key) => ['get', 'post', 'put', 'patch', 'delete'].includes(key)).length,
-      0,
-    ) === 64,
+    () => {
+      const paths = openApi.body.paths ?? {};
+      const count = Object.values(paths).reduce(
+        (total, path) => total + Object.keys(path).filter((key) => ['get', 'post', 'put', 'patch', 'delete'].includes(key)).length,
+        0,
+      );
+      return count > 0
+        && Boolean(paths['/api/v1/auth/users'])
+        && Boolean(paths['/api/v1/auth/me'])
+        && !Object.hasOwn(paths['/api/v1/app-manager/office-branches/{officeBranchId}'] ?? {}, 'delete');
+    },
   );
   check('GET /api/v1/auth/.well-known/jwks.json', await request('/api/v1/auth/.well-known/jwks.json'), [200], (body) => body?.keys?.length > 0);
 
@@ -161,7 +168,11 @@ try {
 
   check('GET /api/v1/auth/users', await request(`/api/v1/auth/users?search=${encodeURIComponent(target.username)}`, {
     cookies: managerCookies,
-  }), [200], (body) => body?.data?.users?.some((user) => user.id === target.user.id));
+  }), [200], (body) => body?.data?.users?.some((user) => user.id === target.user.id
+    && Object.hasOwn(user, 'branch')
+    && user.branch === null
+    && Object.hasOwn(user, 'officeBranchId')
+    && user.officeBranchId === null));
   let detail = check('GET /api/v1/auth/users/{userId}', await request(`/api/v1/auth/users/${target.user.id}`, {
     cookies: managerCookies,
   }), [200]);
@@ -170,15 +181,52 @@ try {
   detail = check('PATCH /api/v1/auth/users/{userId}', await request(`/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH', cookies: managerCookies,
     json: {
-      role: 'USER', section: 'MARKETING', officeBranchId: assignedOfficeBranchId,
+      role: 'USER', section: 'MARKETING', officeBranchId: assignedOfficeBranchId, branch: 'Assigned Test Branch',
       isActive: false, version: detail.body.data.version,
     },
   }), [200], (body) => body?.data?.section === 'MARKETING'
     && body?.data?.officeBranchId === assignedOfficeBranchId
+    && body?.data?.branch === 'Assigned Test Branch'
     && body?.data?.isActive === false);
   check('PATCH /api/v1/auth/users/{userId} rejects inactive target', await request(`/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH', cookies: managerCookies, json: { isActive: true, version: detail.body.data.version },
   }), [409], (body) => body?.message === 'Inactive users cannot be updated');
+    const userHistoryEntries = await authPrisma.userHistory.findMany({
+      where: { userId: target.user.id },
+      orderBy: [{ version: 'asc' }, { createdAt: 'asc' }],
+    });
+    const createdHistory = userHistoryEntries.find((entry) => entry.action === 'CREATE');
+    const profileHistory = userHistoryEntries.find((entry) => entry.action === 'UPDATE'
+      && entry.createdById === target.user.id
+      && Array.isArray(entry.changes)
+      && entry.changes.some((change) => change.field === 'firstName' && change.after === 'Updated'));
+    const branchHistory = userHistoryEntries.find((entry) => entry.action === 'UPDATE'
+      && entry.createdById === manager.user.id
+      && Array.isArray(entry.changes)
+      && entry.changes.some((change) => change.field === 'officeBranchId' && change.after === assignedOfficeBranchId));
+    const passwordHistory = userHistoryEntries.find((entry) => entry.action === 'PASSWORD_CHANGE'
+      && Array.isArray(entry.changes)
+      && entry.changes.some((change) => change.field === 'password'));
+    const allHistory = JSON.stringify(userHistoryEntries).toLowerCase();
+    const validHistory = Boolean(createdHistory && createdHistory.beforeSnapshot === null && createdHistory.snapshot.username === target.username)
+      && Boolean(profileHistory && profileHistory.beforeSnapshot && profileHistory.snapshot.firstName === 'Updated')
+      && Boolean(branchHistory
+        && branchHistory.changes.some((change) => change.field === 'branch' && change.after === 'Assigned Test Branch')
+        && branchHistory.beforeSnapshot.branch === null
+        && branchHistory.snapshot.branch === 'Assigned Test Branch')
+      && Boolean(passwordHistory)
+      && !allHistory.includes('passwordhash');
+    check('User history records profile, password and administrative changes', {
+      status: validHistory ? 200 : 500,
+      body: { historyCount: userHistoryEntries.length, validHistory },
+    }, [200], (body) => body.validHistory === true);
+
+    // The deactivation checks above are complete; the target must be active again
+    // for the remaining self-service my-menus check (section MARKETING already set).
+    await authPrisma.user.update({
+      where: { id: target.user.id },
+      data: { isActive: true, version: { increment: 1 } },
+    });
 
   const menuKey = `endpoint_test_${slug}`;
   const inaccessibleItemKey = `hidden_endpoint_item_${slug}`;
@@ -304,10 +352,15 @@ try {
   check('PATCH /api/v1/app-manager/office-branches/{officeBranchId}', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
     method: 'PATCH', cookies: managerCookies, json: { telp: '+62 21 555 0101' },
   }), [200], (body) => body?.data?.telp === '+62 21 555 0101');
-  check('DELETE /api/v1/app-manager/office-branches/{officeBranchId}', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
+  check('PATCH /api/v1/app-manager/office-branches/{officeBranchId} rejects name change', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
+    method: 'PATCH', cookies: managerCookies, json: { name: `Renamed ${officeName}` },
+  }), [400]);
+  check('GET /api/v1/app-manager/office-branches/{officeBranchId} keeps original name', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
+    cookies: managerCookies,
+  }), [200], (body) => body?.data?.name === officeName);
+  check('DELETE /api/v1/app-manager/office-branches/{officeBranchId} is not supported', await request(`/api/v1/app-manager/office-branches/${officeBranchId}`, {
     method: 'DELETE', cookies: managerCookies,
-  }), [200]);
-  officeBranchId = undefined;
+  }), [404]);
 
   check('DELETE /api/v1/app-manager/menu-accesses/{menuAccessId}', await request(`/api/v1/app-manager/menu-accesses/${menuAccessId}`, {
     method: 'DELETE', cookies: managerCookies,

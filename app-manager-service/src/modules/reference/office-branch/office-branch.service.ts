@@ -26,11 +26,6 @@ class OfficeBranchService {
     if (!await officeBranchRepository.findById(id)) throw new HttpError('Office branch not found', 404);
     return officeBranchRepository.update(id, data);
   }
-
-  async delete(id: string): Promise<ManagedOfficeBranch> {
-    if (!await officeBranchRepository.findById(id)) throw new HttpError('Office branch not found', 404);
-    return officeBranchRepository.delete(id);
-  }
 }
 
 export const officeBranchService = new OfficeBranchService();

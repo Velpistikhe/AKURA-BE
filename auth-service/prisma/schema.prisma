@@ -37,15 +37,35 @@ model User {
   role              UserRole       @default(USER)
   section           UserSection?
   officeBranchId    String?        @map("office_branch_id") @db.Uuid
+  officeBranchName  String?        @map("office_branch_name") @db.VarChar(200)
   isActive          Boolean        @default(true) @map("is_active")
   version           Int            @default(1)
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
   password          UserPassword?
   refreshTokens     RefreshToken[]
+  history           UserHistory[]
 
   @@index([officeBranchId])
   @@map("users")
+}
+
+
+model UserHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version        Int
+  action         String   @db.VarChar(20)
+  beforeSnapshot Json?    @map("before_snapshot") @db.JsonB
+  snapshot       Json     @db.JsonB
+  changes        Json     @db.JsonB
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdByName  String   @map("created_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([userId, version])
+  @@map("user_histories")
 }
 
 

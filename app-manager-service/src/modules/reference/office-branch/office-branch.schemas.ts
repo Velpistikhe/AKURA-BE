@@ -25,7 +25,6 @@ export const listOfficeBranchesSchema = z.object({
 export const createOfficeBranchSchema = z.object(officeFields).strict();
 
 export const updateOfficeBranchSchema = z.object({
-  name: officeFields.name.optional(),
   address: officeFields.address.optional(),
   telp: officeFields.telp.optional(),
   email: officeFields.email.optional(),

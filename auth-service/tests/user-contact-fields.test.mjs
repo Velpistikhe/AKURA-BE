@@ -28,6 +28,15 @@ const managed = updateUserSchema.parse({ version: 1, email: 'Admin@Example.com '
 assert.equal(managed.email, 'admin@example.com');
 assert.equal(managed.telp, '+62 812 6100 1050');
 assert.equal(updateUserSchema.parse({ version: 2, email: null, telp: null }).email, null);
+const branchId = '00000000-0000-4000-8000-000000000002';
+const branchUpdate = updateUserSchema.parse({ version: 3, officeBranchId: branchId, branch: 'Kantor Pusat' });
+assert.equal(branchUpdate.officeBranchId, branchId);
+assert.equal(branchUpdate.branch, 'Kantor Pusat');
+assert.equal(updateUserSchema.parse({ version: 4, officeBranchId: null, branch: null }).branch, null);
+assert.throws(() => updateUserSchema.parse({ version: 5, officeBranchId: branchId }));
+assert.throws(() => updateUserSchema.parse({ version: 5, branch: 'Kantor Pusat' }));
+assert.throws(() => updateUserSchema.parse({ version: 5, officeBranchId: branchId, branch: null }));
+assert.throws(() => updateUserSchema.parse({ version: 5, officeBranchId: null, branch: 'Kantor Pusat' }));
 assert.throws(() => updateUserSchema.parse({ version: 1, email: 'nope' }));
 assert.throws(() => updateUserSchema.parse({ version: 1, telp: 'y'.repeat(51) }));
 
@@ -36,12 +45,17 @@ const sanitized = sanitizeUser({
   id: '00000000-0000-4000-8000-000000000001', username: 'artha', normalizeUsername: 'artha',
   firstName: 'Artha', lastName: 'Marketing', email: 'artha@akurabinacitra.com', telp: '+6281119194233',
   role: 'ADMIN', section: 'MARKETING', officeBranchId: '00000000-0000-4000-8000-000000000002',
+  officeBranchName: 'Kantor Pusat',
   isActive: true, version: 1, createdAt: new Date(), updatedAt: new Date(),
 });
 assert.equal(sanitized.email, 'artha@akurabinacitra.com');
 assert.equal(sanitized.telp, '+6281119194233');
+assert.equal(sanitized.branch, 'Kantor Pusat');
+assert.equal(sanitized.officeBranchId, '00000000-0000-4000-8000-000000000002');
 const withoutContacts = sanitizeUser({ ...sanitized, email: null, telp: null });
 assert.equal(withoutContacts.email, null);
 assert.equal(withoutContacts.telp, null);
+// A user without an office branch exposes a null branch name.
+assert.equal(sanitizeUser({ ...sanitized, officeBranchId: null, officeBranchName: null }).branch, null);
 
 console.log('PASS: user email/telp validation, normalization, clearing and response mapping.');

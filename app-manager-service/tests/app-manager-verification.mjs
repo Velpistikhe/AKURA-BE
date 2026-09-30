@@ -192,11 +192,12 @@ try {
   const roleUpdate = await request(gatewayUrl, `/api/v1/auth/users/${target.user.id}`, {
     method: 'PATCH',
     headers: adminHeaders,
-    json: { role: 'APP_MANAGER', officeBranchId: assignedOfficeBranchId, version: detail.body.data.version },
+    json: { role: 'APP_MANAGER', officeBranchId: assignedOfficeBranchId, branch: 'Assigned Test Branch', version: detail.body.data.version },
   });
   check('Admin can update user role and office branch', roleUpdate.status === 200
     && roleUpdate.body?.data?.role === 'APP_MANAGER'
-    && roleUpdate.body?.data?.officeBranchId === assignedOfficeBranchId, {
+    && roleUpdate.body?.data?.officeBranchId === assignedOfficeBranchId
+    && roleUpdate.body?.data?.branch === 'Assigned Test Branch', {
     status: roleUpdate.status,
     role: roleUpdate.body?.data?.role,
   });

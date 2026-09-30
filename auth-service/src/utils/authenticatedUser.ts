@@ -9,3 +9,11 @@ export const getAuthenticatedUserId = (req: Request): string => {
   }
   return userId;
 };
+
+export const getAuthenticatedActor = (req: Request): { id: string; name: string } => {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user?.id) {
+    throw new HttpError('Unauthorized', 401);
+  }
+  return { id: user.id, name: user.name?.trim() || user.username?.trim() || 'Unknown user' };
+};

@@ -1,6 +1,7 @@
 import { UserRole } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
+import { saveUserHistory, UserAuditActor } from '../../utils/userHistory.js';
 import { ListUsersInput, UpdateUserInput } from './user-management.schemas.js';
 import { userManagementRepository } from './user-management.repository.js';
 import { enqueueUserSync } from '../user-sync/user-sync.service.js';
@@ -20,14 +21,24 @@ const ensureActiveVersion = (user: { version: number; isActive: boolean }, versi
 const isMarketingAdminCandidate = (user: { role: string; section: string | null; isActive: boolean; officeBranchId: string | null }): boolean =>
   user.role === 'ADMIN' && user.section === 'MARKETING' && user.isActive && Boolean(user.officeBranchId);
 
+// Exposes the stored office branch display name under the public `branch` key
+// while keeping officeBranchId for assignment/filtering.
+const presentUser = <T extends { officeBranchName?: string | null }>({ officeBranchName, ...user }: T): Omit<T, 'officeBranchName'> & { branch: string | null } => ({
+  ...user,
+  branch: officeBranchName ?? null,
+});
+
 export const userManagementService = {
-  list: (input: ListUsersInput) => userManagementRepository.list(input),
+  list: async (input: ListUsersInput) => {
+    const result = await userManagementRepository.list(input);
+    return { ...result, users: result.users.map(presentUser) };
+  },
   async get(userId: string) {
     const user = await userManagementRepository.findById(userId);
     if (!user) throw new HttpError('User not found', 404);
-    return user;
+    return presentUser(user);
   },
-  async update(actorId: string, userId: string, data: UpdateUserInput) {
+  async update(actor: UserAuditActor, userId: string, data: UpdateUserInput) {
     const updated = await prisma.$transaction(async (tx) => {
       const user = await userManagementRepository.lockById(tx, userId);
       if (!user) throw new HttpError('User not found', 404);
@@ -36,17 +47,18 @@ export const userManagementService = {
       const roleChanged = data.role !== undefined && data.role !== user.role;
       const statusChanged = data.isActive !== undefined && data.isActive !== user.isActive;
       const sectionChanged = data.section !== undefined && data.section !== user.section;
-      const officeBranchChanged = data.officeBranchId !== undefined && data.officeBranchId !== user.officeBranchId;
+      const branchChanged = data.officeBranchId !== undefined
+        && (data.officeBranchId !== user.officeBranchId || data.branch !== user.officeBranchName);
       const emailChanged = data.email !== undefined && data.email !== user.email;
       const telpChanged = data.telp !== undefined && data.telp !== user.telp;
 
-      if (actorId === userId && roleChanged) {
+      if (actor.id === userId && roleChanged) {
         throw new HttpError('App managers cannot change their own role', 409);
       }
-      if (actorId === userId && statusChanged) {
+      if (actor.id === userId && statusChanged) {
         throw new HttpError('App managers cannot change their own active status', 409);
       }
-      if (!roleChanged && !statusChanged && !sectionChanged && !officeBranchChanged && !emailChanged && !telpChanged) {
+      if (!roleChanged && !statusChanged && !sectionChanged && !branchChanged && !emailChanged && !telpChanged) {
         return userManagementRepository.findById(userId);
       }
 
@@ -61,11 +73,15 @@ export const userManagementService = {
       const updated = await userManagementRepository.update(tx, userId, data.version, {
         ...(roleChanged && { role: data.role }),
         ...(sectionChanged && { section: data.section }),
-        ...(officeBranchChanged && { officeBranchId: data.officeBranchId }),
+        // The branch id and its display name are always written together.
+        ...(branchChanged && { officeBranchId: data.officeBranchId, officeBranchName: data.branch }),
         ...(emailChanged && { email: data.email ?? null }),
         ...(telpChanged && { telp: data.telp ?? null }),
         ...(statusChanged && { isActive: data.isActive }),
       });
+      // Every administrative change writes one append-only history row inside the
+      // same transaction, including the old/new branch id AND branch name.
+      await saveUserHistory(tx, updated, user, actor, 'UPDATE');
       if (statusChanged && data.isActive === false) {
         await userManagementRepository.revokeRefreshTokens(tx, userId);
       }
@@ -78,6 +94,6 @@ export const userManagementService = {
       return updated;
     });
     wakeUserSync();
-    return updated;
+    return updated ? presentUser(updated) : updated;
   },
 };

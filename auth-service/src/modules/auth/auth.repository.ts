@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient, RefreshToken, User, UserPassword } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
+import { saveUserHistory } from '../../utils/userHistory.js';
 
 type TxClient = Prisma.TransactionClient | PrismaClient;
 
@@ -26,6 +27,11 @@ class AuthRepository {
         },
       });
       await client.userPassword.create({ data: { userId: user.id, passwordHash } });
+      // Self-registration has no separate actor: the created user is the actor.
+      await saveUserHistory(client, user, null, {
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`.trim() || user.username,
+      }, 'CREATE');
       return user;
     } catch (error: unknown) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -65,6 +71,7 @@ class AuthRepository {
         role,
         section,
         office_branch_id as "officeBranchId",
+        office_branch_name as "officeBranchName",
         is_active as "isActive",
         version,
         created_at as "createdAt",

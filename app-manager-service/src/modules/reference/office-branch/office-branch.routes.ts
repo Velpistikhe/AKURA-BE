@@ -13,6 +13,5 @@ router.get('/options', asyncHandler(officeBranchController.listOptions));
 router.get('/:officeBranchId', validate('params', officeBranchIdSchema), asyncHandler(officeBranchController.get));
 router.post('/', validate('body', createOfficeBranchSchema), asyncHandler(officeBranchController.create));
 router.patch('/:officeBranchId', validate('params', officeBranchIdSchema), validate('body', updateOfficeBranchSchema), asyncHandler(officeBranchController.update));
-router.delete('/:officeBranchId', validate('params', officeBranchIdSchema), asyncHandler(officeBranchController.delete));
 
 export default router;

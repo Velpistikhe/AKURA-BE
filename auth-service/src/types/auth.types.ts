@@ -10,6 +10,7 @@ export interface UserSanitized {
   role: UserRole;
   section: UserSection | null;
   officeBranchId: string | null;
+  branch: string | null;
   isActive: boolean;
   version: number;
   createdAt: Date;

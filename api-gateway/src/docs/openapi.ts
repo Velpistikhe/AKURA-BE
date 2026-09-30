@@ -243,8 +243,8 @@ export const openApiDocument = groupByModule({
       },
       UpdateOfficeBranchRequest: {
         type: 'object', additionalProperties: false, minProperties: 1,
+        description: 'Name cannot be changed after the office branch is created.',
         properties: {
-          name: { type: 'string', minLength: 1, maxLength: 200 },
           address: { type: 'string', minLength: 1, maxLength: 500 },
           telp: { type: 'string', minLength: 3, maxLength: 30, pattern: '^[0-9+().\\-\\s]+$' },
           email: { type: 'string', format: 'email', maxLength: 254 },
@@ -297,7 +297,7 @@ export const openApiDocument = groupByModule({
       UserProfile: {
         type: 'object',
         required: [
-          'id', 'username', 'firstName', 'lastName', 'email', 'telp', 'role', 'section', 'officeBranchId', 'isActive',
+          'id', 'username', 'firstName', 'lastName', 'email', 'telp', 'role', 'section', 'officeBranchId', 'branch', 'isActive',
           'version', 'createdAt', 'updatedAt',
         ],
         properties: {
@@ -310,6 +310,7 @@ export const openApiDocument = groupByModule({
           role: schemaRef('UserRole'),
           section: schemaRef('NullableUserSection'),
           officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Office branch ID stored by Auth Service without a cross-database foreign key.' },
+          branch: { type: 'string', maxLength: 200, nullable: true, example: 'Kantor Pusat', description: 'Display name of the assigned office branch, captured together with officeBranchId.' },
           isActive: { type: 'boolean', example: true },
           version: { type: 'integer', minimum: 1, example: 1 },
           createdAt: { type: 'string', format: 'date-time' },
@@ -518,7 +519,8 @@ export const openApiDocument = groupByModule({
         properties: {
           role: schemaRef('UserRole'),
           section: schemaRef('NullableUserSection'),
-          officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Sets or clears the user office branch assignment.' },
+          officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Sets or clears the user office branch assignment. Must be sent together with branch so the stored branch id and name stay consistent.' },
+          branch: { type: 'string', maxLength: 200, nullable: true, description: 'Display name paired with officeBranchId. Required whenever officeBranchId is sent; use null only when clearing the assignment.' },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 255, description: 'Sets or clears the user email. Normalized to lowercase.' },
           telp: { type: 'string', nullable: true, maxLength: 50, description: 'Sets or clears the user telephone.' },
           isActive: { type: 'boolean' },
@@ -1948,16 +1950,6 @@ export const openApiDocument = groupByModule({
           400: errorResponse('Validation failed'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'), 404: errorResponse('Office branch not found'),
           409: errorResponse('A head office branch already exists'),
-          429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
-        },
-      },
-      delete: {
-        tags: ['Reference'], summary: 'Delete an office branch', security: protectedSecurity,
-        parameters: [{ in: 'path', name: 'officeBranchId', required: true, schema: { type: 'string', format: 'uuid' } }],
-        responses: {
-          200: response('Office branch deleted', schemaRef('OfficeBranchResponse')),
-          400: errorResponse('Invalid office branch ID'), 401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Active app manager role is required'), 404: errorResponse('Office branch not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getAuthenticatedUserId } from '../../utils/authenticatedUser.js';
+import { getAuthenticatedActor } from '../../utils/authenticatedUser.js';
 import { ListUsersInput, UpdateUserInput } from './user-management.schemas.js';
 import { userManagementService } from './user-management.service.js';
 
@@ -12,7 +12,7 @@ export const userManagementController = {
   async get(req: Request, res: Response) { send(req, res, 'User retrieved successfully', await userManagementService.get((res.locals.params as { userId: string }).userId)); },
   async update(req: Request, res: Response) {
     send(req, res, 'User updated successfully', await userManagementService.update(
-      getAuthenticatedUserId(req),
+      getAuthenticatedActor(req),
       (res.locals.params as { userId: string }).userId,
       res.locals.body as UpdateUserInput,
     ));

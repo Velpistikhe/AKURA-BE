@@ -11,6 +11,7 @@ export const sanitizeUser = (user: User): UserSanitized => ({
   role: user.role,
   section: user.section,
   officeBranchId: user.officeBranchId,
+  branch: user.officeBranchName ?? null,
   isActive: user.isActive,
   version: user.version,
   createdAt: user.createdAt,

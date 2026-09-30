@@ -2,6 +2,7 @@ import { enqueueUserSync } from '../user-sync/user-sync.service.js';
 import { wakeUserSync } from '../user-sync/user-sync.delivery.js';
 
 import bcrypt from 'bcryptjs';
+import { User } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../config/db.js';
 import { authRepository } from './auth.repository.js';
@@ -10,8 +11,15 @@ import { HttpError, RefreshTokenRejectedError } from '../../utils/httpError.js';
 import { createRefreshTokenExpiry } from '../../utils/tokenExpiry.js';
 import { createAuthTokens, verifyRefreshToken } from '../../utils/tokens.js';
 import { sanitizeUser } from '../../utils/userMapper.js';
+import { saveUserHistory, UserAuditActor } from '../../utils/userHistory.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+
+// Self-service mutations are always performed by the affected user.
+const selfActor = (user: User): UserAuditActor => ({
+  id: user.id,
+  name: `${user.firstName} ${user.lastName}`.trim() || user.username,
+});
 
 class AuthService {
   async register(
@@ -152,6 +160,8 @@ class AuthService {
         email,
         telp
       );
+      // Self-service profile edit: the authenticated user is the actor.
+      await saveUserHistory(tx, updated, user, selfActor(user), 'UPDATE');
       if (updated.role === 'ADMIN' && updated.section === 'MARKETING' && updated.isActive && updated.officeBranchId) {
         await enqueueUserSync(tx, updated);
       } else {
@@ -185,6 +195,8 @@ class AuthService {
       if (!user) {
         throw new HttpError('User not found', 404);
       }
+      // Password hashes never enter history: only the redacted action is recorded.
+      await saveUserHistory(tx, user, user, selfActor(user), 'PASSWORD_CHANGE');
       return sanitizeUser(user);
     });
   }
