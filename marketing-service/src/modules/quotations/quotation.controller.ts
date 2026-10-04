@@ -1,11 +1,12 @@
 ﻿import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
-import { ListQuotationsInput } from './quotation.schemas.js';
+import { ListQuotationsInput, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
 import { MarketingContact } from '../../types/auth.types.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 import { getAccessToken } from '../../utils/requestTokens.js';
 import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
+import { HttpError } from '../../utils/httpError.js';
 import { loadMarketingContacts } from '../user-sync/marketing-contact.repository.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
@@ -98,6 +99,46 @@ export const quotationController = {
     // Validation middleware already checked the request. The repository also parses
     // raw input for non-HTTP callers, including converting date strings to Date.
     send(req, res, 201, 'Quotation created successfully', await quotationRepository.create(req.body, getOfficeBranchId(res), getAuditActor(res)));
+  },
+  /**
+   * Creates a DRAFT Work Order in Field Service for an APPROVED quotation. The
+   * quotation is loaded locally to fail fast (404/409) before the cross-service
+   * call, and the same access token is forwarded so Field Service re-validates
+   * identity, branch, section and quotation version through the Gateway.
+   */
+  async createWorkOrder(req: Request, res: Response) {
+    const input = createWorkOrderFromQuotationSchema.parse(req.body);
+    const branch = getOfficeBranchId(res);
+    const quote = await quotationRepository.findActive(res.locals.params.quotationId, branch);
+    if (quote.version !== input.quotationVersion) throw new HttpError('Quotation has changed; reload before creating the Work order', 409);
+    if (quote.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
+    if (quote.items.some(item => item.priceSelection && typeof item.priceSelection === 'object'
+      && (item.priceSelection as Record<string, unknown>).priceSource === 'CONTRACT')) {
+      throw new HttpError('Use contract as the work order basis for contract pricing', 409);
+    }
+    const token = getAccessToken(req);
+    if (!token) throw new HttpError('Access token is required', 401);
+    const path = 'fieldservice/work-orders';
+    let response: globalThis.Response;
+    try {
+      response = await fetch(serviceUrl(path), {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...serviceHeaders(path),
+          ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
+        body: JSON.stringify({
+          quotationId: quote.id, quotationVersion: quote.version,
+          startDate: input.startDate, endDate: input.endDate ?? null,
+          summary: input.summary, ...(input.inspectors ? { inspectors: input.inspectors } : {}),
+        }),
+      });
+    } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { message?: string } | null;
+      const status = [400, 401, 403, 404, 409].includes(response.status) ? response.status : 502;
+      throw new HttpError(body?.message || 'Unable to create the Work order in Field Service', status);
+    }
+    try { send(req, res, 201, 'Work order created successfully', (await response.json() as { data: unknown }).data); }
+    catch { throw new HttpError('Invalid response from Field Service', 502); }
   },
   async delete(req: Request, res: Response) {
     send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));

@@ -25,6 +25,8 @@ const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
 const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
 const note = z.string().trim().max(5000).nullable().optional();
+const inspectors = z.array(z.string().trim().min(1).max(255)).max(100)
+  .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
 const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
   note,
@@ -52,6 +54,16 @@ const fields = {
 export const createQuotationSchema = z.object(fields).strict()
   .refine(value => !!value.staffId, 'Staff is required')
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
+const isoDate = z.string().date();
+export const createWorkOrderFromQuotationSchema = z.object({
+  quotationVersion: z.number().int().nonnegative().max(2147483646),
+  startDate: isoDate,
+  endDate: isoDate.nullable().optional(),
+  summary: z.string().trim().min(1).max(20000),
+  inspectors: inspectors.optional(),
+}).strict()
+  .refine(value => !value.endDate || value.endDate >= value.startDate, 'endDate must be on or after startDate');
+export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;

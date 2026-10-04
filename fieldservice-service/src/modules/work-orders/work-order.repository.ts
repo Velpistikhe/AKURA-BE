@@ -9,7 +9,14 @@ import { nextWorkOrderIdentity } from './work-order-number.js';
 const include = { inspectors: { orderBy: { position: 'asc' as const } } };
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 type WorkOrderSnapshot = Prisma.WorkOrderGetPayload<{ include: typeof include }>;
-const historyFields = ['number', 'date', 'quotationId', 'quotationVersion', 'quotationSnapshot', 'contractId', 'contractVersion', 'contractSnapshot', 'startDate', 'endDate', 'status', 'revoked', 'summary', 'inspectors'] as const;
+const historyLabels: Record<string, string> = {
+  number: 'Work order number', date: 'Document date', quotationId: 'Quotation', quotationVersion: 'Quotation version',
+  quotationSnapshot: 'Quotation snapshot', contractId: 'Contract', contractVersion: 'Contract version',
+  contractSnapshot: 'Contract snapshot', startDate: 'Start date', endDate: 'End date',
+  status: 'Status', revoked: 'Revoked', summary: 'Summary', inspectors: 'Inspectors',
+};
+const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', REVOKE: 'Work order deleted' };
+const historyFields = Object.keys(historyLabels) as (keyof typeof historyLabels)[];
 async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot, before: WorkOrderSnapshot | null, actor: Actor, action: 'CREATE' | 'UPDATE' | 'REVOKE') {
   const afterValues = JSON.parse(JSON.stringify(row));
   const beforeValues = before ? JSON.parse(JSON.stringify(before)) : {};
@@ -18,7 +25,7 @@ async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot,
     ? values.inspectors?.map((item: { name: string }) => item.name) ?? [] : values[field] ?? null;
   const changes = historyFields.flatMap(field => {
     const previous = value(beforeValues, field), next = value(afterValues, field);
-    return JSON.stringify(previous) === JSON.stringify(next) ? [] : [{ field, before: previous, after: next }];
+    return JSON.stringify(previous) === JSON.stringify(next) ? [] : [{ field, label: historyLabels[field], before: previous, after: next }];
   });
   await tx.workOrderHistory.create({ data: { workOrderId: row.id, version: row.version, action,
     beforeSnapshot: before ? json(before) : Prisma.DbNull, snapshot: json(row), changes: json(changes),
@@ -26,12 +33,19 @@ async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot,
   return row;
 }
 const inspectorRows = (names: string[]) => names.map((name, position) => ({ name, position }));
-function reference(input: { quotationId?: string | null; quotationVersion?: number | null; companyId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+function reference(input: { quotationId?: string | null; quotationVersion?: number | null; companyId?: string | null; contractId?: string | null; contractVersion?: number | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
   const cleared = { quotationId: null, quotationVersion: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractVersion: null, contractSnapshot: Prisma.DbNull };
-  if (Number(!!input.quotationId) + Number(!!input.companyId) !== 1) throw new HttpError('Exactly one quotation or company is required', 400);
+  if (Number(!!input.quotationId) + Number(!!input.contractId) + Number(!!input.companyId) !== 1) throw new HttpError('Exactly one quotation, contract or company is required', 400);
   if (input.companyId) {
     const contract = source as ContractSnapshot | null;
     if (!contract || contract.companyId !== input.companyId || contract.company?.id !== input.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
+    validateContract(contract);
+    return { ...cleared, contractId: contract.id, contractVersion: contract.version, contractSnapshot: json(contract) };
+  }
+  if (input.contractId) {
+    const contract = source as ContractSnapshot | null;
+    if (!contract || contract.id !== input.contractId || contract.version !== input.contractVersion
+      || contract.company?.id !== contract.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
     validateContract(contract);
     return { ...cleared, contractId: contract.id, contractVersion: contract.version, contractSnapshot: json(contract) };
   }
@@ -47,14 +61,18 @@ export const workOrderRepository = {
   async history(id: string, page: number, limit: number, actor: Actor) {
     await this.get(id, actor);
     const where = { workOrderId: id, workOrder: { officeBranchId: actor.officeBranchId } };
-    const [history, total] = await prisma.$transaction([
+    const [rows, total] = await prisma.$transaction([
       prisma.workOrderHistory.findMany({ where, orderBy: { version: 'desc' }, skip: (page - 1) * limit, take: limit }),
       prisma.workOrderHistory.count({ where }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    const history = rows.map(entry => ({
+      ...entry, actionLabel: historyActions[entry.action] ?? entry.action,
+      changedBy: { id: entry.createdById, name: entry.createdByName }, changedAt: entry.createdAt,
+    }));
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-    const { inspectors = [], quotationId: _quotationId, quotationVersion: _quotationVersion, companyId: _companyId, ...fields } = input;
+    const { inspectors = [], quotationId: _quotationId, quotationVersion: _quotationVersion, companyId: _companyId, contractId: _contractId, contractVersion: _contractVersion, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
     return prisma.$transaction(async tx => {
@@ -80,8 +98,8 @@ export const workOrderRepository = {
     return workOrder;
   },
   async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-    const { version, inspectors, quotationId, quotationVersion, companyId, ...fields } = input;
-    const quotation = (quotationId !== undefined || companyId !== undefined) ? reference({ quotationId, quotationVersion, companyId }, quote, actor) : {};
+    const { version, inspectors, quotationId, quotationVersion, companyId, contractId, contractVersion, ...fields } = input;
+    const quotation = (quotationId !== undefined || companyId !== undefined || contractId !== undefined) ? reference({ quotationId, quotationVersion, companyId, contractId, contractVersion }, quote, actor) : {};
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
       const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },

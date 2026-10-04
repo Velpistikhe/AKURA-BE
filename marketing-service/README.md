@@ -194,6 +194,7 @@ Endpoint melalui Gateway (akses Marketing dan office branch wajib):
 | `/api/v1/marketing/quotations/:quotationId` | GET | Detail quotation aktif dari branch pengguna |
 | `/api/v1/marketing/quotations/:quotationId/pdf` | GET | Preview PDF quotation aktif dalam format yang sama dengan PDF approval, dikirim inline (`application/pdf`) tanpa menyimpan file dan tanpa mengubah nomor/history; quotation draft menggunakan nomor sementara `PREVIEW`, quotation bernomor menggunakan nomor resminya |
 | `/api/v1/marketing/quotations` | POST | Membuat quotation dan array `items` (1–100 baris) secara atomik |
+| `/api/v1/marketing/quotations/:quotationId/work-orders` | POST | Membuat work order berstatus `DRAFT` pada Field Service dari quotation aktif berstatus `APPROVED`; wajib `quotationVersion`, `startDate`, dan `summary`; `endDate` serta `inspectors` opsional |
 | `/api/v1/marketing/quotations/:quotationId` | PATCH | Update header dan/atau daftar item; wajib `version` terbaru dan minimal satu field perubahan |
 | `/api/v1/marketing/quotations/:quotationId` | DELETE | Soft delete quotation beserta item aktif; body wajib `{ "version": 0 }` sesuai versi terbaru |
 

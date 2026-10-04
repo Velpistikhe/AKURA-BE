@@ -3,7 +3,7 @@ import { Router, RequestHandler } from 'express';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { quotationController } from './quotation.controller.js';
-import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema } from './quotation.schemas.js';
+import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
 import { HttpError } from '../../utils/httpError.js';
 import { getOfficeBranchId } from '../../utils/officeBranch.js';
 import { quotationRepository } from './quotation.repository.js';
@@ -42,6 +42,8 @@ router.get('/:quotationId', validate('params', quotationIdSchema), asyncHandler(
 router.patch('/:quotationId', validate('params', quotationIdSchema), validate('body', updateQuotationSchema), asyncHandler(quotationController.update));
 router.post('/:quotationId/items', validate('params', quotationIdSchema), validate('body', addQuotationItemSchema), asyncHandler(quotationController.addItem));
 router.delete('/:quotationId/items/:itemId', validate('params', quotationIdSchema.extend({ itemId: z.string().uuid() })), validate('body', deleteQuotationItemSchema), asyncHandler(quotationController.deleteItem));
+
+router.post('/:quotationId/work-orders', requireMarketingSection, validate('params', quotationIdSchema), validate('body', createWorkOrderFromQuotationSchema), asyncHandler(quotationController.createWorkOrder));
 
 router.post('/', validate('body', createQuotationSchema), asyncHandler(quotationController.create));
 router.delete('/:quotationId', validate('params', quotationIdSchema), validate('body', deactivateQuotationSchema), asyncHandler(quotationController.delete));
