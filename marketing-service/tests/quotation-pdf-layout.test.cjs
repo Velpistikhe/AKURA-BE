@@ -26,13 +26,25 @@ async function main() {
   const capture = async (items, contacts) => {
     const texts = [];
     const styled = [];
+    const located = [];
+    const letterheadPages = [];
     let filledAndStroked = 0;
     let currentFont = null;
+    let currentPage = 1;
     const original = PDFDocument.prototype.text;
     const originalFont = PDFDocument.prototype.font;
     const originalFillAndStroke = PDFDocument.prototype.fillAndStroke;
+    const originalAddPage = PDFDocument.prototype.addPage;
+    const originalImage = PDFDocument.prototype.image;
     PDFDocument.prototype.font = function (name, ...args) { if (name) currentFont = String(name); return originalFont.call(this, name, ...args); };
-    PDFDocument.prototype.text = function (value, ...args) { texts.push(String(value)); styled.push({ font: currentFont, text: String(value) }); return original.call(this, value, ...args); };
+    // Track the page each text lands on, including pdfkit's automatic flow past the bottom margin.
+    PDFDocument.prototype.addPage = function (...args) { currentPage += 1; return originalAddPage.apply(this, args); };
+    PDFDocument.prototype.image = function (src, ...args) { if (String(src).includes('letterhead')) letterheadPages.push(currentPage); return originalImage.call(this, src, ...args); };
+    PDFDocument.prototype.text = function (value, ...args) {
+      const result = original.call(this, value, ...args);
+      texts.push(String(value)); styled.push({ font: currentFont, text: String(value) }); located.push({ page: currentPage, text: String(value) });
+      return result;
+    };
     // Estimation header cells must fill and stroke in one path; a lone fill() ends the path and drops the border.
     PDFDocument.prototype.fillAndStroke = function (...args) { filledAndStroked += 1; return originalFillAndStroke.apply(this, args); };
     try {
@@ -40,11 +52,15 @@ async function main() {
       assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
       lastFillAndStroked = filledAndStroked;
       texts.styled = styled;
+      texts.located = located;
+      texts.letterheadPages = letterheadPages;
       return texts;
     } finally {
       PDFDocument.prototype.text = original;
       PDFDocument.prototype.font = originalFont;
       PDFDocument.prototype.fillAndStroke = originalFillAndStroke;
+      PDFDocument.prototype.addPage = originalAddPage;
+      PDFDocument.prototype.image = originalImage;
     }
   };
 
@@ -79,6 +95,23 @@ async function main() {
   assert(totals.includes('Item'), 'first header line Item expected');
   assert(totals.includes('No.'), 'second header line No. expected');
   assert(!totals.includes('Item No.'), 'header must not be a single line');
+
+  // 1d. The Job Location/totals frame must stay together on one page. Without an
+  // explicit page break pdfkit auto-flows each label onto its own page.
+  const located = totals.located;
+  const entry = prefix => located.find(entry => entry.text.startsWith(prefix));
+  const jobLocation = entry('Job Location :');
+  const subTotal = located.find(entry => entry.text === 'SUB TOTAL');
+  const taxRow = located.find(entry => /^TAX \d+%$/.test(entry.text));
+  const totalRow = located.find(entry => entry.text === 'TOTAL PRICE');
+  assert(jobLocation && subTotal && taxRow && totalRow, 'all totals block labels expected');
+  assert.equal(subTotal.page, jobLocation.page, 'SUB TOTAL must render on the same page as Job Location');
+  assert.equal(taxRow.page, jobLocation.page, 'tax row must render on the same page as Job Location');
+  assert.equal(totalRow.page, jobLocation.page, 'TOTAL PRICE must render on the same page as Job Location');
+  // The totals block must sit on a page that starts with a letterhead, never on a
+  // continuation page produced by pdfkit's automatic bottom-margin flow.
+  assert(totals.letterheadPages.includes(jobLocation.page),
+    `totals block must start on a letterhead page, got page ${jobLocation.page} of [${totals.letterheadPages.join(', ')}]`);
 
   // 1c. Item note renders on its own line beneath the part description, not inline.
   const noted = await capture([

@@ -221,8 +221,11 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     const totalsLabelWidth = columns[2] + columns[3];
     const totalsValueWidth = columns[4];
     const jobRow = 24;
-    const blockTop = y;
     const blockHeight = jobRow * totals.length;
+    // Keep the whole Job Location/totals frame on one page. Without this, pdfkit
+    // auto-flows each text call past the bottom margin onto separate pages.
+    if (y + blockHeight > bottom) newPage();
+    const blockTop = y;
     doc.lineWidth(0.4).strokeColor('#777777').rect(left, blockTop, width - totalsWidth, blockHeight).stroke();
     doc.font(fonts.bold).fontSize(fontSizes.table).fillColor('black')
       .text(`Job Location : ${quote.location}`, left + 5, blockTop + (blockHeight - lineHeight(fontSizes.table)) / 2, { width: width - totalsWidth - 10, lineBreak: false });
