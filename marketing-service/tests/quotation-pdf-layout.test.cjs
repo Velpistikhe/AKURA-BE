@@ -80,6 +80,21 @@ async function main() {
   assert(totals.includes('No.'), 'second header line No. expected');
   assert(!totals.includes('Item No.'), 'header must not be a single line');
 
+  // 1c. Item note renders on its own line beneath the part description, not inline.
+  const noted = await capture([
+    { ...line(0, { serviceId: 's1', serviceScopes: 'Visual', inspectionScopes: 'Visual', maintenanceScopes: '' }, 'Drill Pipe'), note: 'Calibration cert included' },
+  ]);
+  const descriptionIndex = noted.findIndex(text => text === 'Drill Pipe - Large');
+  assert(descriptionIndex >= 0, 'part description expected');
+  assert.equal(noted[descriptionIndex + 1], 'Calibration cert included',
+    'item note must render as a separate line directly after the part description');
+  assert(!noted[descriptionIndex].includes('Calibration cert included'),
+    'note must not be appended inline to the part description');
+  const notedNoNote = await capture([
+    line(1, { serviceId: 's1', serviceScopes: 'Visual', inspectionScopes: 'Visual', maintenanceScopes: '' }, 'Drill Pipe'),
+  ]);
+  assert(!notedNoNote.includes('undefined'), 'missing note must not render placeholder text');
+
   // 1a. Recipient: "To :" label is plain, the company name is bold on its own line beneath it.
   const recipient = styled(totals);
   const toIndex = recipient.findIndex(entry => entry.text === 'To :');
@@ -117,6 +132,6 @@ async function main() {
   assert(withContacts.includes('–'));
   assert(withContacts.some(text => text.includes('artha@akurabinacitra.com')));
 
-  console.log('PASS: quotation PDF layout - merged service/scope row, omitted empty scope, job location/totals block, template footer and marketing contacts.');
+  console.log('PASS: quotation PDF layout - merged service/scope row, omitted empty scope, item note on its own line, job location/totals block, template footer and marketing contacts.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

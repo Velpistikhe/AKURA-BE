@@ -184,15 +184,22 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
         const groupStyle = { boldPrefixes: ['Type of service:', 'Scope of works:', 'Scope of maintenance:'], fontSize: fontSizes.table };
         const groupHeaderHeight = wrap(groupLabel, width - 12).length * lineHeight(fontSizes.table) + 12;
         doc.font(fonts.regular).fontSize(fontSizes.table);
-        const firstDescription = [charges[0].item.itemName, charges[0].item.size].filter(Boolean).join(' - ');
-        const firstHeight = wrap(firstDescription, columns[1] - 12).length * lineHeight(fontSizes.table) + 12;
+        const descriptionOf = (item: typeof charges[number]['item']) => [item.itemName, item.size].filter(Boolean).join(' - ');
+        const firstDescription = descriptionOf(charges[0].item);
+        const firstNote = charges[0].item.note?.trim();
+        const firstLines = wrap(firstDescription, columns[1] - 12).length
+          + (firstNote ? wrap(firstNote, columns[1] - 12).length : 0);
+        const firstHeight = firstLines * lineHeight(fontSizes.table) + 12;
         if (y + groupHeaderHeight + firstHeight > bottom) newPage();
         const groupHeader = () => row([groupLabel], [width], false, false, lineHeader, groupStyle);
         groupHeader();
         const repeatGroup = () => { lineHeader(); row([groupLabel], [width], false, false, lineHeader, groupStyle); };
         for (const { item, qty, price } of charges) {
           if (price === null) throw new Error('Missing quotation price');
-          row([`${++lineNo}.`, [item.itemName, item.size].filter(Boolean).join(' - '),
+          // The item note always starts on a new line beneath the part description.
+          const description = descriptionOf(item);
+          const note = item.note?.trim();
+          row([`${++lineNo}.`, note ? `${description}\n${note}` : description,
             qty.toString(), money(price), money(qty.mul(price).toDecimalPlaces(2))], columns, false, false, repeatGroup, { alignments: ['center', 'left', 'center', 'right', 'right'], fontSize: fontSizes.table });
         }
       }
