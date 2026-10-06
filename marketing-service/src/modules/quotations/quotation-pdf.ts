@@ -5,8 +5,15 @@ import { resolve } from 'node:path';
 import { AuditActor, MarketingContact } from '../../types/auth.types.js';
 import { groupQuotationItems } from './quotation-service-groups.js';
 import { quotationNumberYear } from './quotation-number.js';
+// Side-effect import: anchors pdfkit standard font metrics for serverless file tracing.
+import './pdfkit-standard-fonts.js';
 
 type PdfQuotation = Prisma.QuotationGetPayload<{ include: { items: true } }>;
+// Anchor quotation images with literal specifiers so the Vercel serverless file
+// tracer copies them into the function bundle; computed paths built from __dirname
+// alone are not traced. Regression covered by quotation-pdf-serverless-trace.test.cjs.
+require.resolve('../../../assets/quotation/letterhead.png');
+require.resolve('../../../assets/quotation/general-terms.png');
 const assets = resolve(__dirname, '../../../assets/quotation');
 // Font family matches the reference quotation (Arial); fall back to Helvetica when no Arial-compatible file exists.
 const fontCandidates = {
