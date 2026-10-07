@@ -11,7 +11,7 @@ async function main() {
   const branch = randomUUID(), actor = randomUUID(), otherBranch = randomUUID();
   const audit = { createdById: actor, createdByName: 'Price Options Test' };
   const app = express(); app.use(express.json());
-  app.use((req, res, next) => { res.locals.authUser = { id: actor, firstName: 'Price Options', lastName: 'Test', officeBranchId: req.headers['x-branch'] || branch }; next(); });
+  app.use((req, res, next) => { res.locals.authUser = { id: actor, firstName: 'Price Options', lastName: 'Test', role: req.headers['x-test-role'] || 'ADMIN', section: 'MARKETING', officeBranchId: req.headers['x-branch'] || branch }; next(); });
   app.use('/items', itemRoutes); app.use('/services', serviceRoutes); app.use('/quotations', quotationRoutes);
   app.use((error, req, res, next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
@@ -20,9 +20,10 @@ async function main() {
     const payload = await response.json(); assert.equal(response.status, status, JSON.stringify(payload)); return payload.data;
   };
   const line = row => ({ itemSizeId: row.id, quantityInspection: '2' });
-  const quote = (staffId, items) => ({ inquiryMethod: 'EMAIL', inquiryDate: '2026-09-11', subject: 'Mixed prices', termOfPayment: '30 days', validity: '30 days', tax: 0, supplyAkura: 'Tools', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF', staffId, items });
+  const quote = (staffId, items) => ({ inquiryMethod: 'EMAIL', inquiryDate: '2026-09-11', jobStart: '2026-10-01', subject: 'Mixed prices', termOfPayment: '30 days', validity: '30 days', supplyAkura: 'Tools', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF', deliveryInvoice: 'After report', staffId, items });
   try {
     const company = await prisma.company.create({ data: { officeBranchId: branch, name: 'Customer', normalizeName: 'customer', type: 'PT', address: 'Jakarta', npwp: '123' } });
+    await prisma.taxCache.create({ data: { id: randomUUID(), officeBranchId: branch, percentage: '11', effectiveFrom: new Date('2000-01-01'), sourceUpdatedAt: new Date() } });
     const staff = await prisma.companyStaff.create({ data: { companyId: company.id, name: 'Buyer', normalizeName: 'buyer', title: 'mr' } });
     const contract = await prisma.companyContract.create({ data: { companyId: company.id, contractNumber: 'SIGNED', contractDate: new Date('2026-01-01'), effectiveFrom: new Date('2020-01-01'), effectiveUntil: new Date('2099-01-01'), status: 'APPROVED', createdById: actor } });
     const service = await prisma.service.create({ data: { officeBranchId: branch, name: 'Original Service', type: 'TUBULAR', hasMaintenance: true, ...audit } });
@@ -68,13 +69,13 @@ async function main() {
     await request('POST', '/quotations', quote(staff.id, [{ itemSizeId: normal.id, quantity: '1', unitPrice: '100' }]), 400);
     await request('POST', '/quotations', quote(staff.id, [{ ...line(normal), unitPrice: '1' }]), 400);
     await request('GET', `/items/sizes/prices?companyId=${company.id}`, undefined, 404, otherBranch);
-    const companyOnly = await request('POST', '/quotations', { ...quote(staff.id, [{ ...line(normal), quantityMaintenance: 0 }]), staffId: undefined, companyId: company.id }, 201);
+    const companyOnly = await request('POST', '/quotations', { ...quote(staff.id, [{ ...line(normal), quantityMaintenance: 0 }]), companyId: company.id }, 201);
     assert.equal(companyOnly.status, 'CREATED'); assert.equal(companyOnly.invoiceStatus, null);
     for (const fields of [{status:'CREATED'},{status:'APPROVED'},{invoiceStatus:null},{invoiceStatus:'APPROVED'}]) {
       await request('POST','/quotations',{...quote(staff.id,[line(normal)]),...fields},400);
     }
     assert.equal((await request('GET',`/quotations/${companyOnly.id}`)).version,companyOnly.version);
-    assert.equal(companyOnly.staffId, null); assert.equal(companyOnly.companySnapshot.id, company.id);
+    assert.equal(companyOnly.staffId, staff.id); assert.equal(companyOnly.companySnapshot.id, company.id);
     assert.equal(companyOnly.items[0].quantityMaintenance, '0'); assert.equal(companyOnly.items[0].subTotal, '200');
     const incompleteOption = list.sizes.find(row=>row.id===incompleteSize.id);
     await request('POST','/quotations',quote(staff.id,[line(incompleteOption)]),201);
@@ -84,62 +85,58 @@ async function main() {
     }
     await request('POST','/quotations',quote(staff.id,[line(normal),line(normal)]),400);
     await request('POST','/quotations',{...quote(staff.id,[line(normal)]),companyId:randomUUID()},404);
-    const savedPrice = await prisma.companyContractPrice.findUniqueOrThrow({ where: { id: cp.id } });
-    const savedContract = await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } });
-    const contractCount = await prisma.companyContract.count({ where: { companyId: company.id } });
-    const beforeDelete = list.sizes.find(row => row.id === contractSize.id);
-    await request('DELETE', `/items/sizes/${contractSize.id}`, { version: (await request('GET', `/items/sizes/${contractSize.id}`)).version });
-    assert.deepEqual(await prisma.companyContractPrice.findUniqueOrThrow({ where: { id: cp.id } }), savedPrice);
-    assert.deepEqual(await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } }), savedContract);
-    assert.equal(await prisma.companyContract.count({ where: { companyId: company.id } }), contractCount);
-    await request('POST', '/quotations', quote(staff.id, [line(beforeDelete)]), 201);
-    list = await options();
-    const deletedOption = list.sizes.find(row => row.id === contractSize.id);
-    assert.equal(deletedOption.priceService, '50');
-    assert.equal((await options(`&exclude=${contractSize.id}`)).sizes.some(row => row.id === contractSize.id), false);
-    const historyQuote = await request('POST', '/quotations', quote(staff.id, [line(deletedOption)]), 201);
-    // Server uses current prices when options were loaded earlier.
-    const normalNow = list.sizes.find(row => row.id === normalSize.id);
-    const latest = await request('POST', '/quotations', quote(staff.id, [line(normalNow)]), 201);
-    assert.equal(latest.items[0].priceInspection,'111');
-    assert.equal(refreshedCompanyOnly.items[0].priceInspection,'111');assert.equal(refreshedCompanyOnly.items[0].subTotal,'222');
-    const originalHistory = await prisma.quotationHistory.findUniqueOrThrow({where:{quotationId_version:{quotationId:companyOnly.id,version:0}}});
-    assert.equal(originalHistory.changes.find(change => change.field === 'items').after[0].priceInspection,'100');
-
-    const serviceNow = await request('GET', `/services/${service.id}`);
-    const historicalSearch = await options('&itemName=ORIGINAL&serviceName=original&limit=2&sortBy=size&sortOrder=asc');
-    assert.equal(historicalSearch.pagination.total, 3);
-    assert.equal(historicalSearch.sizes.length, 2);
-    assert.equal(historicalSearch.sizes[0].item.name, 'Original Pipe');
-    assert.equal(historicalSearch.sizes[0].item.service.name, 'Original Service');
-    const secondPage = await options('&itemName=ORIGINAL&limit=2&page=2&sortBy=size&sortOrder=asc');
-    assert.equal(secondPage.sizes.length, 1);
-    assert.equal((await options('&page=999')).pagination.total, 5);
-    const contractBeforeServiceDelete = await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } });
-    await request('DELETE', `/services/${service.id}`, { version: (await request('GET', `/services/${service.id}`)).version });
-    assert.deepEqual(await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } }), contractBeforeServiceDelete);
-    assert.deepEqual(await prisma.companyContractPrice.findUniqueOrThrow({ where: { id: cp.id } }), savedPrice);
-    assert.equal(await prisma.itemPrice.count({ where: { isActive: true, itemSize: { itemId: item.id } } }), 0);
-    list = await options(); assert.equal(list.pagination.total, 3);
-    assert.equal(list.sizes.some(row => row.id === normalSize.id), false);
-    const freshContractOption = list.sizes.find(row => row.id === contractSize.id);
-    const maintenance = await request('POST', '/quotations', quote(staff.id, [{ ...line(freshContractOption), quantityMaintenance:'3' }]), 201);
-    assert.equal(maintenance.items[0].priceMaintenance, '5'); assert.equal(maintenance.items[0].subTotal, '115');
-    assert.equal(maintained.items[0].quantityMaintenance, '0'); assert.equal(maintained.items[0].subTotal, '150');
-    const newQuote = await request('POST', '/quotations', quote(staff.id, [line(freshContractOption)]), 201);
-    assert.equal(newQuote.items[0].serviceName, 'Original Service'); assert.equal(newQuote.items[0].itemName, 'Original Pipe');
-    assert.equal(newQuote.items[0].priceSelection.priceId, cp.id);
-    assert.equal((await request('GET', `/quotations/${historyQuote.id}`)).items[0].priceInspection, '50');
-    // Submitted items are revalidated and priced again; saved history remains intact.
-    assert.equal(retained.items[0].itemName, 'Original Pipe');
-    // Inactive contract prices fall back to normal pricing for the active catalog size.
+    // Inactive contract prices fall back to standard pricing while the catalog is active.
     await prisma.companyContractPrice.update({ where: { id: cp.id }, data: { isActive: false, version: { increment: 1 } } });
     const unavailable = (await options()).sizes.find(row => row.id === contractSize.id);
     assert.equal(unavailable.priceStatus, 'AVAILABLE');
     assert.equal(unavailable.priceService, '100'); assert.equal(unavailable.priceSource, 'PRIMARY');
     await request('POST', '/quotations', quote(staff.id, [line(unavailable)]), 201);
+    // An expired contract stops supplying contract prices but the size stays an option.
     await prisma.companyContract.update({ where: { id: contract.id }, data: { effectiveUntil: new Date('2021-01-01'), version: { increment: 1 } } });
     assert.equal((await options()).pagination.total, 5);
+    const savedPrice = await prisma.companyContractPrice.findUniqueOrThrow({ where: { id: cp.id } });
+    const savedContract = await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } });
+    const contractCount = await prisma.companyContract.count({ where: { companyId: company.id } });
+    const contractSizeBeforeDelete = await request('GET', `/items/sizes/${contractSize.id}`);
+    await request('DELETE', `/items/sizes/${contractSize.id}`, { version: contractSizeBeforeDelete.version });
+    // Contract prices survive a size deactivation; the size simply leaves quotation options.
+    assert.deepEqual(await prisma.companyContractPrice.findUniqueOrThrow({ where: { id: cp.id } }), savedPrice);
+    assert.deepEqual(await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } }), savedContract);
+    assert.equal(await prisma.companyContract.count({ where: { companyId: company.id } }), contractCount);
+    list = await options();
+    assert.equal(list.sizes.some(row => row.id === contractSize.id), false);
+    assert.equal((await options(`&exclude=${contractSize.id}`)).sizes.some(row => row.id === contractSize.id), false);
+    const historyQuote = await request('POST', '/quotations', quote(staff.id, [line(normal)]), 201);
+    // Server uses current prices when options were loaded earlier.
+    const normalNow = list.sizes.find(row => row.id === normalSize.id);
+    await request('PATCH', `/items/sizes/${normalSize.id}/price`, { version: (await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: normalSize.id } })).version, priceServicePrimary: '111' });
+    const latest = await request('POST', '/quotations', quote(staff.id, [line(normalNow)]), 201);
+    assert.equal(latest.items[0].priceInspection,'111');
+    // A quotation created before the price change keeps its stored snapshot.
+    assert.equal((await request('GET', `/quotations/${historyQuote.id}`)).items[0].priceInspection, '100');
+    const originalHistory = await prisma.quotationHistory.findUniqueOrThrow({where:{quotationId_version:{quotationId:companyOnly.id,version:0}}});
+    assert.equal(originalHistory.changes.find(change => change.field === 'items').after[0].priceInspection,'100');
+
+    const historicalSearch = await options('&itemName=ORIGINAL&serviceName=original&limit=2&sortBy=size&sortOrder=asc');
+    assert.equal(historicalSearch.pagination.total, 4);
+    assert.equal(historicalSearch.sizes.length, 2);
+    assert.equal(historicalSearch.sizes[0].item.name, 'Original Pipe');
+    assert.equal(historicalSearch.sizes[0].item.service.name, 'Original Service');
+    const secondPage = await options('&itemName=ORIGINAL&limit=2&page=2&sortBy=size&sortOrder=asc');
+    assert.equal(secondPage.sizes.length, 2);
+    assert.equal((await options('&page=999')).pagination.total, 4);
+    const contractBeforeServiceDelete = await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } });
+    await request('DELETE', `/services/${service.id}`, { version: (await request('GET', `/services/${service.id}`)).version });
+    assert.deepEqual(await prisma.companyContract.findUniqueOrThrow({ where: { id: contract.id } }), contractBeforeServiceDelete);
+    assert.deepEqual(await prisma.companyContractPrice.findUniqueOrThrow({ where: { id: cp.id } }), savedPrice);
+    assert.equal(await prisma.itemPrice.count({ where: { isActive: true, itemSize: { itemId: item.id } } }), 0);
+    list = await options();
+    // The inactive service removes its whole catalog from quotation options.
+    assert.equal(list.pagination.total, 0);
+    assert.equal(list.sizes.some(row => row.id === contractSize.id), false);
+    await request('POST', '/quotations', quote(staff.id, [line({ id: contractSize.id })]), 409);
+    assert.equal(list.sizes.some(row => row.id === normalSize.id), false);
+
     // A different active catalog falls back to sister-company prices despite an unrelated contract.
     const otherService = await prisma.service.create({ data: { officeBranchId: branch, name: 'Other', type: 'OCTG', ...audit } });
     const otherItem = await request('POST', '/items', { serviceId: otherService.id, uom: 'JOINT', name: 'Other Item', sizes: [{ size: 'One' }] }, 201);
@@ -149,7 +146,7 @@ async function main() {
     assert.equal(fallback.priceService, '80'); assert.equal(fallback.item.service.hasMaintenance, false);
     await request('POST', '/quotations', quote(staff.id, [{ ...line(fallback),quantityMaintenance: '1' }]), 409);
     const concurrent = await Promise.all(Array.from({ length: 12 }, () => request('POST', '/quotations', quote(staff.id, [line(fallback)]), 201)));
-    assert.equal(new Set(concurrent.map(row => row.no)).size, 12);
+    assert.equal(new Set(concurrent.map(row => row.id)).size, 12);
     assert.ok(concurrent.every(row => row.items[0].priceInspection === '80' && row.items[0].priceSelection.priceSource === 'SISTER_COMPANY'));
     await request('POST', '/quotations', quote(staff.id, [{ ...line(fallback), priceSelection: {} }]), 400);
     const removed = concurrent[0];
@@ -166,7 +163,8 @@ async function main() {
     const paged = await request('GET', '/quotations?limit=1&page=2');
     assert.equal(paged.pagination.total, listing.pagination.total);
     assert.equal(paged.quotations.length, 1);
-    await request('GET', `/quotations/${removed.id}`, undefined, 404);
+    const removedDetail = await request('GET', `/quotations/${removed.id}`);
+    assert.equal(removedDetail.isActive, false);
     console.log('PASS: mixed options, snapshot search/pagination, service/size deletion, immutable contracts, Excel snapshots, current server prices and dual quantities, saved snapshots, sister prices and 12 concurrent quotation creates.');
   } finally {
     await new Promise(resolve => server.close(resolve));
@@ -176,6 +174,7 @@ async function main() {
     await prisma.quotationItem.deleteMany({ where: quotes });
     await prisma.quotation.deleteMany({ where: { officeBranchId: branch } });
     await prisma.quotationSequence.deleteMany({ where: { officeBranchId: branch } });
+    await prisma.taxCache.deleteMany({ where: { officeBranchId: branch } });
     await prisma.companyContractHistory.deleteMany({ where: { companyContract: { company: { officeBranchId: branch } } } });
     await prisma.company.deleteMany({ where: { officeBranchId: branch } });
     await prisma.service.deleteMany({ where: { officeBranchId: branch } });

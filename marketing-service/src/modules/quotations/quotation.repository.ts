@@ -1,6 +1,6 @@
 import { applicableTax } from '../taxes/tax-sync.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
-import { standardPriceContext, resolveQuotationPrice, quotationSizeInclude, PriceContext } from '../items/quotation-price.js';
+import { priceContext, resolveQuotationPrice, quotationSizeInclude, PriceContext } from '../items/quotation-price.js';
 import { Prisma, ServiceType } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
@@ -50,7 +50,12 @@ async function customer(tx: Prisma.TransactionClient, companyId: string | undefi
 async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, officeBranchId: string, actor: AuditActor, position: number, context: PriceContext, now: Date) {
   const size = await tx.itemSize.findFirst({
     where: { id: input.itemSizeId, item: { officeBranchId } },
-    include: { ...quotationSizeInclude, contractPrices: false, item: { include: { service: { include: serviceScopeInclude }, inspectionScopes: { where: { revoked: false } }, maintenanceScopes: { where: { revoked: false } } } } },
+    include: {
+      ...quotationSizeInclude,
+      // Only the resolved active contract may price this line; never another company's contract rows.
+      contractPrices: context.contract ? { where: { contractId: context.contract.id } } : false,
+      item: { include: { service: { include: serviceScopeInclude }, inspectionScopes: { where: { revoked: false } }, maintenanceScopes: { where: { revoked: false } } } },
+    },
   });
   if (!size) throw new HttpError('Item size not found', 404);
   const service = size.item.service;
@@ -206,7 +211,7 @@ export const quotationRepository = {
       await lockCompanyBranch(tx, officeBranchId);
       const now = new Date();
       const customerSnapshot = await customer(tx, companyId, data.staffId, officeBranchId);
-      const context = await standardPriceContext(tx, (customerSnapshot.companySnapshot as { id: string }).id, officeBranchId);
+      const context = await priceContext(tx, (customerSnapshot.companySnapshot as { id: string }).id, officeBranchId, now);
       const tax = await applicableTax(tx, officeBranchId, now);
       const quote = await tx.quotation.create({ data: { ...data, date: quotationDate(now), tax: tax.percentage, taxSourceId: tax.id, status: 'CREATED', invoiceStatus: null, officeBranchId, ...customerSnapshot, createdById: actor.id, createdByName: actor.name } });
       for (const [position, item] of items.entries()) {
@@ -245,6 +250,8 @@ export const quotationRepository = {
     const data = addQuotationItemSchema.parse(input);
     const itemInput: QuotationItemInput = { itemSizeId: data.itemSizeId, note: data.note, quantityInspection: data.quantityInspection, quantityMaintenance: data.quantityMaintenance };
     return prisma.$transaction(async (tx) => {
+      // Serialize with catalog/contract price writers before resolving the price context.
+      await lockCompanyBranch(tx, officeBranchId);
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid FOR UPDATE`;
       const current = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
       if (!current) throw new HttpError('Quotation not found', 404);
@@ -252,9 +259,10 @@ export const quotationRepository = {
       if (current.items.some(row => row.isActive && row.itemSizeId === data.itemSizeId)) throw new HttpError('Item size already exists in this quotation', 409);
       const companyId = (current.companySnapshot as { id?: string }).id;
       if (!companyId) throw new HttpError('Quotation company snapshot is invalid', 409);
-      const context = await standardPriceContext(tx, companyId, officeBranchId);
+      const now = new Date();
+      const context = await priceContext(tx, companyId, officeBranchId, now);
       const position = current.items.reduce((max, row) => Math.max(max, row.position), -1) + 1;
-      await tx.quotationItem.create({ data: { ...await newItem(tx, itemInput, officeBranchId, actor, position, context!, new Date()), quotationId: id } });
+      await tx.quotationItem.create({ data: { ...await newItem(tx, itemInput, officeBranchId, actor, position, context!, now), quotationId: id } });
       await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       return saveRevision(tx, id, actor, 'ADD_ITEM', current as unknown as Record<string, unknown>);
     }, { maxWait: 10000, timeout: 20000 });

@@ -17,11 +17,6 @@ export const priceContext = async (tx: Prisma.TransactionClient, companyId: stri
   if (contracts.length > 1) throw new HttpError('Multiple current contracts found', 409);
   return { company, contract: contracts.length ? contracts[0] : null };
 };
-export const standardPriceContext = async (tx: Prisma.TransactionClient, companyId: string, branch: string) => {
-  const company = await tx.company.findFirst({ where: { id: companyId, officeBranchId: branch, revoked: false } });
-  if (!company) throw new HttpError('Company not found', 404);
-  return { company, contract: null };
-};
 export type PriceContext = Awaited<ReturnType<typeof priceContext>>;
 export const quotationSizeInclude = {
   price: true, contractPrices: true, item: { include: { service: true } },

@@ -70,7 +70,7 @@ export const quotationSchemas = {
   },
   QuotationItemInput: {
     type:'object',additionalProperties:false,required:['itemSizeId','quantityInspection'],
-    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server fetches current company prices whenever items are submitted. Prices, source tokens and priceKind are rejected.',
+    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server re-resolves current company prices in the transaction: an effective contract price from the company’s active APPROVED contract is used when available for the size; otherwise primary/sister pricing applies. Prices, source tokens and priceKind are rejected.',
     properties:{ itemSizeId:uuid,
       quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
       quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},
@@ -216,7 +216,7 @@ export const quotationPaths = {
     },
     post: {
       ...common, summary: 'Create a quotation with items',
-      description: 'Creates the quotation, 1-100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal * tax / 100, total = subTotal + taxAmount.',
+      description: 'Creates the quotation, 1-100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. Item prices are resolved server-side: an active APPROVED contract with an effective contract price for the size stores CONTRACT pricing (priceSelection.contractId/priceId); otherwise primary or sister-company pricing is stored. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; taxAmount = subTotal * tax / 100, total = subTotal + taxAmount.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationRequest') } } },
       responses: { ...commonErrors, 201: response('Quotation created with items', 'QuotationResponse'), 404: response('Company staff or catalog size not found or inactive in this branch', 'ErrorResponse'), 409: response('Number limit reached or quotation numbering conflict', 'ErrorResponse') },
     },
@@ -255,8 +255,9 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/items': {
     post: {
       ...common, summary: 'Add an item to a draft quotation', parameters: [idParameter],
+      description: 'Appends an item to a CREATED or REJECTED (or SUBMITTED for ADMIN) quotation in the current branch. Requires the current quotation version. The price is re-resolved in the transaction with the branch lock: an active APPROVED contract of the quotation company with an effective contract price for the size stores CONTRACT pricing; otherwise primary or sister-company pricing is stored. Duplicate active sizes return 409.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('AddQuotationItemRequest') } } },
-      responses: { ...commonErrors, 201: response('Quotation item added', 'QuotationResponse'), 404: response('Quotation or item size not found in this branch', 'ErrorResponse'), 409: response('Stale version, duplicate item, inactive quotation, or non-draft quotation', 'ErrorResponse') },
+      responses: { ...commonErrors, 201: response('Quotation item added', 'QuotationResponse'), 404: response('Quotation or item size not found in this branch', 'ErrorResponse'), 409: response('Stale version, duplicate item, inactive quotation/size, unavailable price, or non-editable quotation', 'ErrorResponse') },
     },
   },
   '/api/v1/marketing/quotations/{quotationId}/items/{itemId}': {
