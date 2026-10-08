@@ -28,7 +28,8 @@ export async function gatewayGet(path: string, req: Request): Promise<unknown> {
 const money = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/);
 export const quotationSchema = z.object({
   id: z.string().uuid(), officeBranchId: z.string().uuid(), version: z.number().int().nonnegative(),
-  isActive: z.literal(true), no: z.number().int(), numberYear: z.number().int(),
+  // Boolean (not literal true) so lifecycle snapshots such as REVISED can also be stored.
+  isActive: z.boolean(), no: z.number().int(), numberYear: z.number().int(),
   status: z.string(),
   subject: z.string(), companySnapshot: z.record(z.unknown()), customerSnapshot: z.string(),
   subTotal: money, taxAmount: money, total: money, items: z.array(z.record(z.unknown())),
@@ -60,12 +61,11 @@ export async function loadCompanyContract(req: Request, companyId: string, branc
   validateContract(contract);
   return contract;
 }
-export async function loadContract(req: Request, id: string, version: number, branch: string) {
+export async function loadContract(req: Request, id: string, branch: string) {
   const parsed = contractSchema.safeParse(await gatewayGet(`marketing/contract-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid contract response', 502);
   const contract = parsed.data;
   if (contract.id !== id || contract.company.officeBranchId !== branch || contract.company.id !== contract.companyId) throw new HttpError('Contract not found', 404);
-  if (contract.version !== version) throw new HttpError('Contract has changed; reload before saving the work order', 409);
   validateContract(contract);
   return contract;
 }

@@ -27,7 +27,7 @@ const modules = [
 
 const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.startsWith('/api/v1/finance/taxes') || path === '/api/v1/marketing/internal/taxes/events') return 'Taxes';
-  if (path === '/api/v1/marketing/internal/users/events') return 'User Management';
+  if (path === '/api/v1/marketing/internal/users/events' || path === '/api/v1/fieldservice/internal/users/events') return 'User Management';
   if (path.endsWith('/health') || !path.startsWith('/api/v1/')) return 'Gateway';
   if (path.startsWith('/api/v1/auth/users')) return 'User Management';
   if (/\/auth\/(me|profile|password)$/.test(path)) return 'Profile';
@@ -50,7 +50,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/items')) return 'Items';
   if (path.includes('/proforma-invoices')) return 'Proforma Invoices';
   if (path.startsWith('/api/v1/finance/invoices')) return 'Invoices';
-  if (path.startsWith('/api/v1/fieldservice/work-orders')) return 'Work Order';
+  if (path.startsWith('/api/v1/fieldservice')) return 'Work Order';
   if (path.includes('/quotation-references')) return 'Quotations';
   if (path.includes('/quotations')) return 'Quotations';
   throw new Error(`Assign a Swagger module for ${path}`);

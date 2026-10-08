@@ -1,4 +1,4 @@
-import { enqueueUserSync } from '../user-sync/user-sync.service.js';
+import { enqueueUserSync, isFieldServiceUserSyncCandidate, isMarketingUserSyncCandidate } from '../user-sync/user-sync.service.js';
 import { wakeUserSync } from '../user-sync/user-sync.delivery.js';
 
 import bcrypt from 'bcryptjs';
@@ -162,10 +162,11 @@ class AuthService {
       );
       // Self-service profile edit: the authenticated user is the actor.
       await saveUserHistory(tx, updated, user, selfActor(user), 'UPDATE');
-      if (updated.role === 'ADMIN' && updated.section === 'MARKETING' && updated.isActive && updated.officeBranchId) {
-        await enqueueUserSync(tx, updated);
+      if (isMarketingUserSyncCandidate(updated) || isMarketingUserSyncCandidate(user)
+        || isFieldServiceUserSyncCandidate(updated) || isFieldServiceUserSyncCandidate(user)) {
+        await enqueueUserSync(tx, updated, { previous: user });
       } else {
-        logger.debug('Profile updated without Marketing sync eligibility', {
+        logger.debug('Profile updated without user sync eligibility', {
           userId, role: updated.role, section: updated.section, isActive: updated.isActive, officeBranchId: updated.officeBranchId,
         });
       }

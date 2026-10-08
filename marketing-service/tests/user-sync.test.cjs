@@ -22,7 +22,7 @@ test('user sync stores only active ADMIN MARKETING users and removes ineligible 
     await send(1);
     assert.equal(await prisma.marketingAdminUser.count({ where: { officeBranchId: branch } }), 1);
     await send(2, { email: 'new@akura.test' });
-    assert.equal((await prisma.marketingAdminUser.findUnique({ where: { id: user.id } })).email, 'new@akura.test');
+    assert.equal((await prisma.marketingAdminUser.findUnique({ where: { id: user.id } })).user.email, 'new@akura.test');
 
     for (const patch of [{ role: 'USER' }, { section: 'FINANCE' }, { isActive: false }, { officeBranchId: null }]) {
       await send(3, patch);

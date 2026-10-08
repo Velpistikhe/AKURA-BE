@@ -2,9 +2,12 @@ import { prisma } from '../../config/db.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
-import { isUserSyncConfigured, UserSyncSnapshot } from './user-sync.service.js';
+import { isUserSyncConfigured, UserSyncSnapshot, UserSyncTarget } from './user-sync.service.js';
 
-const USER_SYNC_PATH = 'marketing/internal/users/events';
+const USER_SYNC_PATHS: Record<UserSyncTarget, string> = {
+  'marketing-service': 'marketing/internal/users/events',
+  'fieldservice-service': 'fieldservice/internal/users/events',
+};
 let timer: NodeJS.Timeout | undefined;
 let running = false;
 let stopped = true;
@@ -20,10 +23,12 @@ export async function deliverUserSync(id: string): Promise<void> {
     if (!job || job.deliveredAt || job.nextRetryAt > new Date()) return;
     try {
       if (!isUserSyncConfigured()) throw new Error('User sync delivery is not configured');
+      const path = USER_SYNC_PATHS[job.targetService as UserSyncTarget];
+      if (!path) throw new Error(`Unknown user sync target ${job.targetService}`);
       const payload = job.event.payload as unknown as UserSyncSnapshot;
-      const response = await fetch(serviceUrl(USER_SYNC_PATH), {
+      const response = await fetch(serviceUrl(path), {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
-        headers: { 'content-type': 'application/json', 'x-user-sync-secret': env.USER_SYNC_SECRET!, ...serviceHeaders(USER_SYNC_PATH) },
+        headers: { 'content-type': 'application/json', 'x-user-sync-secret': env.USER_SYNC_SECRET!, ...serviceHeaders(path) },
         body: JSON.stringify({ eventId: job.eventId, officeBranchId: payload.officeBranchId, version: job.event.version, user: payload }),
       });
       if (!response.ok) throw new Error(`Receiver returned HTTP ${response.status}`);

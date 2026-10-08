@@ -104,13 +104,15 @@ export const quotationController = {
    * Creates a DRAFT Work Order in Field Service for an APPROVED quotation. The
    * quotation is loaded locally to fail fast (404/409) before the cross-service
    * call, and the same access token is forwarded so Field Service re-validates
-   * identity, branch, section and quotation version through the Gateway.
+   * identity, branch and section. The payload carries quotationId with startDate,
+   * endDate and inspectors; quotation content is read from the snapshot that was
+   * synchronized at approval, so no quotation version is forwarded.
    */
   async createWorkOrder(req: Request, res: Response) {
     const input = createWorkOrderFromQuotationSchema.parse(req.body);
     const branch = getOfficeBranchId(res);
-    const quote = await quotationRepository.findActive(res.locals.params.quotationId, branch);
-    if (quote.version !== input.quotationVersion) throw new HttpError('Quotation has changed; reload before creating the Work order', 409);
+    if (input.quotationId !== res.locals.params.quotationId) throw new HttpError('quotationId must match the quotation in the URL', 400);
+    const quote = await quotationRepository.findActive(input.quotationId, branch);
     if (quote.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
     if (quote.items.some(item => item.priceSelection && typeof item.priceSelection === 'object'
       && (item.priceSelection as Record<string, unknown>).priceSource === 'CONTRACT')) {
@@ -126,9 +128,9 @@ export const quotationController = {
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...serviceHeaders(path),
           ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
         body: JSON.stringify({
-          quotationId: quote.id, quotationVersion: quote.version,
-          startDate: input.startDate, endDate: input.endDate ?? null,
-          summary: input.summary, ...(input.inspectors ? { inspectors: input.inspectors } : {}),
+          quotationId: quote.id,
+          startDate: input.startDate, endDate: input.endDate,
+          inspectors: input.inspectors,
         }),
       });
     } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }

@@ -10,7 +10,8 @@ async function main() {
   const downstream = express();
   let deliveries = 0;
   downstream.use((req, res, next) => {
-    if (req.headers['x-gateway-secret'] !== 'marketing-secret') return res.sendStatus(403);
+    const secret = req.headers['x-gateway-secret'];
+    if (!['marketing-secret', 'field-secret'].includes(secret)) return res.sendStatus(403);
     next();
   });
   downstream.use(express.json());
@@ -75,7 +76,20 @@ async function main() {
     assert.equal(userAccepted.status, 200);
     assert.deepEqual(await userAccepted.json(), { success: true, eventId: 'test-user-event' });
     assert.equal((await fetch(userEndpoint, { method: 'POST', headers: { ...headers, 'x-service-name': 'finance-service', 'x-service-secret': 'finance-secret' }, body: '{}' })).status, 403);
-    console.log('PASS: actual gateway proxy, Finance-only tax delivery, Auth-only user delivery, header replacement, JWT requirement and Swagger gateway paths.');
+    // Auth also delivers FIELD_SERVICE user events to Field Service.
+    const fieldUserEndpoint = `${base}/api/v1/fieldservice/internal/users/events`;
+    assert(spec.paths['/api/v1/fieldservice/internal/users/events']);
+    assert.equal(spec.paths['/api/v1/fieldservice/internal/users/events'].post.servers, undefined);
+    assert.equal((await fetch(fieldUserEndpoint, { method: 'POST', headers, body: '{}' })).status, 403);
+    const fieldAccepted = await fetch(fieldUserEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-service-name': 'auth-service', 'x-service-secret': 'auth-secret', 'x-user-sync-secret': 'sync-secret' },
+      body: JSON.stringify({ eventId: 'test-field-user-event' }),
+    });
+    assert.equal(fieldAccepted.status, 200);
+    assert.deepEqual(await fieldAccepted.json(), { success: true, eventId: 'test-field-user-event' });
+    assert.equal((await fetch(fieldUserEndpoint, { method: 'POST', headers: { ...headers, 'x-service-name': 'marketing-service', 'x-service-secret': 'marketing-secret' }, body: '{}' })).status, 403);
+    console.log('PASS: actual gateway proxy, Finance-only tax delivery, Auth-only user delivery to Marketing and Field Service, header replacement, JWT requirement and Swagger gateway paths.');
   } finally {
     if (gateway) await new Promise(resolve => gateway.close(resolve));
     await new Promise(resolve => target.close(resolve));

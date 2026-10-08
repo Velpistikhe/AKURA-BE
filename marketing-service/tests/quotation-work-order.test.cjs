@@ -36,7 +36,8 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(response.status, expected, JSON.stringify(payload));
     return payload;
   };
-  const validBody = () => ({ quotationVersion: 0, startDate: '2026-10-01', endDate: '2026-10-05', summary: 'Inspection per quotation', inspectors: ['Budi'] });
+  const validBody = () => ({ startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'] });
+  const bodyFor = (id) => ({ ...validBody(), quotationId: id });
   // Repository fixture: findActive is the only database read in this flow.
   quotationRepository.findActive = async (id, officeBranchId) => {
     if (officeBranchId !== branch) assert.fail('Branch must come from the authenticated session');
@@ -58,16 +59,22 @@ test('Create work order from quotation validates locally and forwards through Fi
   try {
     // Schema rejects malformed bodies before any cross-service call.
     for (const invalid of [
-      {}, { quotationVersion: 0 }, { quotationVersion: 0, startDate: '2026-10-05', endDate: '2026-10-01', summary: 'x' },
-      { ...validBody(), quotationVersion: -1 }, { ...validBody(), status: 'COMPLETED' },
-      { ...validBody(), quotationId: randomUUID() }, { ...validBody(), summary: '' },
-      { ...validBody(), inspectors: ['same', 'SAME'] },
+      {}, { startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'] },
+      { quotationId: randomUUID(), startDate: '2026-10-05', endDate: '2026-10-01', inspectors: ['Budi'] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['same', 'SAME'] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'], quotationVersion: 0 },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'], summary: 'x' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'], status: 'COMPLETED' },
     ]) assert.equal(createWorkOrderFromQuotationSchema.safeParse(invalid).success, false, JSON.stringify(invalid));
-    assert.equal(createWorkOrderFromQuotationSchema.parse(validBody()).startDate, '2026-10-01');
+    assert.equal(createWorkOrderFromQuotationSchema.parse(bodyFor(randomUUID())).startDate, '2026-10-01');
 
     // Section guard: only Marketing may trigger the forward.
     const protectedQuote = fixtureQuotation({ status: 'APPROVED' });
-    assert.equal((await request(protectedQuote.id, validBody(), 403, 'FINANCE')).message, 'Marketing section is required');
+    assert.equal((await request(protectedQuote.id, bodyFor(protectedQuote.id), 403, 'FINANCE')).message, 'Marketing section is required');
+
+    // quotationId in the payload must match the path quotation.
+    assert.equal((await request(protectedQuote.id, bodyFor(randomUUID()), 400)).message, 'quotationId must match the quotation in the URL');
 
     // Quotation must exist in the branch: never a forward for a missing reference.
     const gatewayCalls = () => calls;
@@ -78,21 +85,20 @@ test('Create work order from quotation validates locally and forwards through Fi
       }
       return originalFetch(url, options);
     };
-    assert.equal((await request(randomUUID(), validBody(), 404)).message, 'Quotation not found');
+    const missingId = randomUUID();
+    assert.equal((await request(missingId, bodyFor(missingId), 404)).message, 'Quotation not found');
     assert.equal(gatewayCalls(), 0);
 
-    // Fail fast on version/status/pricing without contacting Field Service.
-    const stale = fixtureQuotation({ status: 'APPROVED' });
-    assert.equal((await request(stale.id, { ...validBody(), quotationVersion: stale.version + 1 }, 409)).message, 'Quotation has changed; reload before creating the Work order');
+    // Fail fast on status/pricing without contacting Field Service.
     const draftQuote = fixtureQuotation({ status: 'CREATED' });
-    assert.equal((await request(draftQuote.id, validBody(), 409)).message, 'Work order requires an APPROVED quotation');
+    assert.equal((await request(draftQuote.id, bodyFor(draftQuote.id), 409)).message, 'Work order requires an APPROVED quotation');
     const contractPriced = fixtureQuotation({ status: 'APPROVED', items: [{ priceSelection: { priceSource: 'CONTRACT' } }] });
-    assert.equal((await request(contractPriced.id, validBody(), 409)).message, 'Use contract as the work order basis for contract pricing');
+    assert.equal((await request(contractPriced.id, bodyFor(contractPriced.id), 409)).message, 'Use contract as the work order basis for contract pricing');
     assert.equal(calls, 0);
 
     // Cross-service forward: token, service credentials and payload are asserted.
     const approved = fixtureQuotation({ status: 'APPROVED' });
-    const workOrder = { id: randomUUID(), number: 'WO/2026/000001', status: 'DRAFT', quotationId: approved.id, quotationVersion: approved.version, summary: 'Inspection per quotation' };
+    const workOrder = { id: randomUUID(), number: 'WO/2026/000001', status: 'DRAFT', quotationId: approved.id, startDate: '2026-10-01', endDate: '2026-10-05' };
     global.fetch = async (url, options) => {
       forwarded = { url: String(url), options };
       if (forwardMode === 'down') throw new Error('offline');
@@ -100,7 +106,7 @@ test('Create work order from quotation validates locally and forwards through Fi
       if (forwardMode === 'upstream-500') return { ok: false, status: 500, json: async () => ({ message: 'Boom' }) };
       return { ok: true, status: 201, json: async () => ({ data: workOrder }) };
     };
-    const created = await request(approved.id, validBody());
+    const created = await request(approved.id, bodyFor(approved.id));
     assert.equal(created.message, 'Work order created successfully');
     assert.deepEqual(created.data, workOrder);
     assert.match(forwarded.url, /\/api\/v1\/fieldservice\/work-orders$/);
@@ -109,19 +115,21 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(forwarded.options.headers['x-service-name'], 'marketing-service');
     assert.equal(forwarded.options.headers['x-service-secret'], process.env.GATEWAY_SECRET);
     assert.deepEqual(JSON.parse(forwarded.options.body), {
-      quotationId: approved.id, quotationVersion: approved.version,
+      quotationId: approved.id,
       startDate: '2026-10-01', endDate: '2026-10-05',
-      summary: 'Inspection per quotation', inspectors: ['Budi'],
+      inspectors: ['Budi'],
     });
+    assert.equal(JSON.parse(forwarded.options.body).quotationVersion, undefined, 'quotation version is never forwarded; Field Service reads the synchronized snapshot');
+    assert.equal(JSON.parse(forwarded.options.body).summary, undefined, 'summary no longer exists on the Work order');
     assert.equal(JSON.parse(forwarded.options.body).status, undefined, 'status must never be forwarded; Field Service stores DRAFT');
     assert.equal(JSON.parse(forwarded.options.body).officeBranchId, undefined, 'branch must never be client-supplied');
 
     forwardMode = 'down';
-    assert.equal((await request(approved.id, validBody(), 503)).message, 'Field Service is unavailable; retry later');
+    assert.equal((await request(approved.id, bodyFor(approved.id), 503)).message, 'Field Service is unavailable; retry later');
     forwardMode = 'upstream-409';
-    assert.equal((await request(approved.id, validBody(), 409)).message, 'Quotation has changed; reload before saving the Work order');
+    assert.equal((await request(approved.id, bodyFor(approved.id), 409)).message, 'Quotation has changed; reload before saving the Work order');
     forwardMode = 'upstream-500';
-    assert.equal((await request(approved.id, validBody(), 502)).message, 'Boom');
+    assert.equal((await request(approved.id, bodyFor(approved.id), 502)).message, 'Boom');
     console.log('PASS: quotation work-order creation validates locally, guards section/branch, forwards credentials and payload, and maps upstream failures.');
   } finally {
     global.fetch = originalFetch;

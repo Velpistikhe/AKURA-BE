@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { quotationRepository, approvableStatuses } from './quotation.repository.js';
+import { processDueQuotationDeliveries, wakeQuotationDelivery } from './quotation-sync.repository.js';
 import { approveQuotationSchema } from './quotation.schemas.js';
 import { renderQuotationPdf } from './quotation-pdf.js';
 import { quotationStorage } from './quotation-storage.js';
@@ -43,7 +44,7 @@ export const quotationApproval = {
     let uploaded = false;
     let download: Awaited<ReturnType<typeof quotationStorage.downloadUrl>> | undefined;
     try {
-      const approved = await quotationRepository.approve(id, version, officeBranchId, actor, async numbered => {
+      const { quote: approved, syncEvent } = await quotationRepository.approve(id, version, officeBranchId, actor, async numbered => {
         const approvedAt = new Date();
         const pdf = await renderQuotationPdf(numbered, actor, approvedAt, false, contacts);
         const fileName = `Q-${numbered.no}-R${numbered.revision}-${numbered.numberYear}.pdf`;
@@ -54,6 +55,9 @@ export const quotationApproval = {
           sha256: createHash('sha256').update(pdf).digest('hex'), revision: numbered.revision, version: numbered.version,
           approvedAt: approvedAt.toISOString(), approvedById: actor.id, approvedByName: actor.name };
       });
+      // The outbox event is committed; attempt immediate delivery without failing approval.
+      await processDueQuotationDeliveries(officeBranchId, syncEvent.id);
+      wakeQuotationDelivery();
       return { ...approved, pdf: { ...approved.pdfDocument, ...download } };
     } catch (error) {
       if (uploaded) {

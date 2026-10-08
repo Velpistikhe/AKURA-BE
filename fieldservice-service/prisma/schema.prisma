@@ -19,16 +19,13 @@ model WorkOrder {
   number String @db.VarChar(100)
   date DateTime @db.Date
   contractId String? @map("contract_id") @db.Uuid
-  contractVersion Int? @map("contract_version")
   contractSnapshot Json? @map("contract_snapshot") @db.JsonB
   quotationId String? @map("quotation_id") @db.Uuid
-  quotationVersion Int? @map("quotation_version")
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
   startDate DateTime @map("start_date") @db.Date
   endDate DateTime? @map("end_date") @db.Date
   status WorkOrderStatus @default(DRAFT)
   revoked Boolean @default(false)
-  summary String @db.Text
   version Int @default(0)
   createdById String @map("created_by_id") @db.Uuid
   createdByName String @map("created_by_name")
@@ -78,4 +75,49 @@ model WorkOrderHistory {
   createdAt DateTime @default(now()) @map("created_at")
   @@unique([workOrderId, version], map: "work_order_histories_work_order_id_version_key")
   @@map("work_order_histories")
+}
+
+/// Immutable JSON copy of an APPROVED quotation received from Marketing.
+model QuotationSnapshot {
+  id String @id @default(uuid()) @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  quotationId String @map("quotation_id") @db.Uuid
+  /// Quotation concurrency version at approval; newer events replace older rows.
+  quotationVersion Int @map("quotation_version")
+  revision Int @default(0)
+  /// Complete Marketing quotation JSON including items and price selections.
+  payload Json @db.JsonB
+  eventId String? @map("event_id") @db.Uuid
+  approvedAt DateTime? @map("approved_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@unique([officeBranchId, quotationId])
+  @@index([officeBranchId, createdAt, quotationId])
+  @@map("quotation_snapshots")
+}
+
+/// Local Field Service read model of Auth users with section FIELD_SERVICE.
+/// Rows exist only for users that are simultaneously in FIELD_SERVICE, active
+/// and assigned to an office branch. The complete Auth user snapshot is stored
+/// as one JSON document so field additions never force a table migration.
+model FieldServiceUser {
+  id              String   @id @db.Uuid
+  officeBranchId  String   @map("office_branch_id") @db.Uuid
+  user            Json     @db.JsonB
+  sourceVersion   Int      @map("source_version")
+  sourceCreatedAt DateTime @map("source_created_at")
+  sourceUpdatedAt DateTime @map("source_updated_at")
+
+  @@index([officeBranchId, sourceCreatedAt, id])
+  @@map("field_service_users")
+}
+
+/// Last Auth user-snapshot version processed per user. Metadata only; it keeps
+/// reordered or retried events from resurrecting a removed read-model row.
+model FieldServiceUserSyncRevision {
+  userId  String   @id @map("user_id") @db.Uuid
+  version Int
+  eventId String   @map("event_id") @db.Uuid
+
+  @@map("field_service_user_sync_revisions")
 }

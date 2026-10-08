@@ -18,6 +18,13 @@ const schema = z.object({
   DIRECT_MFE_ORIGIN: z.string().url().default('http://localhost:4173'),
   TAX_SYNC_SECRET: z.string().min(32).optional(),
   USER_SYNC_SECRET: z.string().min(32).optional(),
+  // Outbox delivery of APPROVED quotation snapshots to Field Service.
+  QUOTATION_SYNC_TARGETS: z.string().default('[]').transform((value, ctx) => {
+    try { return JSON.parse(value) as unknown; }
+    catch { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected JSON target array' }); return z.NEVER; }
+  }).pipe(z.array(z.object({ name: z.string().min(1), url: z.string().url().refine(value => /^https?:\/\//.test(value)) }).strict())
+    .refine(rows => new Set(rows.map(row => row.name)).size === rows.length, 'Duplicate target names')),
+  QUOTATION_SYNC_SECRET: z.string().min(32).optional(),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),
   AWS_ENDPOINT_URL_S3: z.string().url().optional(),
@@ -26,6 +33,9 @@ const schema = z.object({
   AWS_REGION: z.string().min(1).default('us-east-2'),
   AWS_S3_BUCKET: z.string().min(1).default('akura'),
 }).superRefine((value, context) => {
+  if (value.QUOTATION_SYNC_TARGETS.length && !value.QUOTATION_SYNC_SECRET) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['QUOTATION_SYNC_SECRET'], message: 'QUOTATION_SYNC_SECRET is required for delivery targets' });
+  }
   if (value.DIRECT_MFE_ACCESS && value.NODE_ENV !== 'development') {
     context.addIssue({
       code: z.ZodIssueCode.custom,

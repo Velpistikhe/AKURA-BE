@@ -21,7 +21,7 @@ exports.withUserSyncDatabase = async function withUserSyncDatabase(serviceRoot, 
   await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
   try {
     const isolated = new PrismaClient({ datasources: { db: { url: url.toString() } } });
-    await isolated.$executeRawUnsafe(`CREATE TABLE "${schema}"."marketing_admin_users" ("id" uuid PRIMARY KEY, "office_branch_id" uuid NOT NULL, "username" text NOT NULL, "first_name" text NOT NULL, "last_name" text NOT NULL, "email" varchar(255) NULL, "telp" varchar(50) NULL, "source_version" integer NOT NULL, "source_created_at" timestamptz NOT NULL, "source_updated_at" timestamptz NOT NULL)`);
+    await isolated.$executeRawUnsafe(`CREATE TABLE "${schema}"."marketing_admin_users" ("id" uuid PRIMARY KEY, "office_branch_id" uuid NOT NULL, "user" jsonb NOT NULL, "source_version" integer NOT NULL, "source_created_at" timestamptz NOT NULL, "source_updated_at" timestamptz NOT NULL)`);
     await isolated.$executeRawUnsafe(`CREATE INDEX "marketing_admin_users_branch_idx" ON "${schema}"."marketing_admin_users" ("office_branch_id", "source_created_at", "id")`);
     await isolated.$executeRawUnsafe(`CREATE TABLE "${schema}"."marketing_user_sync_revisions" ("user_id" uuid PRIMARY KEY, "version" integer NOT NULL, "event_id" uuid NOT NULL)`);
     await isolated.$disconnect();

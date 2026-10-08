@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { env } from '../../config/env.js';
@@ -30,6 +31,11 @@ export const userSyncEventSchema = z.object({
 const isCandidate = (user: z.infer<typeof userSnapshotSchema>) =>
   user.role === 'ADMIN' && user.section === 'MARKETING' && user.isActive && Boolean(user.officeBranchId);
 
+// The full snapshot travels as one JSON document: branch and version stay as
+// columns for identity/concurrency, every other field lives inside `user`.
+const snapshotJson = (user: z.infer<typeof userSnapshotSchema>) =>
+  JSON.parse(JSON.stringify(user)) as Prisma.InputJsonValue;
+
 export async function applyUserSyncEvent(input: unknown) {
   const parsed = userSyncEventSchema.safeParse(input);
   if (!parsed.success) throw new HttpError('Invalid user sync event', 400);
@@ -39,20 +45,17 @@ export async function applyUserSyncEvent(input: unknown) {
     const current = await tx.marketingUserSyncRevision.findUnique({ where: { userId: event.user.id } });
     if (current && current.version >= event.version) return;
 
+    const source = {
+      sourceVersion: event.version,
+      sourceCreatedAt: event.user.createdAt,
+      sourceUpdatedAt: event.user.updatedAt,
+    };
     if (isCandidate(event.user) && event.officeBranchId) {
       const branchId = event.officeBranchId;
       await tx.marketingAdminUser.upsert({
         where: { id: event.user.id },
-        create: {
-          id: event.user.id, officeBranchId: branchId, username: event.user.username,
-          firstName: event.user.firstName, lastName: event.user.lastName, email: event.user.email, telp: event.user.telp,
-          sourceVersion: event.version, sourceCreatedAt: event.user.createdAt, sourceUpdatedAt: event.user.updatedAt,
-        },
-        update: {
-          officeBranchId: branchId, username: event.user.username, firstName: event.user.firstName,
-          lastName: event.user.lastName, email: event.user.email, telp: event.user.telp,
-          sourceVersion: event.version, sourceCreatedAt: event.user.createdAt, sourceUpdatedAt: event.user.updatedAt,
-        },
+        create: { id: event.user.id, officeBranchId: branchId, user: snapshotJson(event.user), ...source },
+        update: { officeBranchId: branchId, user: snapshotJson(event.user), ...source },
       });
     } else {
       await tx.marketingAdminUser.deleteMany({ where: { id: event.user.id } });

@@ -56,13 +56,12 @@ export const createQuotationSchema = z.object(fields).strict()
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
 const isoDate = z.string().date();
 export const createWorkOrderFromQuotationSchema = z.object({
-  quotationVersion: z.number().int().nonnegative().max(2147483646),
+  quotationId: z.string().uuid(),
   startDate: isoDate,
-  endDate: isoDate.nullable().optional(),
-  summary: z.string().trim().min(1).max(20000),
-  inspectors: inspectors.optional(),
+  endDate: isoDate,
+  inspectors: inspectors,
 }).strict()
-  .refine(value => !value.endDate || value.endDate >= value.startDate, 'endDate must be on or after startDate');
+  .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
 export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;

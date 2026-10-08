@@ -204,7 +204,7 @@ Verifikasi database lokal dilakukan melalui harness eksternal pada database Post
 
 ### Sinkronisasi kontak Admin Marketing
 
-Marketing Service menyimpan local read model `marketing_admin_users` yang hanya berisi user dengan `role=ADMIN`, `section=MARKETING`, `isActive=true`, dan `officeBranchId` valid. Auth Service adalah source of truth dan mengirim snapshot user melalui outbox event ke `POST /api/v1/marketing/internal/users/events` pada API Gateway.
+Marketing Service menyimpan local read model `marketing_admin_users` yang hanya berisi user dengan `role=ADMIN`, `section=MARKETING`, `isActive=true`, dan `officeBranchId` valid. Seluruh snapshot user disimpan sebagai satu kolom JSON (`user` jsonb); hanya `office_branch_id` dan versi/timestamp sumber yang tetap berupa kolom untuk query branch dan penjagaan versi. Auth Service adalah source of truth dan mengirim snapshot user melalui outbox event ke `POST /api/v1/marketing/internal/users/events` pada API Gateway.
 
 Event eligible melakukan upsert; event yang kehilangan salah satu syarat menghapus row lokal. Event duplikat atau versi lama diabaikan. Pengiriman memakai retry dan advisory lock untuk mencegah race condition; worker delivery dibangunkan oleh Auth setelah outbox event commit. Generate quotation membaca kontak dari local read model berdasarkan branch; bila local read model masih kosong, Marketing mem-fallback ke endpoint legacy Auth (`GET /auth/users/marketing-contacts`) memakai access token pemohon agar kontak tetap tampil.
 
@@ -304,3 +304,9 @@ Finance owns tax. Marketing receives authenticated `POST /internal/taxes/events`
 Configure the Marketing receiver URL in Finance `TAX_DELIVERY_TARGETS`. Apply the Prisma schema and restart both services. Bootstrap/recover using Finance `POST /api/v1/finance/taxes/resync` for each branch. This is required when a new consumer is added or its database is restored. Existing `tax_sync_state` is retained only for migration compatibility.
 
 Quotation creation selects the locally cached period effective on its date (or today in Asia/Jakarta), snapshots tax and taxSourceId, and returns 503 if missing. Existing quotation snapshots and revisions retain their original tax. Cache delivery is eventually consistent; invoice tax is independently validated against Finance master data.
+
+## Quotation snapshot sync to Field Service
+
+Field Service never fetches quotation content when a work order is created; it reads the snapshot synchronized at approval time. Marketing therefore commits an outbox event inside the approval transaction (`quotation_sync_events` + `quotation_sync_deliveries`) holding the complete approved quotation JSON, then attempts immediate HTTP delivery through `POST /api/v1/fieldservice/internal/quotation-snapshots/events` with Marketing service credentials plus `x-quotation-sync-secret` / `QUOTATION_SYNC_SECRET`. Failures keep the committed outbox row and retry automatically with exponential backoff (10s to 5 minutes plus jitter); the timer worker in `server.ts` also recovers pending entries after restart.
+
+Configure `QUOTATION_SYNC_TARGETS` as a JSON array of `{name,url}` where the URL must use the configured `API_GATEWAY_URL`, and `QUOTATION_SYNC_SECRET` identically on Field Service (minimum 32 characters). Each quotation gets a monotonic event version; the receiver stores one row per branch and quotation and ignores older or duplicate events. Revision, deactivation and restore of an already approved quotation republish its current lifecycle state so Field Service stops or resumes offering it as a work order basis.

@@ -26,7 +26,29 @@ assert.equal(created[0].userId, user.id);
 assert.equal(created[0].version, user.version);
 assert.deepEqual(JSON.parse(JSON.stringify(created[0].payload)), JSON.parse(JSON.stringify(user)));
 assert.equal(Object.hasOwn(created[0].payload, 'normalizeUsername'), false, 'internal normalizeUsername must not enter sync payload');
+// Marketing always receives an event; Field Service only when eligible.
 assert.deepEqual(created[0].deliveries.create, [{ targetService: 'marketing-service' }]);
+
+const fieldServiceUser = {
+  id: '00000000-0000-4000-8000-000000000003', username: 'inspector', firstName: 'Budi', lastName: 'Inspector',
+  email: null, telp: null, role: 'USER', section: 'FIELD_SERVICE',
+  officeBranchId: '00000000-0000-4000-8000-000000000002', isActive: true,
+  version: 1, createdAt: new Date(), updatedAt: new Date(),
+};
+await enqueueUserSync(tx, fieldServiceUser);
+assert.deepEqual(created[1].deliveries.create, [
+  { targetService: 'marketing-service' },
+  { targetService: 'fieldservice-service' },
+]);
+// Losing FIELD_SERVICE eligibility still delivers a removal event to Field Service.
+await enqueueUserSync(tx, { ...fieldServiceUser, section: 'MARKETING' }, { previous: fieldServiceUser });
+assert.deepEqual(created[2].deliveries.create, [
+  { targetService: 'marketing-service' },
+  { targetService: 'fieldservice-service' },
+]);
+// A user never eligible for Field Service does not create a Field Service delivery.
+await enqueueUserSync(tx, { ...user, role: 'USER', section: 'FINANCE' }, { previous: { ...user, role: 'USER', section: 'FINANCE' } });
+assert.deepEqual(created[3].deliveries.create, [{ targetService: 'marketing-service' }]);
 
 // Source-level guard: every enqueue caller must wake the delivery worker after
 // the transaction commits; otherwise events wait until the next restart.
@@ -37,11 +59,16 @@ for (const file of ['../src/modules/auth/auth.service.ts', '../src/modules/user-
   assert.ok(source.indexOf('wakeUserSync();') > source.indexOf('enqueueUserSync('), `${file} must wake the worker after the outbox row is committed`);
 }
 
-// Profile updates must enqueue only eligible Marketing administrators and log
-// the non-eligible branch explicitly for troubleshooting.
+// Profile updates must enqueue only eligible Marketing administrators or
+// Field Service users and log the non-eligible branch explicitly.
 const authSource = readFileSync(new URL('../src/modules/auth/auth.service.ts', import.meta.url), 'utf8');
-assert.match(authSource, /updated\.role === 'ADMIN' && updated\.section === 'MARKETING'/);
-assert.match(authSource, /Profile updated without Marketing sync eligibility/);
+assert.match(authSource, /isMarketingUserSyncCandidate\(updated\) \|\| isMarketingUserSyncCandidate\(user\)/);
+assert.match(authSource, /isFieldServiceUserSyncCandidate\(updated\) \|\| isFieldServiceUserSyncCandidate\(user\)/);
+assert.match(authSource, /Profile updated without user sync eligibility/);
+// Delivery resolves the receiver path per target service.
+const deliverySource = readFileSync(new URL('../src/modules/user-sync/user-sync.delivery.ts', import.meta.url), 'utf8');
+assert.match(deliverySource, /'fieldservice\/internal\/users\/events'/);
+assert.match(deliverySource, /USER_SYNC_PATHS\[job\.targetService as UserSyncTarget\]/);
 
 // Retry backoff stays bounded for the delivery worker.
 assert.equal(retryDelay(1), 10000);

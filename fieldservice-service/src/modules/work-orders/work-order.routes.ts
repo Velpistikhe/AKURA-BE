@@ -1,13 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { loadQuotation, loadCompanyContract, loadContract } from '../../integrations/gateway.js';
+import { loadCompanyContract, loadContract } from '../../integrations/gateway.js';
+import { loadStoredQuotation } from '../quotation-snapshots/quotation-snapshot.repository.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
-type BasisInput = { quotationId?: string | null; quotationVersion?: number | null; contractId?: string | null; contractVersion?: number | null; companyId?: string | null };
+type BasisInput = { quotationId?: string | null; contractId?: string | null; companyId?: string | null };
+// Quotation content is already synchronized at approval time; only contracts are
+// still validated live through Marketing.
 const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
-  if (body.quotationId) return loadQuotation(req, body.quotationId, body.quotationVersion!, branch);
-  if (body.contractId) return loadContract(req, body.contractId, body.contractVersion!, branch);
+  if (body.quotationId) return loadStoredQuotation(body.quotationId, branch);
+  if (body.contractId) return loadContract(req, body.contractId, branch);
   return loadCompanyContract(req, body.companyId!, branch);
 };
 const router = Router();

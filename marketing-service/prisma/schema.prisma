@@ -540,6 +540,38 @@ model QuotationSnapshot {
   @@map("quotation_snapshots")
 }
 
+/// Outbox: complete APPROVED quotation JSON published to Field Service.
+model QuotationSyncEvent {
+  id String @id @default(uuid()) @db.Uuid
+  officeBranchId String @map("office_branch_id") @db.Uuid
+  quotationId String @map("quotation_id") @db.Uuid
+  quotationVersion Int @map("quotation_version")
+  /// Monotonic per quotation; stale events are ignored by the receiver.
+  version Int
+  revision Int @default(0)
+  payload Json @db.JsonB
+  approvedAt DateTime @map("approved_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  deliveries QuotationSyncDelivery[]
+  @@unique([quotationId, version])
+  @@index([officeBranchId, createdAt])
+  @@map("quotation_sync_events")
+}
+
+model QuotationSyncDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  eventId String @map("event_id") @db.Uuid
+  event QuotationSyncEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  targetService String @map("target_service")
+  attempts Int @default(0)
+  nextRetryAt DateTime @default(now()) @map("next_retry_at")
+  deliveredAt DateTime? @map("delivered_at")
+  lastError String? @map("last_error")
+  @@unique([eventId, targetService])
+  @@index([deliveredAt, nextRetryAt])
+  @@map("quotation_sync_deliveries")
+}
+
 model TaxCache {
   id              String    @id @db.Uuid
   officeBranchId  String    @map("office_branch_id") @db.Uuid
@@ -568,15 +600,13 @@ model TaxCacheRevision {
 }
 
 /// Local Marketing read model. Rows exist only for users that are simultaneously
-/// ADMIN, MARKETING and active in an assigned office branch.
+/// ADMIN, MARKETING and active in an assigned office branch. The complete Auth
+/// user snapshot is stored as one JSON document so field additions never force
+/// a table migration; officeBranchId is also a column for branch-scoped queries.
 model MarketingAdminUser {
   id              String   @id @db.Uuid
   officeBranchId  String   @map("office_branch_id") @db.Uuid
-  username        String
-  firstName       String   @map("first_name")
-  lastName        String   @map("last_name")
-  email           String?  @db.VarChar(255)
-  telp            String?  @db.VarChar(50)
+  user            Json     @db.JsonB
   sourceVersion   Int      @map("source_version")
   sourceCreatedAt DateTime @map("source_created_at")
   sourceUpdatedAt DateTime @map("source_updated_at")

@@ -7,25 +7,24 @@ const inspectors = z.array(z.string().trim().min(1).max(255)).max(100)
 const fields = {
   companyId: z.string().uuid().nullable().optional(),
   contractId: z.string().uuid().nullable().optional(),
-  contractVersion: version.nullable().optional(),
   quotationId: z.string().uuid().nullable().optional(),
-  quotationVersion: version.nullable().optional(),
-  startDate: date, endDate: date.nullable().optional(),
-  summary: z.string().trim().min(1).max(20000),
+  startDate: date,
+  endDate: date.optional(),
   inspectors: inspectors.optional(),
 };
 type Reference = {
-  quotationId?: string | null; quotationVersion?: number | null;
-  companyId?: string | null; contractId?: string | null; contractVersion?: number | null;
+  quotationId?: string | null; companyId?: string | null; contractId?: string | null;
 };
 const validReference = (value: Reference) =>
-  (value.quotationId ? value.quotationVersion != null : value.quotationVersion == null)
-  && (value.contractId ? value.contractVersion != null : value.contractVersion == null)
-  && Number(!!value.quotationId) + Number(!!value.contractId) + Number(!!value.companyId) === 1;
+  Number(!!value.quotationId) + Number(!!value.contractId) + Number(!!value.companyId) === 1;
 // Creation always starts at DRAFT; status transitions are edits, never part of create.
-export const createWorkOrderSchema = z.object(fields).strict().refine(validReference, 'Supply exactly one quotation/version, contract/version or companyId');
-export const updateWorkOrderSchema = z.object({ ...fields, status: z.nativeEnum(WorkOrderStatus).optional() }).partial().extend({ version }).strict()
-  .refine(value => !['quotationId','quotationVersion','companyId','contractId','contractVersion'].some(key => key in value) || validReference(value), 'Supply exactly one quotation/version, contract/version or companyId when replacing the document basis')
+// The quotation/contract content is snapshotted by the server, so clients only send IDs.
+export const createWorkOrderSchema = z.object(fields).strict()
+  .refine(validReference, 'Supply exactly one quotation, contract or companyId')
+  .refine(value => !value.quotationId || (value.endDate !== undefined && value.inspectors !== undefined),
+    'A quotation-based Work order requires quotationId, startDate, endDate and inspectors');
+export const updateWorkOrderSchema = z.object({ ...fields, endDate: date.nullable().optional(), status: z.nativeEnum(WorkOrderStatus).optional() }).partial().extend({ version }).strict()
+  .refine(value => !['quotationId','companyId','contractId'].some(key => key in value) || validReference(value), 'Supply exactly one quotation, contract or companyId when replacing the document basis')
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const deleteWorkOrderSchema = z.object({ version }).strict();
 export const workOrderIdSchema = z.string().uuid();
