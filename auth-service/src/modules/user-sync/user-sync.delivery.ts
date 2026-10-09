@@ -14,6 +14,30 @@ let stopped = true;
 let requested = false;
 export const retryDelay = (attempt: number) => Math.min(300000, 10000 * 2 ** Math.min(attempt - 1, 5));
 
+/**
+ * Extracts a short, secret-safe detail from a failed receiver response body so
+ * `lastError` (surfaced via GET /users/sync/deliveries) identifies which layer
+ * rejected the delivery: gateway service caller guard, gateway internalCaller
+ * guard, receiver gateway-secret guard, or the shared user-sync secret check.
+ * Details are whitespace-collapsed and capped at 200 characters; unreadable
+ * bodies simply fall back to an empty detail.
+ */
+export async function receiverErrorDetail(response: Response): Promise<string> {
+  try {
+    const raw = await response.text();
+    if (!raw) return '';
+    let detail = raw;
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      if (typeof parsed?.message === 'string') detail = parsed.message;
+    } catch { /* Not JSON (e.g. HTML/plain text): keep the raw body. */ }
+    detail = detail.replace(/\s+/g, ' ').trim();
+    return detail ? `: ${detail.slice(0, 200)}` : '';
+  } catch {
+    return '';
+  }
+}
+
 // Advisory transaction lock prevents simultaneous delivery across Auth instances.
 export async function deliverUserSync(id: string): Promise<void> {
   await prisma.$transaction(async tx => {
@@ -31,7 +55,7 @@ export async function deliverUserSync(id: string): Promise<void> {
         headers: { 'content-type': 'application/json', 'x-user-sync-secret': env.USER_SYNC_SECRET!, ...serviceHeaders(path) },
         body: JSON.stringify({ eventId: job.eventId, officeBranchId: payload.officeBranchId, version: job.event.version, user: payload }),
       });
-      if (!response.ok) throw new Error(`Receiver returned HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`Receiver returned HTTP ${response.status}${await receiverErrorDetail(response)}`);
       const ack = await response.json() as { eventId?: string; success?: boolean };
       if (ack.eventId !== job.eventId || ack.success !== true) throw new Error('Invalid delivery acknowledgment');
       await tx.userSyncDelivery.update({ where: { id }, data: { deliveredAt: new Date(), attempts: { increment: 1 }, lastError: null } });

@@ -148,4 +148,29 @@ assert.ok(!middlewareSource.includes('officeBranchId'), 'access must not depend 
 const controllerSource = readFileSync(new URL('../src/modules/user-management/user-management.controller.ts', import.meta.url), 'utf8');
 assert.match(controllerSource, /await processDueUserSyncs\(\);/, 'monitoring must attempt due retries before reading');
 
-console.log('PASS: user sync outbox enqueue payload, delivery target, retry backoff and APP_MANAGER-only monitoring query.');
+// ── Failed delivery diagnostics: receiver 403 bodies must reach lastError ──
+const { receiverErrorDetail } = await import('../dist/modules/user-sync/user-sync.delivery.js');
+const fakeResponse = (body, ok = false, status = 403) => ({
+  ok, status,
+  text: async () => { if (body === null) throw new Error('stream destroyed'); return body; },
+});
+// JSON body: the receiver `message` field is extracted (identifies the layer).
+assert.equal(
+  await receiverErrorDetail(fakeResponse('{"status":403,"success":false,"message":"Invalid user sync delivery credentials"}')),
+  ': Invalid user sync delivery credentials',
+);
+// Non-JSON body (e.g. HTML from an intermediate proxy) is kept verbatim.
+assert.equal(await receiverErrorDetail(fakeResponse('<html>Forbidden</html>')), ': <html>Forbidden</html>');
+// Whitespace collapses and the detail is capped at 200 characters (': ' + 200 = 202).
+assert.equal(await receiverErrorDetail(fakeResponse('a\r\n  b')), ': a b');
+assert.equal((await receiverErrorDetail(fakeResponse('x'.repeat(500)))).length, 202);
+// Empty or unreadable bodies fall back to no detail (plain status message).
+assert.equal(await receiverErrorDetail(fakeResponse('')), '');
+assert.equal(await receiverErrorDetail(fakeResponse(null)), '');
+// The delivery worker surfaces the detail in the thrown error.
+assert.match(
+  readFileSync(new URL('../src/modules/user-sync/user-sync.delivery.ts', import.meta.url), 'utf8'),
+  /Receiver returned HTTP \$\{response\.status\}\$\{await receiverErrorDetail\(response\)\}/,
+);
+
+console.log('PASS: user sync outbox enqueue payload, delivery target, retry backoff, APP_MANAGER-only monitoring query and receiver error diagnostics.');
