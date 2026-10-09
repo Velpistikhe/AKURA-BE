@@ -4,7 +4,7 @@ import { requireAppManager } from './user-management.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { userManagementController } from './user-management.controller.js';
-import { listUsersSchema, updateUserSchema, userIdSchema } from './user-management.schemas.js';
+import { listUsersSchema, listUserSyncDeliveriesSchema, updateUserSchema, userIdSchema } from './user-management.schemas.js';
 import { prisma } from '../../config/db.js';
 import { AuthenticatedRequest } from '../auth/auth.middleware.js';
 
@@ -27,6 +27,9 @@ router.get('/marketing-contacts', authenticate, asyncHandler(async (req: Authent
 }));
 router.use(authenticate, asyncHandler(requireAppManager));
 router.get('/', validate('query', listUsersSchema), asyncHandler(userManagementController.list));
+// Monitoring only: global sync outbox state. Declared before '/:userId' so the
+// literal path is never swallowed by the parameter route.
+router.get('/sync/deliveries', validate('query', listUserSyncDeliveriesSchema), asyncHandler(userManagementController.syncDeliveries));
 router.get('/:userId', validate('params', userIdSchema), asyncHandler(userManagementController.get));
 router.patch('/:userId', validate('params', userIdSchema), validate('body', updateUserSchema), asyncHandler(userManagementController.update));
 export default router;

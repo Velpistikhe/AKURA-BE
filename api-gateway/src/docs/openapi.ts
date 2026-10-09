@@ -554,6 +554,60 @@ export const openApiDocument = groupByModule({
           requestId: { type: 'string', format: 'uuid' },
         },
       },
+      UserSyncDeliveryListResponse: {
+        type: 'object',
+        description: 'Monitoring view of the Auth user-sync outbox (user_sync_deliveries).',
+        required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 },
+          success: { type: 'boolean', enum: [true] },
+          message: { type: 'string' },
+          data: {
+            type: 'object',
+            required: ['deliveries', 'pagination'],
+            properties: {
+              deliveries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['id', 'eventId', 'targetService', 'attempts', 'nextRetryAt', 'deliveredAt', 'lastError', 'status', 'event'],
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    eventId: { type: 'string', format: 'uuid' },
+                    targetService: { type: 'string', enum: ['marketing-service', 'fieldservice-service'] },
+                    attempts: { type: 'integer', minimum: 0 },
+                    nextRetryAt: { type: 'string', format: 'date-time', description: 'Next automatic retry time; only meaningful while status is pending.' },
+                    deliveredAt: { type: 'string', format: 'date-time', nullable: true, description: 'null means the delivery is still pending.' },
+                    lastError: { type: 'string', nullable: true, description: 'Most recent failure reason; cleared after a successful delivery.' },
+                    status: { type: 'string', enum: ['pending', 'delivered'] },
+                    event: {
+                      type: 'object',
+                      required: ['id', 'userId', 'version', 'createdAt'],
+                      properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        userId: { type: 'string', format: 'uuid' },
+                        version: { type: 'integer', minimum: 1 },
+                        createdAt: { type: 'string', format: 'date-time' },
+                      },
+                    },
+                  },
+                },
+              },
+              pagination: {
+                type: 'object',
+                required: ['page', 'limit', 'total', 'totalPages'],
+                properties: {
+                  page: { type: 'integer' },
+                  limit: { type: 'integer' },
+                  total: { type: 'integer' },
+                  totalPages: { type: 'integer' },
+                },
+              },
+            },
+          },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       ManagedMenu: {
         type: 'object',
         description: 'A menu record managed by an app manager.',
@@ -1563,6 +1617,29 @@ export const openApiDocument = groupByModule({
         ],
         responses: {
           200: response('Users retrieved', schemaRef('UserListResponse')),
+          400: errorResponse('Invalid query parameters'),
+          401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Active app manager role is required'),
+          429: errorResponse('Rate limit exceeded'),
+          500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/auth/users/sync/deliveries': {
+      get: {
+        tags: ['User Management'],
+        summary: 'Monitor user-sync outbox delivery status',
+        description: 'Read-only monitoring of the Auth user-sync outbox that pushes user snapshots to Marketing and Field Service. Requires an active account with role APP_MANAGER; section and office branch are not required and the listing is global across all branches. Before reading, up to five due retries are attempted so the status reflects the current outbox even when the background worker is idle. Pending deliveries are listed first, ordered by next retry time. `deliveredAt=null` means pending; failed deliveries retry automatically with exponential backoff capped at five minutes plus jitter.',
+        security: protectedSecurity,
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+          { in: 'query', name: 'status', schema: { type: 'string', enum: ['pending', 'delivered'] } },
+          { in: 'query', name: 'targetService', schema: { type: 'string', enum: ['marketing-service', 'fieldservice-service'] } },
+          { in: 'query', name: 'userId', description: 'Only deliveries of the events belonging to this user.', schema: { type: 'string', format: 'uuid' } },
+        ],
+        responses: {
+          200: response('User sync deliveries retrieved', schemaRef('UserSyncDeliveryListResponse')),
           400: errorResponse('Invalid query parameters'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
