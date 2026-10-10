@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { loadCompanyContract, loadContract } from '../../integrations/gateway.js';
+import { HttpError } from '../../utils/httpError.js';
+import { loadCompanyContract, loadContract, loadQuotationForStart } from '../../integrations/gateway.js';
 import { loadStoredQuotation } from '../quotation-snapshots/quotation-snapshot.repository.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
-import { createWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
+import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null; companyId?: string | null };
 // Quotation content is already synchronized at approval time; only contracts are
 // still validated live through Marketing.
@@ -27,6 +28,17 @@ router.post('/', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, 
   const input = createWorkOrderSchema.parse(req.body);
   const quotation = await resolveBasis(req, input, actor(res).officeBranchId);
   send(req, res, await repository.create(input, quotation, actor(res)), 201);
+}));
+router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
+  const id = workOrderIdSchema.parse(req.params.id);
+  const { version } = startWorkOrderSchema.parse(req.body);
+  // The stored row is read first so a non-draft fails fast and the Marketing
+  // call is only made for a quotation-based draft in this branch; the upstream
+  // request never runs inside a database transaction.
+  const current = await repository.get(id, actor(res));
+  if (current.status !== 'DRAFT' || current.revoked) throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
+  const quote = current.quotationId ? await loadQuotationForStart(req, current.quotationId, actor(res).officeBranchId) : null;
+  send(req, res, await repository.start(id, version, quote, actor(res)));
 }));
 router.patch('/:id', requireWorkOrderSection('MARKETING', 'FIELD_SERVICE'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);

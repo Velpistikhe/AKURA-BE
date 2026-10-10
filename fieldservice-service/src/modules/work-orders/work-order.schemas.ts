@@ -23,10 +23,17 @@ export const createWorkOrderSchema = z.object(fields).strict()
   .refine(validReference, 'Supply exactly one quotation, contract or companyId')
   .refine(value => !value.quotationId || (value.endDate !== undefined && value.inspectors !== undefined),
     'A quotation-based Work order requires quotationId, startDate, endDate and inspectors');
-export const updateWorkOrderSchema = z.object({ ...fields, endDate: date.nullable().optional(), status: z.nativeEnum(WorkOrderStatus).optional() }).partial().extend({ version }).strict()
+// The DRAFT -> IN_PROGRESS transition must go through POST /:id/start (which
+// re-validates the quotation snapshot against Marketing); PATCH may not set it.
+// Other statuses remain simple CRUD labels as before.
+export const updateWorkOrderSchema = z.object({ ...fields, endDate: date.nullable().optional(),
+  status: z.nativeEnum(WorkOrderStatus).refine(value => value !== 'IN_PROGRESS', 'Use POST /:id/start to move a Work order to IN_PROGRESS').optional() }).partial().extend({ version }).strict()
   .refine(value => !['quotationId','companyId','contractId'].some(key => key in value) || validReference(value), 'Supply exactly one quotation, contract or companyId when replacing the document basis')
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const deleteWorkOrderSchema = z.object({ version }).strict();
+// Moving DRAFT -> IN_PROGRESS requires live Marketing validation, so it only
+// happens through POST /:id/start; this schema carries the optimistic-lock version.
+export const startWorkOrderSchema = z.object({ version }).strict();
 export const workOrderIdSchema = z.string().uuid();
 export const listWorkOrderSchema = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),

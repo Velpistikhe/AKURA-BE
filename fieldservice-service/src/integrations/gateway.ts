@@ -35,6 +35,47 @@ export const quotationSchema = z.object({
   subTotal: money, taxAmount: money, total: money, items: z.array(z.record(z.unknown())),
 }).passthrough();
 export type QuotationSnapshot = z.infer<typeof quotationSchema>;
+/**
+ * Live Marketing validation used when a quotation-based Work order starts.
+ * Marketing is the source of truth: network failure/timeout/5xx means Marketing
+ * is unavailable (503); a 404 or any inactive/non-approved quotation means the
+ * local snapshot no longer matches Marketing (409 mismatch).
+ */
+export async function loadQuotationForStart(req: Request, id: string, branch: string): Promise<QuotationSnapshot> {
+  const token = getAccessToken(req);
+  if (!token) throw new HttpError('Access token is required', 401);
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) throw new HttpError('Verified user is required', 401);
+  const path = `marketing/quotation-references/${id}`;
+  const mismatch = 'Work order quotation snapshot does not match Marketing data; reload the quotation';
+  let response: globalThis.Response;
+  try {
+    response = await fetch(serviceUrl(path), {
+      headers: { Authorization: `Bearer ${token}`, ...serviceHeaders(path),
+        'x-request-id': String(req.headers['x-request-id'] ?? '') },
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    throw new HttpError('Marketing service is currently unavailable; retry later', 503);
+  }
+  // 404 means Marketing no longer exposes the quotation (inactive, revised or
+  // removed): the stored snapshot has drifted from the source of truth.
+  if (response.status === 404) throw new HttpError(mismatch, 409);
+  if (response.status === 401 || response.status === 403) throw new HttpError('Unable to validate the quotation with Marketing service', response.status);
+  if (!response.ok) throw new HttpError('Marketing service is currently unavailable; retry later', 503);
+  let payload: unknown;
+  try { payload = (await response.json() as { data: unknown }).data; }
+  catch { throw new HttpError('Invalid response from Marketing service', 502); }
+  const parsed = quotationSchema.safeParse(payload);
+  if (!parsed.success) throw new HttpError('Invalid Marketing quotation response', 502);
+  const quotation = parsed.data;
+  if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError(mismatch, 409);
+  if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError(mismatch, 409);
+  if (quotation.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT'))
+    throw new HttpError(mismatch, 409);
+  return quotation;
+}
+
 export async function loadQuotation(req: Request, id: string, version: number, branch: string): Promise<QuotationSnapshot> {
   const parsed = quotationSchema.safeParse(await gatewayGet(`marketing/quotation-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid quotation response', 502);

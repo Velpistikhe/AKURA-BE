@@ -148,6 +148,35 @@ export const quotationSchemas = {
     type: 'object', required: ['quotations', 'pagination'],
     properties: { quotations: { type: 'array', items: ref('QuotationListRow') }, pagination: ref('Pagination') },
   }),
+  QuotationSyncDelivery: {
+    type: 'object', readOnly: true,
+    description: 'One delivery job of the quotation-sync outbox targeting a downstream service (Field Service).',
+    required: ['id', 'eventId', 'targetService', 'attempts', 'nextRetryAt', 'deliveredAt', 'lastError', 'event', 'status'],
+    properties: {
+      id: uuid, eventId: uuid, targetService: { type: 'string', enum: ['fieldservice-service'] },
+      attempts: { type: 'integer', description: 'Number of delivery attempts so far.' },
+      nextRetryAt: { ...timestamp, description: 'Earliest time the next automatic retry may run.' },
+      deliveredAt: { ...timestamp, nullable: true, description: 'Null while pending; set on successful acknowledgment.' },
+      lastError: { type: 'string', nullable: true, description: 'Secret-safe failure detail of the last attempt; null once delivered.' },
+      status: { type: 'string', enum: ['pending', 'delivered'] },
+      event: { type: 'object', required: ['id', 'quotationId', 'quotationVersion', 'version', 'revision', 'officeBranchId', 'createdAt', 'approvedAt'], properties: {
+        id: uuid, quotationId: uuid, quotationVersion: { type: 'integer' },
+        version: { type: 'integer', description: 'Monotonic outbox event number for this quotation.' },
+        revision: { type: 'integer' }, officeBranchId: uuid, createdAt: timestamp, approvedAt: timestamp,
+      } },
+    },
+  },
+  QuotationSyncDeliveryListResponse: envelope({
+    type: 'object', required: ['deliveries', 'pagination'],
+    description: 'Monitoring view of the Marketing quotation-sync outbox (quotation_sync_deliveries).',
+    properties: { deliveries: { type: 'array', items: ref('QuotationSyncDelivery') }, pagination: ref('Pagination') },
+  }),
+  RedispatchQuotationSyncRequest: {
+    type: 'object', additionalProperties: false,
+    properties: { quotationId: { ...uuid, description: 'Optional: retry only pending deliveries for this quotation in the caller branch.' } },
+    example: {},
+  },
+  RedispatchQuotationSyncResponse: envelope({ type: 'object', required: ['retried'], properties: { retried: { type: 'integer', description: 'Number of pending deliveries whose backoff was cleared for immediate retry.' } } }),
 };
 const response = (description: string, name: string) => ({ description, content: { 'application/json': { schema: ref(name) } } });
 const commonErrors = {
@@ -160,6 +189,28 @@ const commonErrors = {
 const common = { tags: ['Quotations'], security: [{ bearerAuth: [] }, { accessTokenCookie: [] }] };
 const idParameter = { in: 'path', name: 'quotationId', required: true, schema: uuid };
 export const quotationPaths = {
+  '/api/v1/marketing/quotations/sync/deliveries': {
+    get: {
+      ...common, summary: 'Monitor quotation sync outbox deliveries', parameters: [
+        { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+        { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        { in: 'query', name: 'status', schema: { type: 'string', enum: ['pending', 'delivered'] }, description: 'pending = deliveredAt is null; delivered = acknowledged.' },
+        { in: 'query', name: 'targetService', schema: { type: 'string', enum: ['fieldservice-service'] } },
+        { in: 'query', name: 'quotationId', schema: uuid },
+      ],
+      description: 'Read-only monitoring of the Marketing quotation-sync outbox that pushes quotation snapshots to Field Service. Requires an active account with role ADMIN and section MARKETING. The listing is global across all branches because sync outbox state is operational data, not branch data. Before reading, up to five due retries are attempted so the status reflects the current outbox even when the background worker is idle; a receiver outage never blocks the read. Pending deliveries are listed first (PostgreSQL NULLs first), then by next retry time. `deliveredAt=null` means pending; failed deliveries retry automatically with exponential backoff (10s to 5 minutes plus jitter).',
+      responses: { ...commonErrors, 200: response('Quotation sync deliveries retrieved', 'QuotationSyncDeliveryListResponse'),
+        403: response('Only ADMIN users in the MARKETING section may monitor sync deliveries', 'ErrorResponse') },
+    },
+    post: {
+      ...common, summary: 'Manually re-dispatch pending quotation sync deliveries',
+      requestBody: { required: false, content: { 'application/json': { schema: ref('RedispatchQuotationSyncRequest') } } },
+      description: 'Immediately retries pending outbox deliveries for the caller\'s branch by clearing their backoff, then pushes them through the same concurrency-safe delivery path as the background worker (advisory lock per delivery, monotonic event versions preserved). An optional quotationId narrows the retry to one quotation. Never creates or duplicates events, so Field Service still ignores older or duplicate deliveries. Requires ADMIN and section MARKETING. Returns how many pending deliveries had their backoff cleared; deliveries still failing stay queued with their next automatic retry.',
+      responses: { ...commonErrors, 200: response('Re-dispatch attempted; retried counts pending deliveries woken', 'RedispatchQuotationSyncResponse'),
+        403: response('Only ADMIN users in the MARKETING section may re-dispatch sync deliveries', 'ErrorResponse'),
+        404: response('Quotation not found in this branch', 'ErrorResponse') },
+    },
+  },
   '/api/v1/marketing/quotations/{quotationId}/pdf': {
     get: {
       ...common, summary: 'Preview quotation as PDF without storing it', parameters: [idParameter],

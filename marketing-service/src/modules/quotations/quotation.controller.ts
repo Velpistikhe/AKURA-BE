@@ -1,7 +1,8 @@
 ﻿import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
-import { ListQuotationsInput, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
+import { ListQuotationsInput, ListQuotationSyncDeliveriesInput, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
+import { listQuotationSyncDeliveries, processDueQuotationDeliveries, redispatchQuotationSync } from './quotation-sync.repository.js';
 import { MarketingContact } from '../../types/auth.types.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 import { getAccessToken } from '../../utils/requestTokens.js';
@@ -94,6 +95,23 @@ export const quotationController = {
   },
   async getReference(req: Request, res: Response) {
     send(req, res, 200, 'Quotation retrieved successfully', await quotationRepository.findActive(res.locals.params.quotationId, getOfficeBranchId(res)));
+  },
+  /**
+   * Monitoring read of the quotation sync outbox (branch-agnostic operational
+   * view). Due retries are attempted first so the listing always reflects the
+   * current outbox state even when the background worker is idle. Failures are
+   * swallowed: monitoring must never block on an unreachable receiver.
+   */
+  async syncDeliveries(req: Request, res: Response) {
+    await processDueQuotationDeliveries(getOfficeBranchId(res)).catch(() => undefined);
+    send(req, res, 200, 'Quotation sync deliveries retrieved successfully',
+      await listQuotationSyncDeliveries(res.locals.query as ListQuotationSyncDeliveriesInput));
+  },
+  /** Manual re-dispatch of pending outbox deliveries for the caller's branch. */
+  async redispatchSync(req: Request, res: Response) {
+    const body = res.locals.body as { quotationId?: string };
+    send(req, res, 200, 'Quotation sync re-dispatched successfully',
+      await redispatchQuotationSync(getOfficeBranchId(res), body.quotationId));
   },
   async create(req: Request, res: Response) {
     // Validation middleware already checked the request. The repository also parses

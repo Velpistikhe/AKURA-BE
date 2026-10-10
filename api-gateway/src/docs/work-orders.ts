@@ -10,10 +10,10 @@ const fields = {
   contractId: { ...uuid, nullable: true, writeOnly: true, description: 'Exact ACTIVE contract in the authenticated branch (validated through Marketing). Mutually exclusive with quotationId and companyId. The contract version is captured in contractSnapshot; it is not submitted.' },
   quotationId: { ...uuid, nullable: true, description: 'APPROVED quotation with normal/sister pricing in the current branch, resolved from the synchronized snapshot table (no live Marketing call and no version submitted). Mutually exclusive with contractId and companyId. To replace the basis, supply companyId or one quotation/contract ID.' },
   startDate: date, endDate: { ...date, nullable: true, description: 'Must be on or after startDate. Required when quotationId is supplied.' },
-  status, inspectors: inspectorNames,
+  status: { ...status, description: 'PATCH accepts DRAFT, COMPLETED and CANCELED only. IN_PROGRESS is rejected (400): use POST /{id}/start, which re-validates the quotation snapshot against Marketing first.' }, inspectors: inspectorNames,
 };
 const envelope = (data: object) => ({ type: 'object', properties: { status: { type: 'integer' }, success: { type: 'boolean' }, message: { type: 'string' }, requestId: { type: 'string' }, data } });
-// Create never accepts status; the server stores DRAFT and status changes are PATCH edits.
+// Create never accepts status; the server stores DRAFT, and DRAFT -> IN_PROGRESS only via POST /{id}/start.
 const { status: _createStatus, ...createFields } = fields;
 export const workOrderSchemas = {
   WorkOrderCreate: { type: 'object', additionalProperties: false, required: ['startDate'], oneOf: [{required:['quotationId','endDate','inspectors'],properties:{quotationId:{...uuid,nullable:false},endDate:date,inspectors:inspectorNames,companyId:{enum:[null]},contractId:{enum:[null]}}},{required:['contractId'],properties:{contractId:{...uuid,nullable:false},quotationId:{enum:[null]},companyId:{enum:[null]}}},{required:['companyId'],properties:{companyId:{...uuid,nullable:false},quotationId:{enum:[null]},contractId:{enum:[null]}}}], properties: createFields,
@@ -21,6 +21,11 @@ export const workOrderSchemas = {
     description: 'Creates a Work Order with status DRAFT (status is not accepted here). Supply exactly one basis: quotationId, contractId, or companyId resolved by the server. A quotation-based Work Order requires quotationId with startDate, endDate and the inspectors array; quotation content comes from the snapshot synchronized at approval, so quotation/contract versions and summary are never submitted. May be called by the frontend directly with the caller token, or forwarded by Marketing after a quotation is selected; POST requires section MARKETING.' },
   WorkOrderUpdate: { type: 'object', additionalProperties: false, required: ['version'], minProperties: 2, properties: { ...fields, version } },
   WorkOrderDelete: { type: 'object', additionalProperties: false, required: ['version'], properties: { version } },
+  WorkOrderStart: {
+    type: 'object', additionalProperties: false, required: ['version'], properties: { version },
+    description: 'Optimistic-lock version of the DRAFT Work order to start.',
+    example: { version: 3 },
+  },
   WorkOrder: { type: 'object', properties: { ...fields,
     id: uuid, officeBranchId: { ...uuid, readOnly: true },
     number: { type: 'string', readOnly: true, example: 'WO/2026/000001' },
@@ -41,7 +46,7 @@ export const workOrderSchemas = {
   WorkOrderHistory: { type: 'object', readOnly: true,
     required: ['id', 'workOrderId', 'version', 'action', 'actionLabel', 'beforeSnapshot', 'snapshot', 'changes', 'createdById', 'createdByName', 'createdAt', 'changedBy', 'changedAt'],
     properties: {
-    id: uuid, workOrderId: uuid, version, action: { type: 'string', enum: ['CREATE', 'UPDATE', 'REVOKE'] }, actionLabel: { type: 'string', example: 'Work order deleted' },
+    id: uuid, workOrderId: uuid, version, action: { type: 'string', enum: ['CREATE', 'UPDATE', 'START', 'REVOKE'] }, actionLabel: { type: 'string', example: 'Work order deleted' },
     beforeSnapshot: { type: 'object', allOf: [ref('WorkOrder')], nullable: true, description: 'Full Work Order and inspector snapshot before the change; null for CREATE.' }, snapshot: { allOf: [ref('WorkOrder')], description: 'Full Work Order and inspector snapshot after the change.' },
     changes: { type: 'array', items: ref('WorkOrderHistoryChange'), description: 'Only fields whose values changed, each with an English label. Inspector names and order are compared; regenerated IDs are excluded.' },
     createdById: { ...uuid, description: 'ID of the user who performed this action.' }, createdByName: { type: 'string', example: 'Budi Santoso', description: 'Actor name captured at the time of the action.' }, createdAt: { ...timestamp, description: 'Time this history entry was recorded.' },
@@ -67,7 +72,7 @@ export const workOrderSchemas = {
 const id = { in: 'path', name: 'id', required: true, schema: uuid };
 const operation = (summary: string, response: string, parameters: object[], body?: string, code = 200) => ({
   summary, tags: ['Work Order'], security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
-  description: 'Work Order. Requires an active profile with matching authenticated branch. POST/DELETE require section MARKETING. PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass write section restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is verified through Auth. The server generates number WO/YYYY/000001 and date in Asia/Jakarta; number counters restart each year independently per branch. number, date, branch and audit fields cannot be submitted or changed. Exactly one document basis is required: APPROVED quotationId (resolved from the snapshot synchronized when the quotation was approved; quotation content and version are never submitted), contractId validated through the Marketing contract reference, or companyId resolved by the server to its single ACTIVE contract within its effective period (end exclusive). All bases must belong to the authenticated branch. Creation with quotationId requires startDate, endDate and the inspectors array. Creation without a basis and clearing the basis on PATCH are rejected. Replacing the basis clears the opposite reference and captures a new snapshot; omitted basis fields preserve the stored snapshot. PATCH/DELETE require the current version; conflicts and revoked writes return 409. Inspectors are saved atomically with the Work Order. DELETE is a soft delete (sets revoked=true) and retains inspectors and allocated numbers. Detail can read revoked work orders within the branch.',
+  description: 'Work Order. Requires an active profile with matching authenticated branch. POST/DELETE/start require section MARKETING. PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass write section restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is verified through Auth. The server generates number WO/YYYY/000001 and date in Asia/Jakarta; number counters restart each year independently per branch. number, date, branch and audit fields cannot be submitted or changed. Exactly one document basis is required: APPROVED quotationId (resolved from the snapshot synchronized when the quotation was approved; quotation content and version are never submitted), contractId validated through the Marketing contract reference, or companyId resolved by the server to its single ACTIVE contract within its effective period (end exclusive). All bases must belong to the authenticated branch. Creation with quotationId requires startDate, endDate and the inspectors array. Creation without a basis and clearing the basis on PATCH are rejected. Replacing the basis clears the opposite reference and captures a new snapshot; omitted basis fields preserve the stored snapshot. PATCH/DELETE/start require the current version; conflicts and revoked writes return 409. PATCH rejects status IN_PROGRESS: DRAFT to IN_PROGRESS happens only via POST /{id}/start. Inspectors are saved atomically with the Work Order. DELETE is a soft delete (sets revoked=true) and retains inspectors and allocated numbers. Detail can read revoked work orders within the branch.',
   ...(body ? { requestBody: { required: true, content: { 'application/json': { schema: ref(body) } } } } : {}),
   responses: { [code]: { description: 'Success', content: { 'application/json': { schema: ref(response) } } },
     400: { description: 'Invalid fields, dates or inspector names' }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 404: { description: 'Work Order, company or quotation not found in this branch' }, 409: { description: 'No unique eligible contract, version conflict, revoked Work Order or number limit reached' }, 502: { description: 'Invalid upstream response' }, 503: { description: 'Referenced service unavailable' } },
@@ -100,6 +105,22 @@ export const workOrderPaths = {
     get: operation('Get Work Order', 'WorkOrderResponse', [id]),
     patch: operation('Update Work Order and inspectors', 'WorkOrderResponse', [id], 'WorkOrderUpdate'),
     delete: operation('Revoke Work Order', 'WorkOrderResponse', [id], 'WorkOrderDelete'),
+  },
+  '/api/v1/fieldservice/work-orders/{id}/start': {
+    post: {
+      ...operation('Start Work Order (DRAFT to IN_PROGRESS)', 'WorkOrderResponse', [id], 'WorkOrderStart'),
+      description: 'Moves a DRAFT Work Order to IN_PROGRESS and records a START history entry. Requires section MARKETING and the current version (optimistic lock). For quotation-based orders the server re-validates the stored quotation snapshot against Marketing through the read-only quotation reference: Marketing is unavailable (network error, timeout or 5xx) returns 503 "Marketing service is currently unavailable; retry later"; a quotation that no longer matches Marketing (version changed, revised, deactivated, not APPROVED or removed) returns 409 "Work order quotation snapshot does not match Marketing data; reload the quotation". When validation succeeds the transition commits atomically (status, version increment, actor and history). Contract/company-based orders transition without quotation validation. Work Orders that are not DRAFT, stale versions and revoked orders return 409; unknown IDs return 404. PATCH cannot set IN_PROGRESS directly: this endpoint is the only way to start a Work Order. The upstream Marketing call never runs inside a database transaction.',
+      responses: {
+        200: { description: 'Work Order started (IN_PROGRESS)', content: { 'application/json': { schema: ref('WorkOrderResponse') } } },
+        400: { description: 'Invalid version or quotation ID' },
+        401: { description: 'Unauthenticated or stale branch' },
+        403: { description: 'Access denied (section MARKETING required)' },
+        404: { description: 'Work Order not found in this branch' },
+        409: { description: 'Not a draft, stale version, revoked, non-quotation basis mismatch, or quotation snapshot does not match Marketing data' },
+        502: { description: 'Invalid Marketing response' },
+        503: { description: 'Marketing service is currently unavailable; retry later' },
+      },
+    },
   },
   '/api/v1/fieldservice/options/inspectors': {
     get: {

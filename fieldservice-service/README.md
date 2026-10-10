@@ -10,7 +10,7 @@ Development direct access: set `DIRECT_MFE_ACCESS=true` and `DIRECT_MFE_ORIGIN` 
 
 ## Work Orders
 
-Endpoint: `/api/v1/fieldservice/work-orders` through the gateway. GET/POST collection and GET/PATCH/DELETE `/:id`. Access requires an active profile and matching authenticated branch. POST and DELETE require section MARKETING; PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass these write restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is loaded from Auth, never from client-submitted fields or headers.
+Endpoint: `/api/v1/fieldservice/work-orders` through the gateway. GET/POST collection, GET/PATCH/DELETE `/:id`, and POST `/:id/start` (DRAFT to IN_PROGRESS). Access requires an active profile and matching authenticated branch. POST, DELETE and start require section MARKETING; PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass these write restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is loaded from Auth, never from client-submitted fields or headers.
 
 Five tables: `work_order` (work order and document snapshots), `work_order_inspectors` (ordered inspector names linked to the work order), `work_order_sequences` (last allocated integer keyed by branch and year), `work_order_histories` (append-only changes), and `quotation_snapshots` (latest approved quotation JSON per branch and quotation). For a fresh database use `npm run db:push`.
 
@@ -24,7 +24,7 @@ Create example:
 }
 ```
 
-`startDate` is required. `endDate` is nullable for contract-based orders but required for quotation-based orders; it cannot precede startDate. Status defaults to DRAFT; accepted values: DRAFT, IN_PROGRESS, COMPLETED, CANCELED. Status is a CRUD label, not an approval workflow. Quotation-based creation also requires the `inspectors` array (which may be empty); inspector names are ordered and unique ignoring case. No Auth account is required for an inspector name.
+`startDate` is required. `endDate` is nullable for contract-based orders but required for quotation-based orders; it cannot precede startDate. Status defaults to DRAFT; accepted values: DRAFT, IN_PROGRESS, COMPLETED, CANCELED. Creation never accepts status, and PATCH rejects `status: IN_PROGRESS` (400): the DRAFT to IN_PROGRESS transition only happens through `POST /:id/start` (see below), so no client can skip the Marketing snapshot validation. COMPLETED and CANCELED remain plain PATCH labels. Quotation-based creation also requires the `inspectors` array (which may be empty); inspector names are ordered and unique ignoring case. No Auth account is required for an inspector name.
 
 For contract-based orders, set exactly one of `contractId` or `companyId` instead; contract and quotation version values are never submitted. `summary` is not part of the Work Order model. Quotation content is read from `quotation_snapshots`, populated by Marketing when a quotation is approved; Work Order creation does not fetch quotation data live.
 
@@ -38,7 +38,7 @@ Run `npm run test:work-order` after generation/schema setup. Swagger includes th
 
 ### Work Order history
 
-`GET /api/v1/fieldservice/work-orders/:id/history?page=1&limit=20` returns changes newest version first, within the authenticated branch, including revoked work orders. Following the same history pattern as other service modules, each entry exposes `actionLabel` (English), `changedBy` `{ id, name }`, `changedAt`, and `changes` entries with English `label` plus `before`/`after` values. Each CREATE, UPDATE and REVOKE saves the actor ID/name, timestamp, version, full before/after snapshots including inspectors, and the field-level changes array. Inspector changes compare names and order; generated row IDs do not create noisy change entries. Work Order, inspectors, sequence allocation and history commit together; a history failure rolls everything back. One history record per Work Order/version is enforced by a unique index. No history edit/delete endpoint is exposed.
+`GET /api/v1/fieldservice/work-orders/:id/history?page=1&limit=20` returns changes newest version first, within the authenticated branch, including revoked work orders. Following the same history pattern as other service modules, each entry exposes `actionLabel` (English), `changedBy` `{ id, name }`, `changedAt`, and `changes` entries with English `label` plus `before`/`after` values. Each CREATE, UPDATE, START and REVOKE saves the actor ID/name, timestamp, version, full before/after snapshots including inspectors, and the field-level changes array. Inspector changes compare names and order; generated row IDs do not create noisy change entries. Work Order, inspectors, sequence allocation and history commit together; a history failure rolls everything back. One history record per Work Order/version is enforced by a unique index. No history edit/delete endpoint is exposed.
 
 The old report/documents HTTP modules and Prisma models have been removed. Existing `reports` and `reports_histories` database tables remain archived; this change does not drop historical data. Use the additive schema script on existing databases instead of accepting destructive `db:push` changes.
 
@@ -50,6 +50,19 @@ Application names use WorkOrder and `/work-orders`. Existing numbers and history
 Every new work order requires exactly one basis: `quotationId` (APPROVED quotation in this branch resolved from `quotation_snapshots`, with no version submitted), `contractId` (exact ACTIVE contract validated through the Marketing contract reference, branch-scoped), or `companyId` (server resolves an ACTIVE contract for the non-revoked company effective today in Asia/Jakarta; effectiveUntil is exclusive, matching Marketing). The quotation basis is populated by the internal snapshot delivery `POST /api/v1/fieldservice/internal/quotation-snapshots/events`, which Marketing enqueues outbox-style the moment a quotation is approved; a missing snapshot returns 404 until the quotation is approved and synchronized. Contract data is fetched through `/api/v1/marketing/company-contract-references/:companyId` or `/api/v1/marketing/contract-references/:contractId`; its ID and contractSnapshot are saved and included in history. Companies with no eligible contract or multiple eligible contracts return 409. Upstream unavailability returns 503 without creating a work order. Work orders without a basis are rejected. PATCH may replace the basis by supplying `companyId`, `contractId` or `quotationId`, which clears the opposite references. Omitting all basis fields preserves it; clearing without replacement is rejected. Existing independent work orders remain readable. New work orders are always created with status `DRAFT`.
 
 Physical tables are now `work_order`, `work_order_inspectors`, `work_order_sequences`, `work_order_histories`, `quotation_snapshots`, with `work_order_id` foreign keys and `WorkOrderStatus` enum. Existing databases have been migrated; fresh databases use `npm run db:push`. Restart running consumers after applying schema changes.
+
+
+### Start work order: DRAFT to IN_PROGRESS
+
+`POST /api/v1/fieldservice/work-orders/:id/start` with body `{ "version": <current version> }` (section MARKETING) moves a work order to `IN_PROGRESS` and appends a `START` history entry. It is the only way to reach `IN_PROGRESS`; PATCH rejects `status: IN_PROGRESS` with 400. The version is the optimistic lock: a stale version or a work order that is no longer a draft returns 409, an unknown id 404, and a revoked work order 409.
+
+For a quotation-based work order the stored `quotationSnapshot` is re-validated against the live Marketing quotation through `/api/v1/marketing/quotation-references/:quotationId` before the transaction starts, so the upstream call never holds database locks:
+
+- Marketing unreachable (network error, timeout or 5xx) returns 503 `Marketing service is currently unavailable; retry later`.
+- A quotation that no longer matches Marketing (version changed, revised, deactivated, not APPROVED, contract-priced, or removed so Marketing answers 404) returns 409 `Work order quotation snapshot does not match Marketing data; reload the quotation`.
+- When the snapshot matches, the transition commits atomically: status, version increment, updated-by actor and history.
+
+Every Marketing content mutation bumps the quotation version, so version equality is authoritative; the comparison additionally checks id, branch, status, isActive, subject and totals against the stored snapshot. Contract/company-based work orders start without any Marketing quotation call.
 
 
 ### Quotation snapshot receiver

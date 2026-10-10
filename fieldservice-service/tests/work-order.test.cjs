@@ -20,7 +20,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
  const contract={id:contractId,companyId,version:0,status:'ACTIVE',isActive:true,effectiveFrom:'2000-01-01T00:00:00.000Z',effectiveUntil:'2099-01-01T00:00:00.000Z',company:{id:companyId,officeBranchId:branch,revoked:false}};
  const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,subject:'Work',companySnapshot:{name:'Company'},customerSnapshot:'Buyer',subTotal:'100',taxAmount:'11',total:'111',items:[]};
  const originalFetch=global.fetch;
- let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0;
+ let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0,quotationHttpStatus=200;
  global.fetch=async(url,options)=>{
   if(!String(url).startsWith(env.API_GATEWAY_URL+'/api/v1/'))return originalFetch(url,options);
   const token=options.headers.Authorization;
@@ -39,6 +39,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   }
   quotationCalls++;
   if(upstreamFails)throw Error('offline');
+  if(quotationHttpStatus!==200)return {ok:false,status:quotationHttpStatus,json:async()=>({message:'Active quotation not found in this branch'})};
   return {ok:true,json:async()=>({data:quotation})};
  };
  const app=express();app.use(express.json());
@@ -64,6 +65,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   for(const token of ['field','wrong','no-section','admin','manager']){
    await request('POST','/work-orders',raw,403,token);
    await request('DELETE','/work-orders/'+row.id,{version:0},403,token);
+   await request('POST','/work-orders/'+row.id+'/start',{version:0},403,token);
    if(token!=='field')await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-10-01'},403,token);
   }
   await request('GET','/work-orders/'+row.id,undefined,200,'field');
@@ -106,7 +108,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await request('POST','/work-orders',{...basis,inspectors:undefined},400);
   await request('POST','/work-orders',{...basis,quotationId:randomUUID()},404);
   upstreamFails=true;await request('POST','/work-orders',raw,503);upstreamFails=false;
-  const changed=await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],status:'IN_PROGRESS',quotationId:quoteId},200,'field');
+  const changed=await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],quotationId:quoteId},200,'field');
   assert.equal(changed.updatedByName,'Test User');assert.equal(changed.updatedById,user);assert.equal(changed.number,row.number);assert.deepEqual(changed.inspectors.map(x=>x.name),['Dewi']);assert.equal(changed.quotationId,quoteId);
   await request('PATCH','/work-orders/'+row.id,{version:1,startDate:'2027-01-01',inspectors:['Should rollback']},400);
   assert.equal((await repo.get(row.id,actor)).version,1);assert.equal((await repo.get(row.id,actor)).inspectors[0].name,'Dewi');
@@ -127,9 +129,44 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await request('POST','/work-orders',{...raw,contractId,quotationId:quoteId},400);
   assert.equal((await request('GET','/work-orders/'+byContract.id)).contractId,contractId);
   assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
+  // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
+  const startable=await request('POST','/work-orders',basis,201);
+  assert.equal(startable.status,'DRAFT');
+  await request('POST','/work-orders/'+startable.id+'/start',{version:99},409);
+  upstreamFails=true;
+  await request('POST','/work-orders/'+startable.id+'/start',{version:0},503);
+  upstreamFails=false;
+  quotationHttpStatus=404;
+  await request('POST','/work-orders/'+startable.id+'/start',{version:0},409);
+  quotationHttpStatus=200;
+  quotation.status='REVISED';
+  await request('POST','/work-orders/'+startable.id+'/start',{version:0},409);
+  quotation.status='APPROVED';
+  quotation.version=1;
+  await request('POST','/work-orders/'+startable.id+'/start',{version:0},409);
+  quotation.version=0;
+  assert.equal((await repo.get(startable.id,actor)).status,'DRAFT');
+  const started=await request('POST','/work-orders/'+startable.id+'/start',{version:0});
+  assert.equal(started.status,'IN_PROGRESS');assert.equal(started.version,1);
+  assert.equal(started.updatedByName,'Test User');assert.equal(started.updatedById,user);
+  const startHistory=await request('GET','/work-orders/'+startable.id+'/history');
+  assert.equal(startHistory.pagination.total,2);
+  assert.equal(startHistory.history[0].action,'START');
+  assert.equal(startHistory.history[0].actionLabel,'Work order started');
+  assert(startHistory.history[0].changes.some(change=>change.field==='status'&&change.before==='DRAFT'&&change.after==='IN_PROGRESS'));
+  await request('POST','/work-orders/'+startable.id+'/start',{version:1},409);
+  await request('POST','/work-orders/'+randomUUID()+'/start',{version:0},404);
+  await request('POST','/work-orders/'+startable.id+'/start',{version:1},404,'other');
+  // PATCH may not perform the start transition.
+  await request('PATCH','/work-orders/'+byContract.id,{version:0,status:'IN_PROGRESS'},400);
+  // Contract-based DRAFT starts without any Marketing quotation call.
+  const quotationCallsBeforeStart=quotationCalls;
+  const contractStarted=await request('POST','/work-orders/'+byContract.id+'/start',{version:0});
+  assert.equal(contractStarted.status,'IN_PROGRESS');
+  assert.equal(quotationCalls,quotationCallsBeforeStart,'contract basis must not call Marketing quotation reference');
   const revoked=await request('DELETE','/work-orders/'+linked.id,{version:0});assert.equal(revoked.revoked,true);assert.equal(revoked.inspectors.length,2);
   assert.equal((await request('GET','/work-orders/'+linked.id)).revoked,true);await request('PATCH','/work-orders/'+linked.id,{version:1,startDate:'2026-10-01'},409);await request('DELETE','/work-orders/'+linked.id,{version:1},409);
-  assert.equal((await request('GET','/work-orders?revoked=true')).pagination.total,1);assert.equal((await request('GET','/work-orders?status=IN_PROGRESS')).pagination.total,1);assert.equal((await request('GET','/work-orders?quotationId='+quoteId)).pagination.total,0);
+  assert.equal((await request('GET','/work-orders?revoked=true')).pagination.total,1);assert.equal((await request('GET','/work-orders?status=IN_PROGRESS')).pagination.total,2);assert.equal((await request('GET','/work-orders?quotationId='+quoteId)).pagination.total,1);
   const history=await request('GET','/work-orders/'+row.id+'/history?limit=2');
   assert.equal(history.pagination.total,4);assert.deepEqual(history.history.map(x=>x.version),[3,2]);
   assert.deepEqual(history.history[0].changes.find(x=>x.field==='inspectors').after,[]);
@@ -150,18 +187,18 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal((await repo.history(row.id,1,20,actor)).pagination.total,4);
   assert.equal((await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}})).lastNumber,sequenceBefore.lastNumber);
   const created=await Promise.all(Array.from({length:6},()=>repo.create(createWorkOrderSchema.parse(raw),contract,actor)));
-  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+4).padStart(6,'0')}`));
+  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+5).padStart(6,'0')}`));
   // Child insertion failure must roll back both Work order and number allocation.
   let fail=true;
   prisma.$use(async(params,next)=>{if(fail&&params.model==='WorkOrder'&&params.action==='create')params.args.data.inspectors.create.push({name:'x'.repeat(256),position:999});return next(params);});
   await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor));fail=false;
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000010`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000011`);
   const allocate=clock=>prisma.$transaction(tx=>nextWorkOrderIdentity(tx,clockBranch,clock));
   const end=()=>new Date('2026-12-31T16:59:59Z'),start=()=>new Date('2026-12-31T17:00:00Z');
   assert.equal((await allocate(end)).number,'WO/2026/000001');assert.equal((await allocate(end)).number,'WO/2026/000002');assert.equal((await allocate(start)).number,'WO/2027/000001');
   let reads=0;const crossed=await allocate(()=>++reads===1?end():start());assert.equal(crossed.number,'WO/2027/000002');assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000011`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000012`);
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
   const where={officeBranchId:{in:branches}};

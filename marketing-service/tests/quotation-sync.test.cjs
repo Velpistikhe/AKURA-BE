@@ -73,7 +73,46 @@ test('Approved quotation commits its sync outbox atomically and delivers with ba
     const before = deliveries.length;
     await sync.processDueQuotationDeliveries(branch);
     assert.ok(deliveries.length > before, 'due deliveries are attempted');
-    console.log('PASS: quotation sync outbox commits atomically, retries with backoff and publishes monotonic events.');
+
+    // ── Monitoring read: GET /quotations/sync/deliveries listing ──────────────
+    const listed = await sync.listQuotationSyncDeliveries({ page: 1, limit: 20 });
+    assert.ok(listed.deliveries.length >= 2, 'both events are listed');
+    assert.ok(listed.pagination.total >= 2);
+    assert.equal(listed.deliveries[0].targetService, 'fieldservice-service');
+    assert.equal(listed.deliveries[0].status, 'delivered');
+    assert.equal(listed.deliveries[0].event.quotationId, quotationId);
+    assert.ok(listed.deliveries[0].deliveredAt instanceof Date);
+    assert.equal(listed.deliveries[0].lastError, null);
+    const pendingOnly = await sync.listQuotationSyncDeliveries({ page: 1, limit: 20, status: 'pending' });
+    assert.ok(pendingOnly.deliveries.every(row => row.deliveredAt === null));
+    const filtered = await sync.listQuotationSyncDeliveries({ page: 1, limit: 20, quotationId });
+    assert.equal(filtered.pagination.total, listed.deliveries.filter(row => row.event.quotationId === quotationId).length);
+    const wrongQuotation = await sync.listQuotationSyncDeliveries({ page: 1, limit: 20, quotationId: randomUUID() });
+    assert.equal(wrongQuotation.pagination.total, 0);
+
+    // ── Manual re-dispatch: clears backoff and pushes pending deliveries ──────
+    fail = true;
+    const third = await prisma.$transaction(tx => sync.enqueueQuotationSnapshot(tx, {
+      id: quotationId, officeBranchId: branch, version: 5, revision: 1, payload: { ...payload, version: 5 }, approvedAt: new Date(),
+    }));
+    const thirdJob = await prisma.quotationSyncDelivery.findFirst({ where: { eventId: third.id } });
+    await sync.deliverQuotationSync(thirdJob.id);
+    const backedOff = await prisma.quotationSyncDelivery.findUnique({ where: { id: thirdJob.id } });
+    assert.equal(backedOff.deliveredAt, null);
+    assert.ok(backedOff.nextRetryAt > new Date(), 'failure schedules a backoff');
+    fail = false;
+    // Immediate deliverQuotationSync is a no-op while backing off...
+    await sync.deliverQuotationSync(thirdJob.id);
+    assert.equal((await prisma.quotationSyncDelivery.findUnique({ where: { id: thirdJob.id } })).deliveredAt, null);
+    // ...but the manual re-dispatch clears the backoff and delivers now.
+    const redispatched = await sync.redispatchQuotationSync(branch, quotationId);
+    assert.equal(redispatched.retried, 1);
+    const redispatchedJob = await prisma.quotationSyncDelivery.findUnique({ where: { id: thirdJob.id } });
+    assert.ok(redispatchedJob.deliveredAt, 'manual re-dispatch delivered the pending job');
+    assert.equal(redispatchedJob.lastError, null);
+    // Other branches are never touched by a manual re-dispatch.
+    assert.equal((await sync.redispatchQuotationSync(randomUUID())).retried, 0);
+    console.log('PASS: quotation sync outbox commits atomically, retries with backoff, publishes monotonic events, lists for monitoring and re-dispatches manually.');
   } finally {
     global.fetch = originalFetch;
     if (originalTargets === undefined) delete process.env.QUOTATION_SYNC_TARGETS; else process.env.QUOTATION_SYNC_TARGETS = originalTargets;

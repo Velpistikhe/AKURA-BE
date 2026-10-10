@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { buildPagination } from '../../utils/listQuery.js';
 
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 
@@ -46,6 +47,58 @@ export async function enqueueQuotationStateSync(tx: Prisma.TransactionClient, qu
 
 export const retryDelay = (attempt: number) => Math.min(300000, 10000 * 2 ** Math.min(attempt - 1, 5));
 
+/** Monitoring read for the quotation-sync outbox (GET /quotations/sync/deliveries). */
+export type QuotationSyncDeliveryStatus = 'pending' | 'delivered';
+
+export async function listQuotationSyncDeliveries(input: {
+  page: number; limit: number; status?: QuotationSyncDeliveryStatus;
+  targetService?: string; quotationId?: string;
+}) {
+  const where: Prisma.QuotationSyncDeliveryWhereInput = {
+    ...(input.status === 'pending' ? { deliveredAt: null } : {}),
+    ...(input.status === 'delivered' ? { deliveredAt: { not: null } } : {}),
+    ...(input.targetService ? { targetService: input.targetService } : {}),
+    ...(input.quotationId ? { event: { quotationId: input.quotationId } } : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.quotationSyncDelivery.findMany({
+      where,
+      // PostgreSQL sorts NULL (pending) first on DESC, so pending rows always lead.
+      orderBy: [{ deliveredAt: 'desc' }, { nextRetryAt: 'asc' }, { id: 'asc' }],
+      take: input.limit,
+      skip: (input.page - 1) * input.limit,
+      select: {
+        id: true, eventId: true, targetService: true, attempts: true,
+        nextRetryAt: true, deliveredAt: true, lastError: true,
+        event: { select: { id: true, quotationId: true, quotationVersion: true, version: true,
+          revision: true, officeBranchId: true, createdAt: true, approvedAt: true } },
+      },
+    }),
+    prisma.quotationSyncDelivery.count({ where }),
+  ]);
+  const deliveries = rows.map(row => ({
+    ...row, status: (row.deliveredAt ? 'delivered' : 'pending') as QuotationSyncDeliveryStatus,
+  }));
+  return { deliveries, pagination: buildPagination(input.page, input.limit, total) };
+}
+
+/**
+ * Manual re-dispatch (POST /quotations/sync/deliveries): clears the backoff on
+ * pending deliveries for the branch (optionally one quotation) and attempts them
+ * immediately through the same concurrency-safe delivery path as the worker.
+ * Never creates or duplicates events, so monotonic event versions are preserved.
+ */
+export async function redispatchQuotationSync(officeBranchId: string, quotationId?: string) {
+  const reset = await prisma.quotationSyncDelivery.updateMany({
+    where: { deliveredAt: null, event: { officeBranchId, ...(quotationId ? { quotationId } : {}) },
+      nextRetryAt: { gt: new Date() } },
+    data: { nextRetryAt: new Date() },
+  });
+  await processDueQuotationDeliveries(officeBranchId, undefined, quotationId);
+  wakeQuotationDelivery();
+  return { retried: reset.count };
+}
+
 /** Durable, concurrency-safe outbox delivery. */
 export async function deliverQuotationSync(id: string) {
   return prisma.$transaction(async tx => {
@@ -80,10 +133,12 @@ export async function deliverQuotationSync(id: string) {
   }, { timeout: 20000, maxWait: 5000 });
 }
 
-export async function processDueQuotationDeliveries(officeBranchId: string, eventId?: string): Promise<void> {
+export async function processDueQuotationDeliveries(officeBranchId: string, eventId?: string, quotationId?: string): Promise<void> {
   try {
     const jobs = await prisma.quotationSyncDelivery.findMany({
-      where: { deliveredAt: null, nextRetryAt: { lte: new Date() }, event: { officeBranchId }, ...(eventId ? { eventId } : {}) },
+      where: { deliveredAt: null, nextRetryAt: { lte: new Date() },
+        event: { officeBranchId, ...(quotationId ? { quotationId } : {}) },
+        ...(eventId ? { eventId } : {}) },
       orderBy: { nextRetryAt: 'asc' }, ...(eventId ? {} : { take: 5 }), select: { id: true },
     });
     const results = await Promise.allSettled(jobs.map(job => deliverQuotationSync(job.id)));

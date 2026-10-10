@@ -64,6 +64,27 @@ export const createWorkOrderFromQuotationSchema = z.object({
   .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
 export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
+
+// Read-only monitoring query for the quotation sync outbox. Access is restricted
+// to ADMIN MARKETING by the route middleware; the listing is global across
+// branches because sync outbox state is operational data, not branch data.
+export const QUOTATION_SYNC_TARGET_SERVICES = ['fieldservice-service'] as const;
+export const listQuotationSyncDeliveriesSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum(['pending', 'delivered']).optional(),
+  targetService: z.enum(QUOTATION_SYNC_TARGET_SERVICES).optional(),
+  quotationId: z.string().uuid('Invalid quotation ID').optional(),
+}).strict();
+export type ListQuotationSyncDeliveriesInput = z.infer<typeof listQuotationSyncDeliveriesSchema>;
+
+// Manual re-dispatch trigger: retry pending outbox deliveries immediately.
+// Branch-scoped to the caller; quotationId narrows the retry to one quotation.
+// preprocess tolerates an omitted request body entirely.
+export const redispatchQuotationSyncSchema = z.preprocess(value => value ?? {}, z.object({
+  quotationId: z.string().uuid('Invalid quotation ID').optional(),
+}).strict());
+export type RedispatchQuotationSyncInput = z.infer<typeof redispatchQuotationSyncSchema>;
 export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;
 export const rejectQuotationSchema = deactivateQuotationSchema;

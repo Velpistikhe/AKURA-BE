@@ -15,9 +15,9 @@ const historyLabels: Record<string, string> = {
   contractSnapshot: 'Contract snapshot', startDate: 'Start date', endDate: 'End date',
   status: 'Status', revoked: 'Revoked', inspectors: 'Inspectors',
 };
-const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', REVOKE: 'Work order deleted' };
+const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', START: 'Work order started', REVOKE: 'Work order deleted' };
 const historyFields = Object.keys(historyLabels) as (keyof typeof historyLabels)[];
-async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot, before: WorkOrderSnapshot | null, actor: Actor, action: 'CREATE' | 'UPDATE' | 'REVOKE') {
+async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot, before: WorkOrderSnapshot | null, actor: Actor, action: 'CREATE' | 'UPDATE' | 'START' | 'REVOKE') {
   const afterValues = JSON.parse(JSON.stringify(row));
   const beforeValues = before ? JSON.parse(JSON.stringify(before)) : {};
   // Inspector row IDs may be replaced; report changes to names/order, not generated IDs.
@@ -32,6 +32,19 @@ async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot,
     createdById: actor.id, createdByName: actor.name } });
   return row;
 }
+const normalizeSnapshot = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(normalizeSnapshot);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, normalizeSnapshot(item)]));
+  }
+  return value;
+};
+const snapshotsMatch = (left: unknown, right: unknown): boolean =>
+  JSON.stringify(normalizeSnapshot(left)) === JSON.stringify(normalizeSnapshot(right));
+
 const inspectorRows = (names: string[]) => names.map((name, position) => ({ name, position }));
 function reference(input: { quotationId?: string | null; companyId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
   const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };
@@ -117,6 +130,49 @@ export const workOrderRepository = {
       const row = await tx.workOrder.update({ where: { id }, data: { ...fields, ...quotation }, include });
       return saveHistory(tx, row, before, actor, 'UPDATE');
     });
+  },
+  /**
+   * DRAFT -> IN_PROGRESS. For quotation-based orders the stored snapshot is
+   * compared against the live Marketing quotation (validated by the route before
+   * the transaction starts), so an upstream call never holds database locks.
+   * Contract/company-based orders transition without quotation validation.
+   * The claim itself is an optimistic updateMany on status/version/revoked, so
+   * concurrent starters cannot both succeed.
+   */
+  async start(id: string, version: number, quote: QuotationSnapshot | null, actor: Actor) {
+    const stored = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
+    if (!stored) throw new HttpError('Work order not found', 404);
+    if (stored.quotationId) {
+      if (!quote) throw new HttpError('Quotation validation with Marketing service is required before starting', 409);
+      const snapshot = stored.quotationSnapshot as Record<string, unknown> | null;
+      // Validity gate: Marketing is the source of truth. The stored snapshot must
+      // still describe the same APPROVED, active quotation in this branch. Version
+      // equality is authoritative because every Marketing content mutation bumps
+      // the quotation version; the remaining fields protect against snapshot drift.
+      if (!snapshot || !snapshotsMatch(
+        { id: quote.id, officeBranchId: quote.officeBranchId, version: quote.version,
+          status: quote.status, isActive: quote.isActive, subject: quote.subject,
+          subTotal: quote.subTotal, taxAmount: quote.taxAmount, total: quote.total },
+        { id: stored.quotationId, officeBranchId: stored.officeBranchId, version: snapshot.version,
+          status: snapshot.status, isActive: snapshot.isActive, subject: snapshot.subject,
+          subTotal: snapshot.subTotal, taxAmount: snapshot.taxAmount, total: snapshot.total },
+      )) {
+        throw new HttpError('Work order quotation snapshot does not match Marketing data; reload the quotation', 409);
+      }
+    }
+    return prisma.$transaction(async tx => {
+      const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
+      const claimed = await tx.workOrder.updateMany({
+        where: { id, officeBranchId: actor.officeBranchId, version, status: 'DRAFT', revoked: false },
+        data: { status: 'IN_PROGRESS', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
+      });
+      if (!claimed.count) {
+        if (!before) throw new HttpError('Work order not found', 404);
+        throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
+      }
+      const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
+      return saveHistory(tx, row, before, actor, 'START');
+    }, { maxWait: 10000, timeout: 20000 });
   },
   async revoke(id: string, version: number, actor: Actor) {
     return prisma.$transaction(async tx => {
