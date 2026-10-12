@@ -20,11 +20,11 @@ Create example:
   "quotationId": "00000000-0000-4000-8000-000000000009",
   "startDate": "2026-09-15",
   "endDate": "2026-09-18",
-  "inspectors": ["Budi Santoso", "Agus Wijaya"]
+  "inspectors": ["00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000a2"]
 }
 ```
 
-`startDate` is required. `endDate` is nullable for contract-based orders but required for quotation-based orders; it cannot precede startDate. Status defaults to DRAFT; accepted values: DRAFT, IN_PROGRESS, COMPLETED, CANCELED. Creation never accepts status, and PATCH rejects `status: IN_PROGRESS` (400): the DRAFT to IN_PROGRESS transition only happens through `POST /:id/start` (see below), so no client can skip the Marketing snapshot validation. COMPLETED and CANCELED remain plain PATCH labels. Quotation-based creation also requires the `inspectors` array (which may be empty); inspector names are ordered and unique ignoring case. No Auth account is required for an inspector name.
+`startDate` is required. `endDate` is nullable for contract-based orders but required for quotation-based orders; it cannot precede startDate. Status defaults to DRAFT; accepted values: DRAFT, IN_PROGRESS, COMPLETED, CANCELED. Creation never accepts status, and PATCH rejects `status: IN_PROGRESS` (400): the DRAFT to IN_PROGRESS transition only happens through `POST /:id/start` (see below), so no client can skip the Marketing snapshot validation. COMPLETED and CANCELED remain plain PATCH labels. Quotation-based creation also requires the `inspectors` array of Auth user IDs (plain UUID strings, which may be empty); IDs must be unique and must exist in `field_service_users` for the authenticated branch, otherwise the request returns 400. After every other validation passes, Field Service resolves each ID inside the same creation transaction against the `FieldServiceUser` read model and stores both the `user_id` and the display-name snapshot (`firstName lastName` from the user JSON) into `work_order_inspectors`, and the Work Order is always created with status `DRAFT`; a rejected resolution rolls the whole creation (including number allocation) back. Reads and history stay name-based even after a user later changes name or leaves the branch. Use `GET /api/v1/fieldservice/options/inspectors` to list valid IDs. PATCH keeps the display-name array contract (`inspectors: ["Name"]`, rows written before ID capture keep `user_id` null); [] clears the list.
 
 For contract-based orders, set exactly one of `contractId` or `companyId` instead; contract and quotation version values are never submitted. `summary` is not part of the Work Order model. Quotation content is read from `quotation_snapshots`, populated by Marketing when a quotation is approved; Work Order creation does not fetch quotation data live.
 
@@ -56,7 +56,9 @@ Physical tables are now `work_order`, `work_order_inspectors`, `work_order_seque
 
 `POST /api/v1/fieldservice/work-orders/:id/start` with body `{ "version": <current version> }` (section MARKETING) moves a work order to `IN_PROGRESS` and appends a `START` history entry. It is the only way to reach `IN_PROGRESS`; PATCH rejects `status: IN_PROGRESS` with 400. The version is the optimistic lock: a stale version or a work order that is no longer a draft returns 409, an unknown id 404, and a revoked work order 409.
 
-For a quotation-based work order the stored `quotationSnapshot` is re-validated against the live Marketing quotation through `/api/v1/marketing/quotation-references/:quotationId` before the transaction starts, so the upstream call never holds database locks:
+Before a DRAFT work order starts, Field Service re-validates each stored inspector `userId` and display-name snapshot against Auth at `/api/v1/auth/users/field-service/inspectors?ids=<comma-separated-uuids>`. Auth only returns active FIELD_SERVICE users in the authenticated branch. If an inspector no longer exists there (deactivated, moved branch/section, or removed), or the display name differs from the stored snapshot, start returns 409 and the status remains DRAFT. Auth network errors, timeouts, or 5xx return 503. Legacy name-only rows with `user_id=null` do not have an ID to revalidate. The request happens before the status transaction, so upstream calls never hold database locks.
+
+For a quotation-based work order the stored `quotationSnapshot` is also re-validated against the live Marketing quotation through `/api/v1/marketing/quotation-references/:quotationId` before the transaction starts:
 
 - Marketing unreachable (network error, timeout or 5xx) returns 503 `Marketing service is currently unavailable; retry later`.
 - A quotation that no longer matches Marketing (version changed, revised, deactivated, not APPROVED, contract-priced, or removed so Marketing answers 404) returns 409 `Work order quotation snapshot does not match Marketing data; reload the quotation`.

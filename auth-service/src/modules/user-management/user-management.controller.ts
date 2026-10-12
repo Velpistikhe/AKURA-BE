@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getAuthenticatedActor } from '../../utils/authenticatedUser.js';
+import { getAuthenticatedActor, getAuthenticatedUserId } from '../../utils/authenticatedUser.js';
 import { ListUsersInput, ListUserSyncDeliveriesInput, UpdateUserInput } from './user-management.schemas.js';
 import { userManagementService } from './user-management.service.js';
 import { listUserSyncDeliveries } from '../user-sync/user-sync.service.js';
@@ -12,6 +12,10 @@ const send = (req: Request, res: Response, message: string, data: unknown): void
 export const userManagementController = {
   async list(req: Request, res: Response) { send(req, res, 'Users retrieved successfully', await userManagementService.list(res.locals.query as ListUsersInput)); },
   async get(req: Request, res: Response) { send(req, res, 'User retrieved successfully', await userManagementService.get((res.locals.params as { userId: string }).userId)); },
+  async inspectors(req: Request, res: Response) {
+    const { ids } = res.locals.query as { ids: string[] };
+    send(req, res, 'Field Service inspectors validated successfully', await userManagementService.inspectors(getAuthenticatedUserId(req), ids));
+  },
   async update(req: Request, res: Response) {
     send(req, res, 'User updated successfully', await userManagementService.update(
       getAuthenticatedActor(req),

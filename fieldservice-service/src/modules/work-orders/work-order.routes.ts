@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadCompanyContract, loadContract, loadQuotationForStart } from '../../integrations/gateway.js';
+import { loadCompanyContract, loadContract, loadQuotationForStart, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { loadStoredQuotation } from '../quotation-snapshots/quotation-snapshot.repository.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
@@ -32,11 +32,14 @@ router.post('/', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, 
 router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id);
   const { version } = startWorkOrderSchema.parse(req.body);
-  // The stored row is read first so a non-draft fails fast and the Marketing
-  // call is only made for a quotation-based draft in this branch; the upstream
-  // request never runs inside a database transaction.
+  // The stored row is read first so a non-draft fails fast and the upstream
+  // calls are only made for a draft in this branch; the upstream requests never
+  // run inside a database transaction.
   const current = await repository.get(id, actor(res));
   if (current.status !== 'DRAFT' || current.revoked) throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
+  // Auth is the source of truth for FIELD_SERVICE users: every stored inspector
+  // must still exist in Auth with the same id/display name before the transition.
+  await validateInspectorsForStart(req, current.inspectors.map(({ userId, name }) => ({ userId, name })));
   const quote = current.quotationId ? await loadQuotationForStart(req, current.quotationId, actor(res).officeBranchId) : null;
   send(req, res, await repository.start(id, version, quote, actor(res)));
 }));

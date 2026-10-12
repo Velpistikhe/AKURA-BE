@@ -12,6 +12,7 @@
     "db:generate": "prisma generate",
     "test:api": "node tests/api-verification.mjs",
     "test:contacts": "node tests/user-contact-fields.test.mjs",
+    "test:inspectors": "node tests/field-service-inspectors.test.mjs",
     "test:user-sync": "node tests/user-sync.test.mjs"
   },
   "dependencies": {

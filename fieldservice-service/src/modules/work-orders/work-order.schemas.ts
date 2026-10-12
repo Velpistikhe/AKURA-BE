@@ -2,15 +2,19 @@ import { z } from 'zod';
 import { WorkOrderStatus } from '@prisma/client';
 const date = z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`));
 const version = z.number().int().min(0).max(2147483646);
-const inspectors = z.array(z.string().trim().min(1).max(255)).max(100)
+const inspectorNames = z.array(z.string().trim().min(1).max(255)).max(100)
   .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
+// Create accepts Auth user IDs only; the server resolves each ID against the
+// branch-scoped FieldServiceUser read model and snapshots idUser + display name.
+const inspectorIds = z.array(z.string().uuid()).max(100)
+  .refine(ids => new Set(ids.map(id => id.toLowerCase())).size === ids.length, 'Inspector IDs must be unique');
 const fields = {
   companyId: z.string().uuid().nullable().optional(),
   contractId: z.string().uuid().nullable().optional(),
   quotationId: z.string().uuid().nullable().optional(),
   startDate: date,
   endDate: date.optional(),
-  inspectors: inspectors.optional(),
+  inspectors: inspectorNames.optional(),
 };
 type Reference = {
   quotationId?: string | null; companyId?: string | null; contractId?: string | null;
@@ -19,7 +23,7 @@ const validReference = (value: Reference) =>
   Number(!!value.quotationId) + Number(!!value.contractId) + Number(!!value.companyId) === 1;
 // Creation always starts at DRAFT; status transitions are edits, never part of create.
 // The quotation/contract content is snapshotted by the server, so clients only send IDs.
-export const createWorkOrderSchema = z.object(fields).strict()
+export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorIds.optional() }).strict()
   .refine(validReference, 'Supply exactly one quotation, contract or companyId')
   .refine(value => !value.quotationId || (value.endDate !== undefined && value.inspectors !== undefined),
     'A quotation-based Work order requires quotationId, startDate, endDate and inspectors');

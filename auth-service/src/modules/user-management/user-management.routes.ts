@@ -4,7 +4,7 @@ import { requireAppManager } from './user-management.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { userManagementController } from './user-management.controller.js';
-import { listUsersSchema, listUserSyncDeliveriesSchema, updateUserSchema, userIdSchema } from './user-management.schemas.js';
+import { inspectUsersQuerySchema, listUsersSchema, listUserSyncDeliveriesSchema, updateUserSchema, userIdSchema } from './user-management.schemas.js';
 import { prisma } from '../../config/db.js';
 import { AuthenticatedRequest } from '../auth/auth.middleware.js';
 
@@ -25,6 +25,8 @@ router.get('/marketing-contacts', authenticate, asyncHandler(async (req: Authent
     requestId: req.headers['x-request-id'],
   });
 }));
+// Branch-scoped inspector validation for Field Service work-order start.
+router.get('/field-service/inspectors', authenticate, validate('query', inspectUsersQuerySchema), asyncHandler(userManagementController.inspectors));
 router.use(authenticate, asyncHandler(requireAppManager));
 router.get('/', validate('query', listUsersSchema), asyncHandler(userManagementController.list));
 // Monitoring only: global sync outbox state. Declared before '/:userId' so the

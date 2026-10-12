@@ -45,6 +45,10 @@ model WorkOrderInspector {
   id String @id @default(uuid()) @db.Uuid
   workOrderId String @map("work_order_id") @db.Uuid
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  /// Auth user ID of the inspector at creation time; null for legacy rows
+  /// edited through the PATCH name-based contract before IDs were introduced.
+  userId String? @map("user_id") @db.Uuid
+  /// Display name snapshot from the FieldServiceUser read model (firstName + lastName).
   name String @db.VarChar(255)
   position Int
   @@unique([workOrderId, position], map: "work_order_inspectors_work_order_id_position_key")

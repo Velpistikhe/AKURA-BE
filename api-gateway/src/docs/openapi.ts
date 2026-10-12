@@ -554,6 +554,18 @@ export const openApiDocument = groupByModule({
           requestId: { type: 'string', format: 'uuid' },
         },
       },
+      FieldServiceInspectorListResponse: {
+        type: 'object', required: ['status', 'success', 'message', 'data'],
+        properties: {
+          status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
+          data: { type: 'object', required: ['inspectors'], properties: {
+            inspectors: { type: 'array', items: { type: 'object', required: ['id', 'name'], properties: {
+              id: { type: 'string', format: 'uuid' }, name: { type: 'string', description: 'Canonical display name (firstName + lastName).' },
+            } } },
+          } },
+          requestId: { type: 'string', format: 'uuid' },
+        },
+      },
       UserSyncDeliveryListResponse: {
         type: 'object',
         description: 'Monitoring view of the Auth user-sync outbox (user_sync_deliveries).',
@@ -1620,6 +1632,25 @@ export const openApiDocument = groupByModule({
           400: errorResponse('Invalid query parameters'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
+          429: errorResponse('Rate limit exceeded'),
+          500: errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/api/v1/auth/users/field-service/inspectors': {
+      get: {
+        tags: ['User Management'],
+        summary: 'Validate Field Service inspectors for the caller branch',
+        description: 'Branch-scoped inspector validation used by Field Service when a work order starts. Auth is the source of truth: given a comma-separated list of user IDs (1-100 unique UUIDs), returns only the IDs that are currently active users with section FIELD_SERVICE in the caller branch, each with its canonical display name (firstName + lastName). IDs that are unknown, inactive, in another section, or in another branch are silently omitted so callers can compare the requested IDs against the returned set and display names. Requires an active account; the branch always comes from the authenticated caller, never from the request.',
+        security: protectedSecurity,
+        parameters: [
+          { in: 'query', name: 'ids', required: true, description: 'Comma-separated user IDs (max 100, unique UUIDs).', schema: { type: 'string', minLength: 1, maxLength: 4100, example: '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000a2' } },
+        ],
+        responses: {
+          200: response('Field Service inspectors validated', schemaRef('FieldServiceInspectorListResponse')),
+          400: errorResponse('Invalid query parameters'),
+          401: errorResponse('Missing or invalid access token'),
+          403: errorResponse('Access denied'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },

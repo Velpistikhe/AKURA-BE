@@ -25,8 +25,8 @@ const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
 const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
 const note = z.string().trim().max(5000).nullable().optional();
-const inspectors = z.array(z.string().trim().min(1).max(255)).max(100)
-  .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
+const inspectors = z.array(z.string().uuid()).max(100)
+  .refine(ids => new Set(ids).size === ids.length, 'Inspector IDs must be unique');
 const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
   note,

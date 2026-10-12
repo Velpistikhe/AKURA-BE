@@ -21,6 +21,14 @@ export const listUserSyncDeliveriesSchema = z.object({
   userId: z.string().uuid('Invalid user ID').optional(),
 }).strict();
 
+// Batch inspector validation query for Field Service work-order creation:
+// comma-separated user IDs, 1 to 100 entries, unique UUIDs.
+export const inspectUsersQuerySchema = z.object({
+  ids: z.string().trim().min(1).max(4100)
+    .transform(value => value.split(','))
+    .pipe(z.array(z.string().uuid('Invalid user ID')).min(1).max(100))
+    .refine(ids => new Set(ids).size === ids.length, 'Inspector IDs must be unique'),
+}).strict();
 export const updateUserSchema = z.object({
   role: z.nativeEnum(UserRole).optional(),
   section: z.nativeEnum(UserSection).nullable().optional(),

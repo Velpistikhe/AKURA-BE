@@ -8,7 +8,7 @@ const { quotationRepository } = require('../dist/modules/quotations/quotation.re
 const { createWorkOrderFromQuotationSchema } = require('../dist/modules/quotations/quotation.schemas.js');
 
 test('Create work order from quotation validates locally and forwards through Field Service', async (t) => {
-  const branch = randomUUID(), actor = { id: randomUUID(), name: 'WO Test' };
+  const branch = randomUUID(), actor = { id: randomUUID(), name: 'WO Test' }, inspectorId = randomUUID();
   const originalFetch = global.fetch, originalFindActive = quotationRepository.findActive;
   t.after(() => { global.fetch = originalFetch; quotationRepository.findActive = originalFindActive; });
   const app = express();
@@ -36,7 +36,7 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(response.status, expected, JSON.stringify(payload));
     return payload;
   };
-  const validBody = () => ({ startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'] });
+  const validBody = () => ({ startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspectorId] });
   const bodyFor = (id) => ({ ...validBody(), quotationId: id });
   // Repository fixture: findActive is the only database read in this flow.
   quotationRepository.findActive = async (id, officeBranchId) => {
@@ -59,13 +59,14 @@ test('Create work order from quotation validates locally and forwards through Fi
   try {
     // Schema rejects malformed bodies before any cross-service call.
     for (const invalid of [
-      {}, { startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'] },
-      { quotationId: randomUUID(), startDate: '2026-10-05', endDate: '2026-10-01', inspectors: ['Budi'] },
+      {}, { startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspectorId] },
+      { quotationId: randomUUID(), startDate: '2026-10-05', endDate: '2026-10-01', inspectors: [inspectorId] },
       { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05' },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['same', 'SAME'] },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'], quotationVersion: 0 },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'], summary: 'x' },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['Budi'], status: 'COMPLETED' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspectorId, inspectorId] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: ['not-a-uuid'] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspectorId], quotationVersion: 0 },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspectorId], summary: 'x' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspectorId], status: 'COMPLETED' },
     ]) assert.equal(createWorkOrderFromQuotationSchema.safeParse(invalid).success, false, JSON.stringify(invalid));
     assert.equal(createWorkOrderFromQuotationSchema.parse(bodyFor(randomUUID())).startDate, '2026-10-01');
 
@@ -117,7 +118,7 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.deepEqual(JSON.parse(forwarded.options.body), {
       quotationId: approved.id,
       startDate: '2026-10-01', endDate: '2026-10-05',
-      inspectors: ['Budi'],
+      inspectors: [inspectorId],
     });
     assert.equal(JSON.parse(forwarded.options.body).quotationVersion, undefined, 'quotation version is never forwarded; Field Service reads the synchronized snapshot');
     assert.equal(JSON.parse(forwarded.options.body).summary, undefined, 'summary no longer exists on the Work order');

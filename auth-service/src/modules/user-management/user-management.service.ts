@@ -34,6 +34,23 @@ export const userManagementService = {
     if (!user) throw new HttpError('User not found', 404);
     return presentUser(user);
   },
+  /**
+   * Branch-scoped inspector validation used by Field Service when a work
+   * order starts. Auth is the source of truth: only active FIELD_SERVICE users
+   * of the caller branch are returned, each with its canonical display name so
+   * callers can compare the submitted ID/name pairs before the transition.
+   */
+  async inspectors(userId: string, ids: string[], store: { user: { findUnique: typeof prisma.user.findUnique; findMany: typeof prisma.user.findMany } } = prisma) {
+    const actor = await store.user.findUnique({ where: { id: userId }, select: { officeBranchId: true } });
+    if (!actor?.officeBranchId) return { inspectors: [] };
+    const rows = await store.user.findMany({
+      where: { id: { in: ids }, officeBranchId: actor.officeBranchId, section: 'FIELD_SERVICE', isActive: true },
+      select: { id: true, firstName: true, lastName: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    // The display name is rebuilt exactly like the Field Service options snapshot.
+    return { inspectors: rows.map(({ id, firstName, lastName }) => ({ id, name: `${firstName} ${lastName}`.trim() })) };
+  },
   async update(actor: UserAuditActor, userId: string, data: UpdateUserInput) {
     const updated = await prisma.$transaction(async (tx) => {
       const user = await userManagementRepository.lockById(tx, userId);

@@ -14,6 +14,7 @@ require('../dist/utils/logger.js').logger.silent=true;
 
 test('Work order HTTP CRUD, company contract resolution, inspectors, branch isolation, concurrency and annual numbering',async()=>{
  const branch=randomUUID(),otherBranch=randomUUID(),clockBranch=randomUUID(),user=randomUUID(),quoteId=randomUUID();
+ const inspectorA=randomUUID(),inspectorB=randomUUID(),foreignInspector=randomUUID();
  const branches=[branch,otherBranch,clockBranch];
  const actor={id:user,name:'Test User',officeBranchId:branch};
  const contractId=randomUUID(),companyId=randomUUID();
@@ -21,10 +22,22 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
  const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,subject:'Work',companySnapshot:{name:'Company'},customerSnapshot:'Buyer',subTotal:'100',taxAmount:'11',total:'111',items:[]};
  const originalFetch=global.fetch;
  let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0,quotationHttpStatus=200;
+ let authInspectorCalls=0,authInspectorFails=false,authInspectorNames=null,authInspectorMissing=null;
  global.fetch=async(url,options)=>{
   if(!String(url).startsWith(env.API_GATEWAY_URL+'/api/v1/'))return originalFetch(url,options);
   const token=options.headers.Authorization;
   if(String(url).endsWith('/auth/me'))return {ok:true,json:async()=>({data:{id:user,officeBranchId:token==='Bearer other'?otherBranch:branch,isActive:token!=='Bearer inactive',role:token==='Bearer admin'?'ADMIN':token==='Bearer manager'?'APP_MANAGER':'USER',section:token==='Bearer wrong'?'HRD_MANAGEMENT':['Bearer admin','Bearer manager','Bearer no-section'].includes(token)?null:token==='Bearer field'?'FIELD_SERVICE':'MARKETING',firstName:'Test',lastName:'User',username:'test'}})};
+  // Branch-scoped Auth inspector validation used by POST /:id/start. Auth only
+  // returns eligible users of the caller branch; a missing user or a changed
+  // display name simulates drift between the stored snapshot and Auth.
+  if(String(url).includes('/auth/users/field-service/inspectors')){
+   authInspectorCalls++;
+   if(authInspectorFails)throw Error('offline');
+   const requested=new URL(url).searchParams.get('ids').split(',');
+   const catalog={[inspectorA]:authInspectorNames?.[inspectorA]??'Budi Tester',[inspectorB]:authInspectorNames?.[inspectorB]??'Agus Helper'};
+   const rows=requested.filter(id=>catalog[id]!==undefined&&!authInspectorMissing?.includes(id)).map(id=>({id,name:catalog[id]}));
+   return {ok:true,json:async()=>({data:{inspectors:token==='Bearer other'?[]:rows}})};
+  }
   if(String(url).includes('/company-contract-references/')) {
    assert(String(url).endsWith('/'+companyId));
    if(upstreamFails)throw Error('offline');
@@ -50,16 +63,19 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   const response=await originalFetch(`http://127.0.0.1:${server.address().port}${path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token,'x-office-branch-id':otherBranch},...(body===undefined?{}:{body:JSON.stringify(body)})});
   const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));return result.data;
  };
- const raw={companyId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:['Budi','Agus']};
+ const raw={companyId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:[inspectorA,inspectorB]};
+ const inspectorNames=['Budi Tester','Agus Helper'];
  const year=workOrderDate().getUTCFullYear();
  // Quotation basis resolves from this stored snapshot; no live Marketing call.
  const seedQuotationSnapshot=async(changes={})=>{Object.assign(quotation,changes);
   const data={officeBranchId:branch,quotationId:quoteId,quotationVersion:quotation.version,payload:JSON.parse(JSON.stringify(quotation))};
   await prisma.quotationSnapshot.upsert({where:{officeBranchId_quotationId:{officeBranchId:branch,quotationId:quoteId}},create:data,update:data});};
+ const seedInspector=async(id,officeBranchId,firstName,lastName)=>prisma.fieldServiceUser.upsert({where:{id},create:{id,officeBranchId,user:{id,firstName,lastName,username:firstName.toLowerCase()},sourceVersion:1,sourceCreatedAt:new Date(),sourceUpdatedAt:new Date()},update:{officeBranchId}});
  try{
+  await seedInspector(inspectorA,branch,'Budi','Tester');await seedInspector(inspectorB,branch,'Agus','Helper');await seedInspector(foreignInspector,otherBranch,'Foreign','Inspector');
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/reports`)).status,404);
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/documents`)).status,404);
-  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:['Budi',' budi ']},{endDate:'2026-01-01'},{quotationId:quoteId,endDate:undefined},{quotationId:quoteId,inspectors:undefined},{quotationVersion:0},{contractVersion:1},{summary:'Inspection'},{companyId:null},{quotationId:quoteId,quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
+  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[inspectorA,inspectorA]},{inspectors:['not-a-uuid']},{inspectors:[randomUUID()]},{inspectors:[foreignInspector]},{inspectors:[{inspectorId:inspectorA}]},{endDate:'2026-01-01'},{quotationId:quoteId,endDate:undefined},{quotationId:quoteId,inspectors:undefined},{quotationVersion:0},{contractVersion:1},{summary:'Inspection'},{companyId:null},{quotationId:quoteId,quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
   const row=await request('POST','/work-orders',raw,201);
   assert.equal(row.status,'DRAFT');
   for(const token of ['field','wrong','no-section','admin','manager']){
@@ -73,7 +89,8 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal((await repo.get(row.id,actor)).revoked,false);
   assert.equal(quotationCalls,0);assert.equal(row.number,`WO/${year}/000001`);assert.equal(row.date,workOrderDate().toISOString());
   assert.equal(row.quotationId,null);assert.equal(row.quotationSnapshot,null);assert.equal(row.officeBranchId,branch);assert.equal(row.createdByName,'Test User');assert.equal(row.createdById,user);
-  assert.deepEqual(row.inspectors.map(x=>x.name),raw.inspectors);assert.equal(row.status,'DRAFT');
+  assert.deepEqual(row.inspectors.map(x=>x.name),inspectorNames);assert.equal(row.status,'DRAFT');
+  assert.deepEqual(row.inspectors.map(x=>x.userId),[inspectorA,inspectorB],'create snapshots idUser from FieldServiceUser');
   const initialHistory=await request('GET','/work-orders/'+row.id+'/history');
   assert.equal(initialHistory.pagination.total,1);assert.equal(initialHistory.history[0].action,'CREATE');
   assert.equal(initialHistory.history[0].beforeSnapshot,null);assert.equal(initialHistory.history[0].createdById,user);
@@ -81,10 +98,10 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal(initialHistory.history[0].actionLabel,'Work order created');
   assert.deepEqual(initialHistory.history[0].changedBy,{id:user,name:'Test User'});
   assert(initialHistory.history[0].changes.some(change=>change.field==='startDate'&&change.label==='Start date'&&change.before===null&&change.after==='2026-09-15T00:00:00.000Z'));
-  assert.deepEqual(initialHistory.history[0].snapshot.inspectors.map(x=>x.name),raw.inspectors);
+  assert.deepEqual(initialHistory.history[0].snapshot.inspectors.map(x=>x.name),inspectorNames);
   await request('GET','/work-orders/'+row.id+'/history',undefined,404,'other');
   await request('GET','/work-orders/'+row.id+'/history?page=0',undefined,400);
-  const foreign=await request('POST','/work-orders',raw,201,'other');assert.equal(foreign.number,row.number);
+  const foreign=await request('POST','/work-orders',{...raw,inspectors:[foreignInspector]},201,'other');assert.equal(foreign.number,row.number);
   for(const token of ['inactive','wrong','stale'])await request('GET','/work-orders',undefined,token==='stale'?401:403,token);
   await request('GET','/work-orders/'+row.id,undefined,404,'other');await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-11-01'},404,'other');await request('DELETE','/work-orders/'+row.id,{version:0},404,'other');
   assert.equal(row.contractId,contractId);assert.equal(row.contractSnapshot.companyId,companyId);
@@ -164,6 +181,21 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   const contractStarted=await request('POST','/work-orders/'+byContract.id+'/start',{version:0});
   assert.equal(contractStarted.status,'IN_PROGRESS');
   assert.equal(quotationCalls,quotationCallsBeforeStart,'contract basis must not call Marketing quotation reference');
+  // Start flow: live Auth inspector validation before the transition. Stored
+  // inspector snapshots must still match active FIELD_SERVICE users in the
+  // authenticated branch; any drift leaves the Work Order in DRAFT.
+  const authCallsBefore=authInspectorCalls;
+  authInspectorFails=true;
+  await request('POST','/work-orders/'+linked.id+'/start',{version:0},503);
+  authInspectorFails=false;
+  authInspectorMissing=[inspectorB];
+  await request('POST','/work-orders/'+linked.id+'/start',{version:0},409);
+  authInspectorMissing=null;
+  authInspectorNames={[inspectorA]:'Renamed User'};
+  await request('POST','/work-orders/'+linked.id+'/start',{version:0},409);
+  authInspectorNames=null;
+  assert(authInspectorCalls>=authCallsBefore+3,'start re-validates stored inspectors against Auth');
+  assert.equal((await repo.get(linked.id,actor)).status,'DRAFT');
   const revoked=await request('DELETE','/work-orders/'+linked.id,{version:0});assert.equal(revoked.revoked,true);assert.equal(revoked.inspectors.length,2);
   assert.equal((await request('GET','/work-orders/'+linked.id)).revoked,true);await request('PATCH','/work-orders/'+linked.id,{version:1,startDate:'2026-10-01'},409);await request('DELETE','/work-orders/'+linked.id,{version:1},409);
   assert.equal((await request('GET','/work-orders?revoked=true')).pagination.total,1);assert.equal((await request('GET','/work-orders?status=IN_PROGRESS')).pagination.total,2);assert.equal((await request('GET','/work-orders?quotationId='+quoteId)).pagination.total,1);
@@ -204,6 +236,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   const where={officeBranchId:{in:branches}};
   await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
   await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});await prisma.workOrder.deleteMany({where});await prisma.workOrderSequence.deleteMany({where});
-  await prisma.quotationSnapshot.deleteMany({where:{officeBranchId:{in:branches}}});await prisma.$disconnect();
+  await prisma.quotationSnapshot.deleteMany({where:{officeBranchId:{in:branches}}});
+  await prisma.fieldServiceUser.deleteMany({where:{id:{in:[inspectorA,inspectorB,foreignInspector]}}});await prisma.$disconnect();
  }
 });

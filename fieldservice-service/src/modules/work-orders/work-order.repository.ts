@@ -45,7 +45,28 @@ const normalizeSnapshot = (value: unknown): unknown => {
 const snapshotsMatch = (left: unknown, right: unknown): boolean =>
   JSON.stringify(normalizeSnapshot(left)) === JSON.stringify(normalizeSnapshot(right));
 
-const inspectorRows = (names: string[]) => names.map((name, position) => ({ name, position }));
+const inspectorRows = (rows: { userId: string | null; name: string }[]) =>
+  rows.map(({ userId, name }, position) => ({ userId, name, position }));
+/**
+ * Resolves submitted Auth user IDs against the branch-scoped FieldServiceUser
+ * read model inside the create transaction. Each resolved row stores both the
+ * source userId and the display-name snapshot, so reads and history stay
+ * name-based even after the user later changes name or leaves the branch.
+ * Any ID outside the branch, unknown, or without a usable name snapshot fails
+ * the whole creation (400) before anything is persisted.
+ */
+async function resolveInspectorUsers(tx: Prisma.TransactionClient, inspectorIds: string[], officeBranchId: string) {
+  if (inspectorIds.length === 0) return [];
+  const users = await tx.fieldServiceUser.findMany({ where: { id: { in: inspectorIds }, officeBranchId }, select: { id: true, user: true } });
+  const byId = new Map(users.map(({ id, user }) => {
+    const snapshot = user as { firstName?: unknown; lastName?: unknown };
+    const name = typeof snapshot.firstName === 'string' && typeof snapshot.lastName === 'string' ? `${snapshot.firstName} ${snapshot.lastName}`.trim() : '';
+    return [id, name] as const;
+  }));
+  if (byId.size !== inspectorIds.length || inspectorIds.some(id => !byId.get(id)))
+    throw new HttpError('One or more inspectors are not active Field Service users in this branch', 400);
+  return inspectorIds.map(userId => ({ userId, name: byId.get(userId)! }));
+}
 function reference(input: { quotationId?: string | null; companyId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
   const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };
   if (Number(!!input.quotationId) + Number(!!input.contractId) + Number(!!input.companyId) !== 1) throw new HttpError('Exactly one quotation, contract or company is required', 400);
@@ -88,10 +109,12 @@ export const workOrderRepository = {
     const { inspectors = [], quotationId: _quotationId, companyId: _companyId, contractId: _contractId, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
+    // The Work Order is always created as DRAFT; the request never carries status.
     return prisma.$transaction(async tx => {
+      const inspectorUsers = await resolveInspectorUsers(tx, inspectors, actor.officeBranchId);
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
-      const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId,
-        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectors) } }, include });
+      const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
+        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectorUsers) } }, include });
       return saveHistory(tx, row, null, actor, 'CREATE');
     }, { maxWait: 10000, timeout: 20000 });
   },
@@ -125,7 +148,12 @@ export const workOrderRepository = {
       checkDates(fields.startDate ?? current.startDate, fields.endDate !== undefined ? fields.endDate : current.endDate);
       if (inspectors !== undefined) {
         await tx.workOrderInspector.deleteMany({ where: { workOrderId: id } });
-        if (inspectors.length) await tx.workOrderInspector.createMany({ data: inspectorRows(inspectors).map(row => ({ ...row, workOrderId: id })) });
+        // PATCH keeps the name-based contract; rows edited this way have no
+        // resolved Auth user ID (userId stays null).
+        if (inspectors.length) {
+          const rows = inspectorRows(inspectors.map(name => ({ userId: null, name })));
+          await tx.workOrderInspector.createMany({ data: rows.map(row => ({ ...row, workOrderId: id })) });
+        }
       }
       const row = await tx.workOrder.update({ where: { id }, data: { ...fields, ...quotation }, include });
       return saveHistory(tx, row, before, actor, 'UPDATE');

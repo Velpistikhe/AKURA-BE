@@ -76,6 +76,57 @@ export async function loadQuotationForStart(req: Request, id: string, branch: st
   return quotation;
 }
 
+export const inspectorReferenceSchema = z.object({ id: z.string().uuid(), name: z.string().min(1).max(255) });
+export type InspectorReference = z.infer<typeof inspectorReferenceSchema>;
+const inspectorListSchema = z.object({ inspectors: z.array(inspectorReferenceSchema) });
+export type StoredInspector = { userId: string | null; name: string };
+/**
+ * Live Auth validation used before a Work order starts. Auth is the source of
+ * truth for FIELD_SERVICE users: the stored inspector snapshot (id + display
+ * name resolved from the local FieldServiceUser read model at creation time)
+ * must still exist in Auth as an active FIELD_SERVICE user of the caller branch
+ * with the same canonical display name. Network failure/timeout means Auth is
+ * unavailable (503); any missing user or name drift means the stored snapshot
+ * no longer matches Auth (409 mismatch).
+ *
+ * The upstream call runs before the status transaction, never holding locks.
+ * Rows without a userId (legacy name-only rows) are skipped.
+ */
+export async function validateInspectorsForStart(req: Request, inspectors: StoredInspector[]): Promise<void> {
+  const ids = [...new Set(inspectors.flatMap(row => row.userId ? [row.userId] : []))];
+  if (ids.length === 0) return;
+  const token = getAccessToken(req);
+  if (!token) throw new HttpError('Access token is required', 401);
+  const user = (req as AuthenticatedRequest).user;
+  if (!user) throw new HttpError('Verified user is required', 401);
+  const path = 'auth/users/field-service/inspectors';
+  const mismatch = 'Work order inspectors do not match Auth user data; reload the inspectors before starting';
+  let response: globalThis.Response;
+  try {
+    response = await fetch(`${serviceUrl(path)}?ids=${encodeURIComponent(ids.join(','))}`, {
+      headers: { Authorization: `Bearer ${token}`, ...serviceHeaders(path),
+        'x-request-id': String(req.headers['x-request-id'] ?? '') },
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    throw new HttpError('Auth service is currently unavailable; retry later', 503);
+  }
+  if (response.status === 401 || response.status === 403) throw new HttpError('Unable to validate the inspectors with Auth service', response.status);
+  if (!response.ok) throw new HttpError('Auth service is currently unavailable; retry later', 503);
+  let payload: unknown;
+  try { payload = (await response.json() as { data: unknown }).data; }
+  catch { throw new HttpError('Invalid response from Auth service', 502); }
+  const parsed = inspectorListSchema.safeParse(payload);
+  if (!parsed.success) throw new HttpError('Invalid Auth inspector response', 502);
+  const authById = new Map(parsed.data.inspectors.map(({ id, name }) => [id, name]));
+  // Auth only returns active FIELD_SERVICE users of the caller branch, so a
+  // missing ID means the user was removed, deactivated or moved to another branch.
+  if (ids.some(id => !authById.has(id))) throw new HttpError(mismatch, 409);
+  for (const { userId, name } of inspectors) {
+    if (userId && authById.get(userId) !== name) throw new HttpError(mismatch, 409);
+  }
+}
+
 export async function loadQuotation(req: Request, id: string, version: number, branch: string): Promise<QuotationSnapshot> {
   const parsed = quotationSchema.safeParse(await gatewayGet(`marketing/quotation-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid quotation response', 502);
