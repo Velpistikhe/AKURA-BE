@@ -48,24 +48,26 @@ const snapshotsMatch = (left: unknown, right: unknown): boolean =>
 const inspectorRows = (rows: { userId: string | null; name: string }[]) =>
   rows.map(({ userId, name }, position) => ({ userId, name, position }));
 /**
- * Resolves submitted Auth user IDs against the branch-scoped FieldServiceUser
- * read model inside the create transaction. Each resolved row stores both the
- * source userId and the display-name snapshot, so reads and history stay
- * name-based even after the user later changes name or leaves the branch.
- * Any ID outside the branch, unknown, or without a usable name snapshot fails
- * the whole creation (400) before anything is persisted.
+ * Validates submitted [{ userId, name }] inspector pairs against the
+ * branch-scoped FieldServiceUser read model inside the create transaction.
+ * The submitted name must exactly match the snapshot display name
+ * (firstName + lastName), so the stored idUser + name pair is always the
+ * confirmed snapshot. Any ID outside the branch, unknown, or with a name that
+ * no longer matches the snapshot fails the whole creation (400) before
+ * anything is persisted.
  */
-async function resolveInspectorUsers(tx: Prisma.TransactionClient, inspectorIds: string[], officeBranchId: string) {
-  if (inspectorIds.length === 0) return [];
-  const users = await tx.fieldServiceUser.findMany({ where: { id: { in: inspectorIds }, officeBranchId }, select: { id: true, user: true } });
+async function resolveInspectorUsers(tx: Prisma.TransactionClient, inspectors: { userId: string; name: string }[], officeBranchId: string) {
+  if (inspectors.length === 0) return [];
+  const ids = inspectors.map(({ userId }) => userId);
+  const users = await tx.fieldServiceUser.findMany({ where: { id: { in: ids }, officeBranchId }, select: { id: true, user: true } });
   const byId = new Map(users.map(({ id, user }) => {
     const snapshot = user as { firstName?: unknown; lastName?: unknown };
     const name = typeof snapshot.firstName === 'string' && typeof snapshot.lastName === 'string' ? `${snapshot.firstName} ${snapshot.lastName}`.trim() : '';
     return [id, name] as const;
   }));
-  if (byId.size !== inspectorIds.length || inspectorIds.some(id => !byId.get(id)))
-    throw new HttpError('One or more inspectors are not active Field Service users in this branch', 400);
-  return inspectorIds.map(userId => ({ userId, name: byId.get(userId)! }));
+  if (byId.size !== ids.length || inspectors.some(({ userId, name }) => !byId.get(userId) || byId.get(userId) !== name.trim()))
+    throw new HttpError('One or more inspectors do not match active Field Service users in this branch', 400);
+  return inspectors.map(({ userId, name }) => ({ userId, name: name.trim() }));
 }
 function reference(input: { quotationId?: string | null; companyId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
   const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };

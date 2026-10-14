@@ -66,15 +66,19 @@ test('Inspector and quotation option endpoints are branch scoped and eligibility
 
   const inspectorId = randomUUID(), foreignId = randomUUID();
   try {
-    await seedInspector(inspectorId, branch);
+    await seedInspector(inspectorId, branch, { email: 'budi@akura.test', role: 'USER', section: 'FIELD_SERVICE', isActive: true });
     await seedInspector(foreignId, otherBranch);
     await seedQuotation(quotationId);
     await seedQuotation(contractQuotationId, { items: [{ priceSelection: { priceSource: 'CONTRACT' } }] });
     await seedQuotation(oldQuotationId, { status: 'REVISED', isActive: false });
 
+    // Options expose the raw Auth user snapshot JSON stored in the read model.
     const inspectors = await get('/options/inspectors');
     assert.equal(inspectors.status, 200);
-    assert.deepEqual(inspectors.body.data.inspectors, [{ id: inspectorId, name: 'Budi Tester', username: 'budi' }]);
+    assert.deepEqual(inspectors.body.data.inspectors, [
+      { id: inspectorId, firstName: 'Budi', lastName: 'Tester', username: 'budi',
+        email: 'budi@akura.test', role: 'USER', section: 'FIELD_SERVICE', isActive: true },
+    ]);
 
     // The profile from another branch only sees that branch's rows.
     const foreign = await get('/options/inspectors', 'other');

@@ -123,7 +123,7 @@ export const quotationController = {
    * quotation is loaded locally to fail fast (404/409) before the cross-service
    * call, and the same access token is forwarded so Field Service re-validates
    * identity, branch and section. The payload carries quotationId with startDate,
-   * endDate and inspectors as an array of Auth user IDs; Field Service resolves`r`n    * each ID against its FieldServiceUser read model and snapshots the userId and`r`n    * display name. Quotation content is read from the snapshot that was
+   * endDate and inspectors as an array of { userId, name } pairs; Field Service`r`n    * re-validates every pair against its FieldServiceUser snapshot and stores the`r`n    * confirmed userId and name. Quotation content is read from the snapshot that was
    * synchronized at approval, so no quotation version is forwarded.
    */
   async createWorkOrder(req: Request, res: Response) {

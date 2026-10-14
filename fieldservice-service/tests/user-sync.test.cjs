@@ -29,7 +29,7 @@ test('Field Service user sync stores active FIELD_SERVICE users, is idempotent a
   };
   try {
     await send(1);
-    assert.deepEqual(await listInspectorOptions(branch), [{ id: user.id, name: 'Budi Tester', username: 'inspector' }]);
+    assert.deepEqual(await listInspectorOptions(branch), [user], 'options return the raw stored Auth snapshot');
     assert.deepEqual(await listInspectorOptions(otherBranch), [], 'other branches never see this user');
 
     // Losing eligibility removes the row but records the revision.

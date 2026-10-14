@@ -13,7 +13,7 @@ const send = (req: Request, res: Response, data: unknown) => res.status(200).jso
 
 router.use(requireActor);
 
-/** Branch-scoped active inspector options from the synchronized Auth read model. */
+/** Branch-scoped active inspector options: the raw synchronized Auth user snapshots. */
 router.get('/inspectors', asyncHandler(async (req, res) => {
   const inspectors = await listInspectorOptions(actor(res).officeBranchId);
   send(req, res, { inspectors });

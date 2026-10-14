@@ -25,8 +25,13 @@ const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
 const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
 const note = z.string().trim().max(5000).nullable().optional();
-const inspectors = z.array(z.string().uuid()).max(100)
-  .refine(ids => new Set(ids).size === ids.length, 'Inspector IDs must be unique');
+// Forwarded verbatim to Field Service, which re-validates every pair against
+// its FieldServiceUser snapshot and stores the confirmed idUser + name.
+const inspectors = z.array(z.object({
+  userId: z.string().uuid(),
+  name: z.string().trim().min(1).max(255),
+}).strict()).max(100)
+  .refine(rows => new Set(rows.map(({ userId }) => userId)).size === rows.length, 'Inspector user IDs must be unique');
 const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
   note,

@@ -62,14 +62,12 @@ export async function applyFieldServiceUserSyncEvent(input: unknown) {
 export async function listInspectorOptions(officeBranchId: string) {
   const rows = await prisma.fieldServiceUser.findMany({
     where: { officeBranchId },
-    select: { id: true, user: true },
+    select: { user: true },
     orderBy: [{ sourceCreatedAt: 'asc' }, { id: 'asc' }],
     take: 500,
   });
-  return rows.flatMap(({ id, user }) => {
-    const snapshot = user as unknown as { firstName?: unknown; lastName?: unknown; username?: unknown };
-    if (typeof snapshot.firstName !== 'string' || typeof snapshot.lastName !== 'string') return [];
-    const name = `${snapshot.firstName} ${snapshot.lastName}`.trim();
-    return name ? [{ id, name, username: typeof snapshot.username === 'string' ? snapshot.username : '' }] : [];
-  });
+  // Consumers read the raw Auth snapshot; the eligibility filter (active,
+  // FIELD_SERVICE, branch) is enforced by the sync receiver, not here.
+  return rows.flatMap(({ user }) =>
+    user && typeof user === 'object' && !Array.isArray(user) ? [user] : []);
 }

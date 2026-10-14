@@ -63,8 +63,9 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   const response=await originalFetch(`http://127.0.0.1:${server.address().port}${path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token,'x-office-branch-id':otherBranch},...(body===undefined?{}:{body:JSON.stringify(body)})});
   const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));return result.data;
  };
- const raw={companyId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:[inspectorA,inspectorB]};
  const inspectorNames=['Budi Tester','Agus Helper'];
+ const inspectorPairs=[{userId:inspectorA,name:inspectorNames[0]},{userId:inspectorB,name:inspectorNames[1]}];
+ const raw={companyId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
  const year=workOrderDate().getUTCFullYear();
  // Quotation basis resolves from this stored snapshot; no live Marketing call.
  const seedQuotationSnapshot=async(changes={})=>{Object.assign(quotation,changes);
@@ -75,7 +76,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await seedInspector(inspectorA,branch,'Budi','Tester');await seedInspector(inspectorB,branch,'Agus','Helper');await seedInspector(foreignInspector,otherBranch,'Foreign','Inspector');
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/reports`)).status,404);
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/documents`)).status,404);
-  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[inspectorA,inspectorA]},{inspectors:['not-a-uuid']},{inspectors:[randomUUID()]},{inspectors:[foreignInspector]},{inspectors:[{inspectorId:inspectorA}]},{endDate:'2026-01-01'},{quotationId:quoteId,endDate:undefined},{quotationId:quoteId,inspectors:undefined},{quotationVersion:0},{contractVersion:1},{summary:'Inspection'},{companyId:null},{quotationId:quoteId,quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
+  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[inspectorPairs[0],inspectorPairs[0]]},{inspectors:[{userId:'not-a-uuid',name:'X'}]},{inspectors:[{userId:randomUUID(),name:'Ghost Inspector'}]},{inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},{inspectors:[{userId:inspectorA,name:'Wrong Name'}]},{inspectors:[{inspectorId:inspectorA}]},{inspectors:[{userId:inspectorA}]},{endDate:'2026-01-01'},{quotationId:quoteId,endDate:undefined},{quotationId:quoteId,inspectors:undefined},{quotationVersion:0},{contractVersion:1},{summary:'Inspection'},{companyId:null},{quotationId:quoteId,quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
   const row=await request('POST','/work-orders',raw,201);
   assert.equal(row.status,'DRAFT');
   for(const token of ['field','wrong','no-section','admin','manager']){
@@ -101,7 +102,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.deepEqual(initialHistory.history[0].snapshot.inspectors.map(x=>x.name),inspectorNames);
   await request('GET','/work-orders/'+row.id+'/history',undefined,404,'other');
   await request('GET','/work-orders/'+row.id+'/history?page=0',undefined,400);
-  const foreign=await request('POST','/work-orders',{...raw,inspectors:[foreignInspector]},201,'other');assert.equal(foreign.number,row.number);
+  const foreign=await request('POST','/work-orders',{...raw,inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},201,'other');assert.equal(foreign.number,row.number);
   for(const token of ['inactive','wrong','stale'])await request('GET','/work-orders',undefined,token==='stale'?401:403,token);
   await request('GET','/work-orders/'+row.id,undefined,404,'other');await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-11-01'},404,'other');await request('DELETE','/work-orders/'+row.id,{version:0},404,'other');
   assert.equal(row.contractId,contractId);assert.equal(row.contractSnapshot.companyId,companyId);
