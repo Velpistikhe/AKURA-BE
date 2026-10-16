@@ -114,6 +114,29 @@ Pemeriksaan TypeScript:
 npm run typecheck
 ```
 
+## Troubleshooting Vercel: status 508 saat membuat Work Order
+
+Alur Marketing → gateway → Field Service melakukan validasi profil melalui
+gateway → Auth `/me`. Jika Auth mengembalikan 508, Field Service mengembalikan
+503 dan Marketing dapat mengubahnya menjadi 502. Periksa respons upstream
+untuk kode `INFINITE_LOOP_DETECTED`.
+
+Gateway menghapus `x-vercel-id` sebelum meneruskan request ke deployment lain
+agar marker routing Vercel tidak dipakai ulang. `X-Request-ID`, access token,
+dan secret gateway untuk target tetap diteruskan. Setelah perubahan ini,
+redeploy project API Gateway.
+
+Di environment Vercel API Gateway, pastikan `AUTH_SERVICE_URL` menunjuk ke
+origin deployment Auth, bukan domain gateway atau `/api/v1/auth`. URL target
+service lain juga harus menunjuk ke deployment masing-masing. Pada Marketing
+dan Field Service, `API_GATEWAY_URL` menunjuk ke origin gateway tanpa `/api/v1`.
+Mengubah `.env` lokal tidak mengubah environment deployment Vercel.
+
+Tes regresi dari root repository: `node tests/gateway-routing.cjs`.
+
+Referensi: [Vercel request headers](https://vercel.com/docs/headers/request-headers)
+dan [INFINITE_LOOP_DETECTED](https://vercel.com/docs/errors/infinite_loop_detected).
+
 ## Menambah service
 
 Tambahkan konfigurasi ke `src/config/services.config.ts` dengan prefix unik, target URL, secret target-spesifik, aturan rewrite, deskripsi, dan nilai `authRequired`. Service baru harus mempunyai secret sendiri dan tidak boleh menggunakan secret service yang sudah ada.

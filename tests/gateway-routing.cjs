@@ -11,10 +11,19 @@ async function main() {
   let deliveries = 0;
   downstream.use((req, res, next) => {
     const secret = req.headers['x-gateway-secret'];
-    if (!['marketing-secret', 'field-secret'].includes(secret)) return res.sendStatus(403);
+    if (!['auth-secret', 'marketing-secret', 'field-secret'].includes(secret)) return res.sendStatus(403);
     next();
   });
   downstream.use(express.json());
+  downstream.get('/me', (req, res) => {
+    // Simulate a deployment rejecting a reused Vercel routing marker.
+    if (req.headers['x-vercel-id']) return res.sendStatus(508);
+    assert.equal(req.headers['x-gateway-secret'], 'auth-secret');
+    assert.equal(req.headers['x-service-secret'], undefined);
+    assert.equal(req.headers.authorization, 'Bearer actor-token');
+    assert.equal(req.headers['x-request-id'], 'work-order-request');
+    res.json({ data: { id: 'actor' } });
+  });
   downstream.post('/internal/taxes/events', (req, res) => {
     assert.equal(req.headers['x-service-secret'], undefined);
     assert.equal(req.headers['x-service-name'], undefined);
@@ -45,6 +54,15 @@ async function main() {
     const app = localRequire(path.resolve(__dirname, '../api-gateway/src/app.ts')).default;
     gateway = await listen(app);
     const base = `http://127.0.0.1:${gateway.address().port}`;
+    const profile = await fetch(`${base}/api/v1/auth/me`, {
+      headers: {
+        'x-vercel-id': 'sin1::existing-routing-marker',
+        'x-service-name': 'fieldservice-service', 'x-service-secret': 'field-secret',
+        authorization: 'Bearer actor-token', 'x-request-id': 'work-order-request',
+      },
+    });
+    assert.equal(profile.status, 200);
+    assert.deepEqual(await profile.json(), { data: { id: 'actor' } });
     const endpoint = `${base}/api/v1/marketing/internal/taxes/events`;
     const headers = { 'content-type': 'application/json', 'x-service-name': 'finance-service', 'x-service-secret': 'finance-secret', 'x-tax-sync-secret': 'tax-secret' };
     const send = supplied => fetch(endpoint, { method: 'POST', headers: supplied, body: JSON.stringify({ eventId: 'test-event' }) });

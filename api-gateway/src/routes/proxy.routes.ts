@@ -27,6 +27,10 @@ servicesConfig.forEach((service) => {
     pathRewrite: service.pathRewrite,
     on: {
       proxyReq: (proxyReq, req) => {
+        // Each downstream deployment is a new routing hop. Reusing the
+        // incoming Vercel marker can trigger INFINITE_LOOP_DETECTED (508).
+        // Keep application tracing in X-Request-ID instead.
+        proxyReq.removeHeader('x-vercel-id');
         proxyReq.setHeader('x-gateway-secret', service.gatewaySecret);
         proxyReq.removeHeader('X-User-ID');
         proxyReq.removeHeader('X-User-Role');
