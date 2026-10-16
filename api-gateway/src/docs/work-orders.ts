@@ -19,6 +19,8 @@ const envelope = (data: object) => ({ type: 'object', properties: { status: { ty
 // PATCH keeps the display-name array contract.
 const { status: _createStatus, ..._patchFields } = fields;
 const createFields = { ..._patchFields, inspectors: inspectorPairs };
+const { inspectors: _listInspectors, companyId: _listCompanyId, startDate: _listStartDate, endDate: _listEndDate, ..._listBaseFields } = fields;
+const workOrderListRowFields = { ..._listBaseFields, startDate: date, endDate: { ...date, nullable: true } };
 export const workOrderSchemas = {
   WorkOrderCreate: { type: 'object', additionalProperties: false, required: ['startDate'], oneOf: [{required:['quotationId','endDate','inspectors'],properties:{quotationId:{...uuid,nullable:false},endDate:date,inspectors:inspectorPairs,companyId:{enum:[null]},contractId:{enum:[null]}}},{required:['contractId'],properties:{contractId:{...uuid,nullable:false},quotationId:{enum:[null]},companyId:{enum:[null]}}},{required:['companyId'],properties:{companyId:{...uuid,nullable:false},quotationId:{enum:[null]},contractId:{enum:[null]}}}], properties: createFields,
     example: { companyId: '00000000-0000-4000-8000-000000000001', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [
@@ -61,7 +63,7 @@ export const workOrderSchemas = {
   } },
   WorkOrderHistoryResponse: envelope({ type: 'object', required: ['history', 'pagination'], properties: { history: { type: 'array', items: ref('WorkOrderHistory') }, pagination: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' } } } } }),
   WorkOrderResponse: envelope(ref('WorkOrder')),
-  WorkOrderList: envelope({ type: 'object', properties: { workOrders: { type: 'array', items: ref('WorkOrder') }, pagination: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' } } } } }),
+  WorkOrderList: envelope({ type: 'object', required: ['workOrders', 'pagination'], properties: { workOrders: { type: 'array', items: { type: 'object', description: 'List row intentionally omits inspectors and quotationSnapshot; date fields are date-only strings.', properties: { ...workOrderListRowFields, id: uuid, officeBranchId: uuid, number: { type: 'string' }, date, contractId: { ...uuid, nullable: true }, contractSnapshot: { type: 'object', nullable: true, additionalProperties: true }, revoked: { type: 'boolean' }, version, createdById: uuid, createdByName: { type: 'string' }, updatedById: { ...uuid, nullable: true }, updatedByName: { type: 'string', nullable: true }, createdAt: timestamp, updatedAt: timestamp } } }, pagination: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' } } } } }),
   FieldServiceUserSnapshot: {
     description: 'Raw Auth user snapshot synchronized into the FieldServiceUser read model (the exact JSON stored per row; future Auth field additions appear without a schema change).',
     type: 'object', additionalProperties: true,

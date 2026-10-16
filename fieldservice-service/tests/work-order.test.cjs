@@ -127,6 +127,13 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await request('PATCH','/work-orders/'+row.id,{version:0,companyId:null},400);
   const linked=await request('POST','/work-orders',basis,201);assert.equal(linked.quotationSnapshot.id,quoteId);
   assert.equal(linked.quotationSnapshot.version,quotation.version);
+  const list=await request('GET','/work-orders');
+  const listed=list.workOrders.find(workOrder=>workOrder.id===linked.id);
+  assert(listed,'created work order is returned by the list endpoint');
+  assert.equal(Object.hasOwn(listed,'inspectors'),false,'list response omits inspectors');
+  assert.equal(Object.hasOwn(listed,'quotationSnapshot'),false,'list response omits quotation snapshot');
+  for(const field of ['date','startDate'])assert.match(listed[field],/^\d{4}-\d{2}-\d{2}$/,`${field} is serialized as a date`);
+  assert.match(listed.endDate,/^\d{4}-\d{2}-\d{2}$/,'endDate is serialized as a date');
   // Only one non-revoked Work Order may reference a quotation per branch; a second
   // creation and a PATCH re-pointing are rejected until that Work Order is revoked.
   await request('POST','/work-orders',basis,409);

@@ -146,10 +146,25 @@ export const workOrderRepository = {
     const { page, limit, search, ...filters } = input;
     const where: Prisma.WorkOrderWhereInput = { ...filters, officeBranchId: actor.officeBranchId,
       ...(search ? { OR: [{ number: { contains: search, mode: 'insensitive' } }] } : {}) };
-    const [workOrders, total] = await prisma.$transaction([
-      prisma.workOrder.findMany({ where, include, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit }),
+    const [rows, total] = await prisma.$transaction([
+      prisma.workOrder.findMany({
+        where,
+        select: {
+          id: true, officeBranchId: true, number: true, date: true, contractId: true, contractSnapshot: true,
+          quotationId: true, startDate: true, endDate: true, status: true, revoked: true, version: true,
+          createdById: true, createdByName: true, updatedById: true, updatedByName: true,
+          createdAt: true, updatedAt: true,
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit,
+      }),
       prisma.workOrder.count({ where }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    const workOrders = rows.map(row => ({
+      ...row,
+      date: row.date.toISOString().slice(0, 10),
+      startDate: row.startDate.toISOString().slice(0, 10),
+      endDate: row.endDate?.toISOString().slice(0, 10) ?? null,
+    }));
     return { workOrders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async get(id: string, actor: Actor) {
