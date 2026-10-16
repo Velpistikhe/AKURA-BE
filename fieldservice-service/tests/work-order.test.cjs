@@ -53,7 +53,8 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   quotationCalls++;
   if(upstreamFails)throw Error('offline');
   if(quotationHttpStatus!==200)return {ok:false,status:quotationHttpStatus,json:async()=>({message:'Active quotation not found in this branch'})};
-  return {ok:true,json:async()=>({data:quotation})};
+  const referenced=String(url).split('/').pop();
+  return {ok:true,json:async()=>({data:{...quotation,id:referenced}})};
  };
  const app=express();app.use(express.json());
  app.use((req,res,next)=>{req.user={sub:user,type:'access',officeBranchId:['Bearer other','Bearer stale'].includes(req.headers.authorization)?otherBranch:branch};next();});
@@ -71,6 +72,11 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
  const seedQuotationSnapshot=async(changes={})=>{Object.assign(quotation,changes);
   const data={officeBranchId:branch,quotationId:quoteId,quotationVersion:quotation.version,payload:JSON.parse(JSON.stringify(quotation))};
   await prisma.quotationSnapshot.upsert({where:{officeBranchId_quotationId:{officeBranchId:branch,quotationId:quoteId}},create:data,update:data});};
+ const startableQuoteId=randomUUID();
+ const startableQuotation={...quotation,id:startableQuoteId};
+ const seedQuotationSnapshotFor=async(id,snapshot)=>{
+  const data={officeBranchId:branch,quotationId:id,quotationVersion:snapshot.version,payload:JSON.parse(JSON.stringify(snapshot))};
+  await prisma.quotationSnapshot.upsert({where:{officeBranchId_quotationId:{officeBranchId:branch,quotationId:id}},create:data,update:data});};
  const seedInspector=async(id,officeBranchId,firstName,lastName)=>prisma.fieldServiceUser.upsert({where:{id},create:{id,officeBranchId,user:{id,firstName,lastName,username:firstName.toLowerCase()},sourceVersion:1,sourceCreatedAt:new Date(),sourceUpdatedAt:new Date()},update:{officeBranchId}});
  try{
   await seedInspector(inspectorA,branch,'Budi','Tester');await seedInspector(inspectorB,branch,'Agus','Helper');await seedInspector(foreignInspector,otherBranch,'Foreign','Inspector');
@@ -121,13 +127,17 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await request('PATCH','/work-orders/'+row.id,{version:0,companyId:null},400);
   const linked=await request('POST','/work-orders',basis,201);assert.equal(linked.quotationSnapshot.id,quoteId);
   assert.equal(linked.quotationSnapshot.version,quotation.version);
+  // Only one non-revoked Work Order may reference a quotation per branch; a second
+  // creation and a PATCH re-pointing are rejected until that Work Order is revoked.
+  await request('POST','/work-orders',basis,409);
+  await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],quotationId:quoteId},409,'field');
   assert.equal(quotationCalls,0,'quotation basis reads the local snapshot only');
   await request('POST','/work-orders',{...basis,endDate:undefined},400);
   await request('POST','/work-orders',{...basis,inspectors:undefined},400);
   await request('POST','/work-orders',{...basis,quotationId:randomUUID()},404);
   upstreamFails=true;await request('POST','/work-orders',raw,503);upstreamFails=false;
-  const changed=await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],quotationId:quoteId},200,'field');
-  assert.equal(changed.updatedByName,'Test User');assert.equal(changed.updatedById,user);assert.equal(changed.number,row.number);assert.deepEqual(changed.inspectors.map(x=>x.name),['Dewi']);assert.equal(changed.quotationId,quoteId);
+  const changed=await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi']},200,'field');
+  assert.equal(changed.updatedByName,'Test User');assert.equal(changed.updatedById,user);assert.equal(changed.number,row.number);assert.deepEqual(changed.inspectors.map(x=>x.name),['Dewi']);assert.equal(changed.quotationId,null);
   await request('PATCH','/work-orders/'+row.id,{version:1,startDate:'2027-01-01',inspectors:['Should rollback']},400);
   assert.equal((await repo.get(row.id,actor)).version,1);assert.equal((await repo.get(row.id,actor)).inspectors[0].name,'Dewi');
   const races=await Promise.allSettled(Array.from({length:6},(_,i)=>repo.update(row.id,updateWorkOrderSchema.parse({version:1,startDate:['2026-09-16','2026-09-17','2026-09-18','2026-09-19','2026-09-20','2026-09-21'][i],inspectors:['Inspector '+i]}),null,actor)));
@@ -148,7 +158,9 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal((await request('GET','/work-orders/'+byContract.id)).contractId,contractId);
   assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
-  const startable=await request('POST','/work-orders',basis,201);
+  // linked still holds quoteId, so the startable Work Order uses a second quotation.
+  await seedQuotationSnapshotFor(startableQuoteId,startableQuotation);
+  const startable=await request('POST','/work-orders',{...basis,quotationId:startableQuoteId},201);
   assert.equal(startable.status,'DRAFT');
   await request('POST','/work-orders/'+startable.id+'/start',{version:99},409);
   upstreamFails=true;
@@ -199,11 +211,14 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal((await repo.get(linked.id,actor)).status,'DRAFT');
   const revoked=await request('DELETE','/work-orders/'+linked.id,{version:0});assert.equal(revoked.revoked,true);assert.equal(revoked.inspectors.length,2);
   assert.equal((await request('GET','/work-orders/'+linked.id)).revoked,true);await request('PATCH','/work-orders/'+linked.id,{version:1,startDate:'2026-10-01'},409);await request('DELETE','/work-orders/'+linked.id,{version:1},409);
+  // Revoking linked frees quoteId: a new Work Order from the same quotation succeeds.
+  const recreated=await request('POST','/work-orders',basis,201);assert.equal(recreated.quotationId,quoteId);assert.notEqual(recreated.id,linked.id);
+  await request('POST','/work-orders',basis,409);
   assert.equal((await request('GET','/work-orders?revoked=true')).pagination.total,1);assert.equal((await request('GET','/work-orders?status=IN_PROGRESS')).pagination.total,2);assert.equal((await request('GET','/work-orders?quotationId='+quoteId)).pagination.total,1);
   const history=await request('GET','/work-orders/'+row.id+'/history?limit=2');
   assert.equal(history.pagination.total,4);assert.deepEqual(history.history.map(x=>x.version),[3,2]);
   assert.deepEqual(history.history[0].changes.find(x=>x.field==='inspectors').after,[]);
-  assert.equal(history.history[0].beforeSnapshot.quotationId,quoteId);
+  assert.equal(history.history[0].beforeSnapshot.quotationId,null);
   assert.equal(history.history[0].snapshot.quotationId,null);
   const revokedHistory=await request('GET','/work-orders/'+linked.id+'/history');
   assert.equal(revokedHistory.pagination.total,2);assert.equal(revokedHistory.history[0].action,'REVOKE');
@@ -220,18 +235,18 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal((await repo.history(row.id,1,20,actor)).pagination.total,4);
   assert.equal((await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}})).lastNumber,sequenceBefore.lastNumber);
   const created=await Promise.all(Array.from({length:6},()=>repo.create(createWorkOrderSchema.parse(raw),contract,actor)));
-  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+5).padStart(6,'0')}`));
+  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+6).padStart(6,'0')}`));
   // Child insertion failure must roll back both Work order and number allocation.
   let fail=true;
   prisma.$use(async(params,next)=>{if(fail&&params.model==='WorkOrder'&&params.action==='create')params.args.data.inspectors.create.push({name:'x'.repeat(256),position:999});return next(params);});
   await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor));fail=false;
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000011`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000012`);
   const allocate=clock=>prisma.$transaction(tx=>nextWorkOrderIdentity(tx,clockBranch,clock));
   const end=()=>new Date('2026-12-31T16:59:59Z'),start=()=>new Date('2026-12-31T17:00:00Z');
   assert.equal((await allocate(end)).number,'WO/2026/000001');assert.equal((await allocate(end)).number,'WO/2026/000002');assert.equal((await allocate(start)).number,'WO/2027/000001');
   let reads=0;const crossed=await allocate(()=>++reads===1?end():start());assert.equal(crossed.number,'WO/2027/000002');assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000012`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000013`);
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
   const where={officeBranchId:{in:branches}};

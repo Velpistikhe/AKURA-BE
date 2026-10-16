@@ -93,6 +93,25 @@ function reference(input: { quotationId?: string | null; companyId?: string | nu
 function checkDates(startDate: Date, endDate?: Date | null) {
   if (endDate && endDate < startDate) throw new HttpError('End date cannot precede start date', 400);
 }
+/**
+ * A quotation may back only one live Work order per branch: while a non-revoked
+ * Work order already references the quotation, no other may be created (create)
+ * or re-pointed to it (update) in the same branch. Only revoking the existing
+ * Work order frees the quotation again.
+ *
+ * The advisory transaction lock is scoped per branch + quotation and taken before
+ * the duplicate read, so concurrent creations for the same quotation serialize
+ * instead of both passing a check-then-insert race (the same per-key advisory
+ * lock pattern used by the quotation snapshot and user sync receivers).
+ */
+async function assertQuotationNotInUse(tx: Prisma.TransactionClient, officeBranchId: string, quotationId: string, excludeId?: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'work-order-quotation:' + officeBranchId + ':' + quotationId}))`;
+  const existing = await tx.workOrder.findFirst({
+    where: { officeBranchId, quotationId, revoked: false, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    select: { number: true },
+  });
+  if (existing) throw new HttpError(`Quotation already has an active work order (${existing.number}); revoke it before creating another`, 409);
+}
 export const workOrderRepository = {
   async history(id: string, page: number, limit: number, actor: Actor) {
     await this.get(id, actor);
@@ -113,6 +132,9 @@ export const workOrderRepository = {
     checkDates(input.startDate, input.endDate);
     // The Work Order is always created as DRAFT; the request never carries status.
     return prisma.$transaction(async tx => {
+      // Serialize same-quotation requests before the duplicate read and numbering.
+      // Different quotations and contract-based creations remain independent.
+      if (quotation.quotationId) await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId);
       const inspectorUsers = await resolveInspectorUsers(tx, inspectors, actor.officeBranchId);
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
       const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
@@ -147,6 +169,11 @@ export const workOrderRepository = {
         throw new HttpError('Work order has changed or is revoked; reload before retrying', 409);
       }
       const current = await tx.workOrder.findUniqueOrThrow({ where: { id } });
+      // Re-pointing the basis at a quotation already used by another live Work
+      // order in this branch is rejected under the same advisory lock.
+      if ('quotationId' in quotation && typeof quotation.quotationId === 'string' && quotation.quotationId) {
+        await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId, id);
+      }
       checkDates(fields.startDate ?? current.startDate, fields.endDate !== undefined ? fields.endDate : current.endDate);
       if (inspectors !== undefined) {
         await tx.workOrderInspector.deleteMany({ where: { workOrderId: id } });
