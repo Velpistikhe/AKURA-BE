@@ -54,6 +54,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   if(upstreamFails)throw Error('offline');
   if(quotationHttpStatus!==200)return {ok:false,status:quotationHttpStatus,json:async()=>({message:'Active quotation not found in this branch'})};
   const referenced=String(url).split('/').pop();
+  if(!quotationIds.has(referenced))return {ok:false,status:404,json:async()=>({message:'Referenced record not found'})};
   return {ok:true,json:async()=>({data:{...quotation,id:referenced}})};
  };
  const app=express();app.use(express.json());
@@ -68,15 +69,11 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
  const inspectorPairs=[{userId:inspectorA,name:inspectorNames[0]},{userId:inspectorB,name:inspectorNames[1]}];
  const raw={companyId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
  const year=workOrderDate().getUTCFullYear();
- // Quotation basis resolves from this stored snapshot; no live Marketing call.
- const seedQuotationSnapshot=async(changes={})=>{Object.assign(quotation,changes);
-  const data={officeBranchId:branch,quotationId:quoteId,quotationVersion:quotation.version,payload:JSON.parse(JSON.stringify(quotation))};
-  await prisma.quotationSnapshot.upsert({where:{officeBranchId_quotationId:{officeBranchId:branch,quotationId:quoteId}},create:data,update:data});};
+ // Quotation basis is resolved live from Marketing; the mock serves the current quotation state for every registered ID.
+ const quotationIds=new Set([quoteId]);
+ const seedQuotationSnapshot=async(changes={})=>{Object.assign(quotation,changes);};
  const startableQuoteId=randomUUID();
- const startableQuotation={...quotation,id:startableQuoteId};
- const seedQuotationSnapshotFor=async(id,snapshot)=>{
-  const data={officeBranchId:branch,quotationId:id,quotationVersion:snapshot.version,payload:JSON.parse(JSON.stringify(snapshot))};
-  await prisma.quotationSnapshot.upsert({where:{officeBranchId_quotationId:{officeBranchId:branch,quotationId:id}},create:data,update:data});};
+ const seedQuotationSnapshotFor=async id=>{quotationIds.add(id);};
  const seedInspector=async(id,officeBranchId,firstName,lastName)=>prisma.fieldServiceUser.upsert({where:{id},create:{id,officeBranchId,user:{id,firstName,lastName,username:firstName.toLowerCase()},sourceVersion:1,sourceCreatedAt:new Date(),sourceUpdatedAt:new Date()},update:{officeBranchId}});
  try{
   await seedInspector(inspectorA,branch,'Budi','Tester');await seedInspector(inspectorB,branch,'Agus','Helper');await seedInspector(foreignInspector,otherBranch,'Foreign','Inspector');
@@ -137,8 +134,9 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   // Only one non-revoked Work Order may reference a quotation per branch; a second
   // creation and a PATCH re-pointing are rejected until that Work Order is revoked.
   await request('POST','/work-orders',basis,409);
+  const basisCallsBeforePatch=quotationCalls;
   await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],quotationId:quoteId},409,'field');
-  assert.equal(quotationCalls,0,'quotation basis reads the local snapshot only');
+  assert.equal(quotationCalls,basisCallsBeforePatch+1,'PATCH quotation basis is validated live before the duplicate-basis check');
   await request('POST','/work-orders',{...basis,endDate:undefined},400);
   await request('POST','/work-orders',{...basis,inspectors:undefined},400);
   await request('POST','/work-orders',{...basis,quotationId:randomUUID()},404);
@@ -166,7 +164,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
   // linked still holds quoteId, so the startable Work Order uses a second quotation.
-  await seedQuotationSnapshotFor(startableQuoteId,startableQuotation);
+  await seedQuotationSnapshotFor(startableQuoteId);
   const startable=await request('POST','/work-orders',{...basis,quotationId:startableQuoteId},201);
   assert.equal(startable.status,'DRAFT');
   await request('POST','/work-orders/'+startable.id+'/start',{version:99},409);
@@ -259,7 +257,6 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   const where={officeBranchId:{in:branches}};
   await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
   await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});await prisma.workOrder.deleteMany({where});await prisma.workOrderSequence.deleteMany({where});
-  await prisma.quotationSnapshot.deleteMany({where:{officeBranchId:{in:branches}}});
   await prisma.fieldServiceUser.deleteMany({where:{id:{in:[inspectorA,inspectorB,foreignInspector]}}});await prisma.$disconnect();
  }
 });

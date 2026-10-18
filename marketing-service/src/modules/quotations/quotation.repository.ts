@@ -8,7 +8,6 @@ import { HttpError } from '../../utils/httpError.js';
 import { createQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, UpdateQuotationInput } from './quotation.schemas.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { lockNextQuotationNumber, quotationDate, quotationNumberYear } from './quotation-number.js';
-import { enqueueQuotationSnapshot, enqueueQuotationStateSync, dispatchQuotationSync } from './quotation-sync.repository.js';
 import type { QuotationPdfMetadata } from './quotation-approval.service.js';
 import { serviceScopeInclude, serviceScopeSnapshot } from './quotation-service-groups.js';
 
@@ -151,6 +150,11 @@ export const buildQuotationListWhere = (
   return { officeBranchId, ...(clauses.length ? { AND: clauses } : {}) };
 };
 
+// Contract-priced quotations must be based on a contract, never on the quotation.
+export const isContractPriced = (items: { priceSelection: Prisma.JsonValue }[]): boolean =>
+  items.some(item => item.priceSelection && typeof item.priceSelection === 'object'
+    && (item.priceSelection as Record<string, unknown>).priceSource === 'CONTRACT');
+
 export const quotationRepository = {
   async find(id: string, officeBranchId: string) {
     const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId }, include: detailInclude });
@@ -205,6 +209,24 @@ export const quotationRepository = {
       include: { pdfDocument: true, items: { where: { isActive: true }, orderBy: { position: 'asc' } } } });
     if (!quote) throw new HttpError('Quotation not found', 404);
     return quote;
+  },
+  /**
+   * Cross-section list of APPROVED quotations as downstream document bases
+   * (Field Service work-order options). The branch always comes from the
+   * caller's access token; contract-priced quotations are excluded because
+   * those must use the contract basis.
+   */
+  async listReference(officeBranchId: string) {
+    const where: Prisma.QuotationWhereInput = { officeBranchId, status: 'APPROVED', isActive: true, pdfDocument: { isNot: null } };
+    const rows = await prisma.quotation.findMany({
+      where, take: 1000,
+      orderBy: [{ pdfDocument: { approvedAt: 'desc' } }, { id: 'asc' }],
+      select: { ...listSelect,
+        pdfDocument: { select: { approvedAt: true } },
+        items: { where: { isActive: true }, select: { priceSelection: true } } },
+    });
+    return { quotations: rows.filter(row => !isContractPriced(row.items))
+      .map(({ items: _items, pdfDocument, ...row }) => ({ ...row, approvedAt: pdfDocument!.approvedAt })) };
   },
   async create(input: unknown, officeBranchId: string, actor: AuditActor) {
     const { items, companyId, date: _clientDate, ...data } = createQuotationSchema.parse(input);
@@ -350,19 +372,12 @@ export const quotationRepository = {
         where: { officeBranchId_year: { officeBranchId, year: numberYear } }, data: { lastNumber: no },
       });
       const approvedRow = await saveRevision(tx, id, actor, 'APPROVE');
-      // Commit the approved JSON to the Field Service outbox atomically with approval.
-      const syncEvent = await enqueueQuotationSnapshot(tx, {
-        id: approvedRow.id, officeBranchId, version: approvedRow.version, revision: approvedRow.revision,
-        payload: approvedRow, approvedAt: new Date(document.approvedAt),
-      });
-      return { quote: approvedRow, syncEvent: { id: syncEvent.id, officeBranchId } };
+      return approvedRow;
     }, { maxWait: 10000, timeout: 60000 });
   },
 
   async revise(id: string, version: number, officeBranchId: string, actor: AuditActor) {
-    // Captured inside the transaction, delivered only after commit.
-    const syncEvents: { id: string }[] = [];
-    const result = await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
       const source = await tx.quotation.findFirst({ where: { id, officeBranchId }, include });
       if (!source) throw new HttpError('Quotation not found', 404);
@@ -391,19 +406,12 @@ export const quotationRepository = {
         })) },
       }, include });
       await saveRevision(tx, revised.id, actor, 'REVISE');
-      const revisionRow = await saveRevision(tx, copy.id, actor, 'CREATE_REVISION');
-      // Republish the superseded state so Field Service stops offering it as a basis.
-      const stateEvent = await enqueueQuotationStateSync(tx, revised, revised, new Date());
-      if (stateEvent) syncEvents.push({ id: stateEvent.id });
-      return revisionRow;
+      return saveRevision(tx, copy.id, actor, 'CREATE_REVISION');
     }, { maxWait: 10000, timeout: 20000 });
-    await Promise.all(syncEvents.map(event => dispatchQuotationSync(event.id, officeBranchId)));
-    return result;
   },
   async deactivate(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
     const { version } = deactivateQuotationSchema.parse(input);
-    const syncEvents: { id: string }[] = [];
-    const deleted = await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       const claimed = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       if (!claimed.count) {
         if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);
@@ -412,23 +420,14 @@ export const quotationRepository = {
       await tx.quotationItem.updateMany({ where: { quotationId: id, isActive: true }, data: { isActive: false, updatedById: actor.id, updatedByName: actor.name } });
       const row = await tx.quotation.findUniqueOrThrow({ where: { id }, include });
       await saveRevision(tx, id, actor, 'DEACTIVATE');
-      // Republish the inactive state so Field Service stops offering it as a basis.
-      const deactivatedEvent = await enqueueQuotationStateSync(tx, row, row, new Date());
-      if (deactivatedEvent) syncEvents.push({ id: deactivatedEvent.id });
       if (row.previousQuotationId) {
         const parent = await tx.quotation.findFirst({ where: { id: row.previousQuotationId, officeBranchId, status: 'REVISED', isActive: false } });
         if (!parent) throw new HttpError('Original quotation cannot be restored', 409);
         const restored = await tx.quotation.update({ where: { id: parent.id }, data: { status: 'APPROVED', isActive: true, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, include });
         await saveRevision(tx, restored.id, actor, 'RESTORE_APPROVED');
-        // The restored original becomes a valid basis again; republish it too.
-        const restoredEvent = await enqueueQuotationStateSync(tx, restored, restored, new Date());
-        if (restoredEvent) syncEvents.push({ id: restoredEvent.id });
       }
       return row;
     });
-    // Deliver only after commit; failures stay queued for the outbox worker.
-    await Promise.all(syncEvents.map(event => dispatchQuotationSync(event.id, officeBranchId)));
-    return deleted;
   },
 
 

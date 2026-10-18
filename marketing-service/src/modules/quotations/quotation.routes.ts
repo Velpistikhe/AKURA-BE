@@ -3,7 +3,7 @@ import { Router, RequestHandler } from 'express';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { quotationController } from './quotation.controller.js';
-import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, createWorkOrderFromQuotationSchema, listQuotationSyncDeliveriesSchema, redispatchQuotationSyncSchema } from './quotation.schemas.js';
+import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
 import { HttpError } from '../../utils/httpError.js';
 import { getOfficeBranchId } from '../../utils/officeBranch.js';
 import { quotationRepository } from './quotation.repository.js';
@@ -26,13 +26,6 @@ const requireMarketingAdmin: RequestHandler = (_req, res, next) => {
 };
 
 const router = Router();
-
-// ─── Quotation sync monitoring & manual re-dispatch ─────────────────────────
-// Declared before the ':quotationId' param routes so the literal path is never
-// swallowed. Sync outbox state is operational data: ADMIN MARKETING only, and
-// the listing itself is global across branches (no branch scoping on the read).
-router.get('/sync/deliveries', requireMarketingAdmin, validate('query', listQuotationSyncDeliveriesSchema), asyncHandler(quotationController.syncDeliveries));
-router.post('/sync/deliveries', requireMarketingAdmin, validate('body', redispatchQuotationSyncSchema), asyncHandler(quotationController.redispatchSync));
 
 router.get('/:quotationId/pdf', validate('params', quotationIdSchema), asyncHandler(quotationController.preview));
 router.post('/:quotationId/approve', requireMarketingAdmin, validate('params', quotationIdSchema), validate('body', approveQuotationSchema), asyncHandler(quotationController.approve));

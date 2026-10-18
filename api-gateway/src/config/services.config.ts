@@ -5,7 +5,7 @@ interface ServiceRouteConfig {
   target: string;
   gatewaySecret: string;
   authRequired: boolean;
-  internalCaller?: 'finance-service' | 'auth-service' | 'marketing-service';
+  internalCaller?: 'finance-service' | 'auth-service';
   pathRewrite: Record<string, string>;
   description: string;
 }
@@ -72,15 +72,6 @@ if (env.FIELDSERVICE_SERVICE_URL && env.FIELDSERVICE_SERVICE_GATEWAY_SECRET) {
     internalCaller: 'auth-service',
     pathRewrite: { '^/': '/internal/users/events' },
     description: 'Internal Auth FIELD_SERVICE user read-model delivery to Field Service',
-  });
-  servicesConfig.push({
-    prefix: '/api/v1/fieldservice/internal/quotation-snapshots/events',
-    target: env.FIELDSERVICE_SERVICE_URL,
-    gatewaySecret: env.FIELDSERVICE_SERVICE_GATEWAY_SECRET,
-    authRequired: false,
-    internalCaller: 'marketing-service',
-    pathRewrite: { '^/': '/internal/quotation-snapshots/events' },
-    description: 'Internal Marketing quotation snapshot delivery to Field Service',
   });
   servicesConfig.push({
     prefix: '/api/v1/fieldservice', target: env.FIELDSERVICE_SERVICE_URL,

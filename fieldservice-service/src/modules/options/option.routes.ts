@@ -1,7 +1,7 @@
 import { Request, Response, Router } from 'express';
-import { prisma } from '../../config/db.js';
 import { Actor, requireActor } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import { loadQuotationOptions } from '../../integrations/gateway.js';
 import { listInspectorOptions } from '../user-sync/user-sync.repository.js';
 
 const router = Router();
@@ -19,37 +19,24 @@ router.get('/inspectors', asyncHandler(async (req, res) => {
   send(req, res, { inspectors });
 }));
 
-/** Branch-scoped approved quotations from the local Marketing snapshot read model. */
+/**
+ * Branch-scoped approved quotations resolved live from Marketing. Marketing
+ * already filters to active APPROVED non-contract-priced quotations of the
+ * authenticated branch and caps the list; the response shape is unchanged for
+ * existing consumers.
+ */
 router.get('/quotations', asyncHandler(async (req, res) => {
-  const { officeBranchId } = actor(res);
-  const quotations = await prisma.quotationSnapshot.findMany({
-    where: { officeBranchId },
-    select: { quotationId: true, quotationVersion: true, revision: true, payload: true, approvedAt: true },
-    orderBy: [{ approvedAt: 'desc' }, { quotationId: 'asc' }],
-    take: 1000,
-  });
-  const options = quotations.flatMap(row => {
-    const quotation = row.payload as Record<string, unknown>;
-    const items = Array.isArray(quotation.items) ? (quotation.items as Record<string, unknown>[]) : [];
-    // Contract-priced quotations are not selectable; they must use the contract basis.
-    const contractPriced = items.some(item => {
-      const selection = item.priceSelection;
-      return Boolean(selection) && typeof selection === 'object'
-        && (selection as Record<string, unknown>).priceSource === 'CONTRACT';
-    });
-    if (quotation.isActive !== true || quotation.status !== 'APPROVED' || contractPriced) return [];
-    return [{
-      id: row.quotationId,
-      number: quotation.no ?? null,
-      numberYear: quotation.numberYear ?? null,
-      subject: quotation.subject ?? '',
-      company: quotation.companySnapshot ?? null,
-      quotationVersion: row.quotationVersion,
-      revision: row.revision,
-      approvedAt: row.approvedAt,
-    }];
-  });
-  send(req, res, { quotations: options });
+  const quotations = await loadQuotationOptions(req);
+  send(req, res, { quotations: quotations.map(option => ({
+    id: option.id,
+    number: option.no ?? null,
+    numberYear: option.numberYear ?? null,
+    subject: option.subject ?? '',
+    company: option.companySnapshot ?? null,
+    quotationVersion: option.version,
+    revision: option.revision,
+    approvedAt: option.approvedAt,
+  })) });
 }));
 
 export default router;

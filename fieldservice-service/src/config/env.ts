@@ -14,8 +14,6 @@ const envSchema = z.object({
   // Direct browser access is development-only and never bypasses user auth.
   DIRECT_MFE_ACCESS: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   DIRECT_MFE_ORIGIN: z.string().url().default('http://localhost:4173'),
-  // Shared secret for Marketing's APPROVED quotation snapshot delivery.
-  QUOTATION_SYNC_SECRET: z.string().min(32).optional(),
   // Shared secret for Auth's FIELD_SERVICE user read-model delivery.
   USER_SYNC_SECRET: z.string().min(32).optional(),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),

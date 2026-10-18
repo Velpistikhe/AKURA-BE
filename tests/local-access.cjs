@@ -78,7 +78,6 @@ async function run(service) {
     }
     if (service === 'fieldservice-service') {
       assert.equal(guard('127.0.0.1', {}, '/internal/users/events').status, 403);
-      assert.equal(guard('127.0.0.1', {}, '/internal/quotation-snapshots/events').status, 403);
     }
     process.env.VERCEL = '1';
     assert.equal(guard('127.0.0.1', {}, domainPath).status, 403);

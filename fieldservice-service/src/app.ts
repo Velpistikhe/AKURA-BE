@@ -7,7 +7,6 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import routes from './routes/index.js';
-import quotationSnapshots from './modules/quotation-snapshots/quotation-snapshot.routes.js';
 import userSyncEvents from './modules/user-sync/user-sync.routes.js';
 import { corsOrigin } from './utils/corsOrigin.js';
 
@@ -20,9 +19,7 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// Internal Marketing quotation snapshot and Auth user sync deliveries;
-// neither endpoint requires user authentication.
-app.use(quotationSnapshots);
+// Internal Auth user sync deliveries; the endpoint requires no user authentication.
 app.use(userSyncEvents);
 
 app.get('/health', (req: Request, res: Response) => {

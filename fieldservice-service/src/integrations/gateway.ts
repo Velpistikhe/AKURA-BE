@@ -127,15 +127,31 @@ export async function validateInspectorsForStart(req: Request, inspectors: Store
   }
 }
 
-export async function loadQuotation(req: Request, id: string, version: number, branch: string): Promise<QuotationSnapshot> {
+export async function loadQuotationForBasis(req: Request, id: string, branch: string): Promise<QuotationSnapshot> {
   const parsed = quotationSchema.safeParse(await gatewayGet(`marketing/quotation-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid quotation response', 502);
   const quotation = parsed.data;
   if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError('Quotation not found', 404);
-  if (quotation.version !== version) throw new HttpError('Quotation has changed; reload before saving the Work order', 409);
-  if (quotation.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
-  if (quotation.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT')) throw new HttpError('Use the contract as the work order basis for contract pricing', 409);
+  if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
+  if (quotation.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT')) throw new HttpError('Use contract as the work order basis for contract pricing', 409);
   return quotation;
+}
+
+export const quotationReferenceOptionSchema = z.object({
+  id: z.string().uuid(), officeBranchId: z.string().uuid(),
+  no: z.number().int().nullable(), numberYear: z.number().int().nullable(),
+  subject: z.string(), companySnapshot: z.record(z.unknown()),
+  version: z.number().int().nonnegative(), revision: z.number().int().nonnegative(),
+  approvedAt: z.string().datetime().nullable(),
+}).passthrough();
+export type QuotationReferenceOption = z.infer<typeof quotationReferenceOptionSchema>;
+
+/** Branch-scoped list of APPROVED, active, non-contract-priced quotation options. */
+export async function loadQuotationOptions(req: Request): Promise<QuotationReferenceOption[]> {
+  const parsed = z.object({ quotations: z.array(quotationReferenceOptionSchema) }).passthrough()
+    .safeParse(await gatewayGet('marketing/quotation-references', req));
+  if (!parsed.success) throw new HttpError('Invalid quotation reference list response', 502);
+  return parsed.data.quotations;
 }
 
 export const contractSchema = z.object({
