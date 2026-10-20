@@ -13,7 +13,6 @@ const inspectorUsers = z.array(z.object({
 }).strict()).max(100)
   .refine(rows => new Set(rows.map(({ userId }) => userId.toLowerCase())).size === rows.length, 'Inspector user IDs must be unique');
 const fields = {
-  companyId: z.string().uuid().nullable().optional(),
   contractId: z.string().uuid().nullable().optional(),
   quotationId: z.string().uuid().nullable().optional(),
   startDate: date,
@@ -21,14 +20,14 @@ const fields = {
   inspectors: inspectorNames.optional(),
 };
 type Reference = {
-  quotationId?: string | null; companyId?: string | null; contractId?: string | null;
+  quotationId?: string | null; contractId?: string | null;
 };
 const validReference = (value: Reference) =>
-  Number(!!value.quotationId) + Number(!!value.contractId) + Number(!!value.companyId) === 1;
+  Number(!!value.quotationId) + Number(!!value.contractId) === 1;
 // Creation always starts at DRAFT; status transitions are edits, never part of create.
 // The quotation/contract content is snapshotted by the server, so clients only send IDs.
 export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers.optional() }).strict()
-  .refine(validReference, 'Supply exactly one quotation, contract or companyId')
+  .refine(validReference, 'Supply exactly one quotationId or contractId')
   .refine(value => !value.quotationId || (value.endDate !== undefined && value.inspectors !== undefined),
     'A quotation-based Work order requires quotationId, startDate, endDate and inspectors');
 // The DRAFT -> IN_PROGRESS transition must go through POST /:id/start (which
@@ -36,7 +35,7 @@ export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspector
 // Other statuses remain simple CRUD labels as before.
 export const updateWorkOrderSchema = z.object({ ...fields, endDate: date.nullable().optional(),
   status: z.nativeEnum(WorkOrderStatus).refine(value => value !== 'IN_PROGRESS', 'Use POST /:id/start to move a Work order to IN_PROGRESS').optional() }).partial().extend({ version }).strict()
-  .refine(value => !['quotationId','companyId','contractId'].some(key => key in value) || validReference(value), 'Supply exactly one quotation, contract or companyId when replacing the document basis')
+  .refine(value => !['quotationId','contractId'].some(key => key in value) || validReference(value), 'Supply exactly one quotationId or contractId when replacing the document basis')
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const deleteWorkOrderSchema = z.object({ version }).strict();
 // Moving DRAFT -> IN_PROGRESS requires live Marketing validation, so it only

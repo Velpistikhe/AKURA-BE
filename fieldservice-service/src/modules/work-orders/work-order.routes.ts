@@ -2,16 +2,16 @@ import { Router, Request, Response } from 'express';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadCompanyContract, loadContract, loadQuotationForBasis, loadQuotationForStart, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { loadContract, loadQuotationForBasis, loadQuotationForStart, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
-type BasisInput = { quotationId?: string | null; contractId?: string | null; companyId?: string | null };
-// Every basis is resolved live: quotation content from the Marketing quotation
-// reference, contracts through the Marketing contract reference.
+type BasisInput = { quotationId?: string | null; contractId?: string | null };
+// The payload carries IDs only. Quotation and contract content is fetched live from
+// Marketing and validated (branch, APPROVED state, contract effective period) before
+// being reduced to the stored snapshot.
 const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
   if (body.quotationId) return loadQuotationForBasis(req, body.quotationId, branch);
-  if (body.contractId) return loadContract(req, body.contractId, branch);
-  return loadCompanyContract(req, body.companyId!, branch);
+  return loadContract(req, body.contractId!, branch);
 };
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
@@ -45,7 +45,7 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
 router.patch('/:id', requireWorkOrderSection('MARKETING', 'FIELD_SERVICE'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   await repository.get(id, actor(res));
-  const quotation = (input.quotationId !== undefined || input.contractId !== undefined || input.companyId !== undefined)
+  const quotation = (input.quotationId !== undefined || input.contractId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;
   send(req, res, await repository.update(id, input, quotation, actor(res)));
 }));

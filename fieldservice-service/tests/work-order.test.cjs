@@ -12,14 +12,18 @@ const {nextWorkOrderIdentity,workOrderDate}=require('../dist/modules/work-orders
 const {createWorkOrderSchema,updateWorkOrderSchema}=require('../dist/modules/work-orders/work-order.schemas.js');
 require('../dist/utils/logger.js').logger.silent=true;
 
-test('Work order HTTP CRUD, company contract resolution, inspectors, branch isolation, concurrency and annual numbering',async()=>{
+test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, branch isolation, concurrency and annual numbering',async()=>{
  const branch=randomUUID(),otherBranch=randomUUID(),clockBranch=randomUUID(),user=randomUUID(),quoteId=randomUUID();
  const inspectorA=randomUUID(),inspectorB=randomUUID(),foreignInspector=randomUUID();
  const branches=[branch,otherBranch,clockBranch];
  const actor={id:user,name:'Test User',officeBranchId:branch};
  const contractId=randomUUID(),companyId=randomUUID();
- const contract={id:contractId,companyId,version:0,status:'ACTIVE',isActive:true,effectiveFrom:'2000-01-01T00:00:00.000Z',effectiveUntil:'2099-01-01T00:00:00.000Z',company:{id:companyId,officeBranchId:branch,revoked:false}};
- const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,subject:'Work',companySnapshot:{name:'Company'},customerSnapshot:'Buyer',subTotal:'100',taxAmount:'11',total:'111',items:[]};
+ // Marketing contract reference: APPROVED status (the live CompanyContractStatus enum has no
+ // ACTIVE value), plus the number/date/company identity the lean snapshot must persist.
+ const contract={id:contractId,companyId,version:0,status:'APPROVED',isActive:true,contractNumber:'CT-2026/001',contractDate:'2026-01-01T00:00:00.000Z',effectiveFrom:'2000-01-01T00:00:00.000Z',effectiveUntil:'2099-01-01T00:00:00.000Z',company:{id:companyId,name:'Customer Co',officeBranchId:branch,revoked:false},prices:[{id:randomUUID(),priceService:'10'}]};
+ // Quotation reference: full Marketing payload. Prices are served upstream so the
+ // reduced snapshot can prove they are dropped before they are stored.
+ const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,revision:0,date:'2026-09-01T00:00:00.000Z',jobStart:'ASAP',inquiryMethod:'EMAIL',inquiryDate:'2026-08-01T00:00:00.000Z',subject:'Work',termOfPayment:'COD',validity:'30 days',supplyAkura:'Akura',supplyCustomer:'Customer',location:'Site',accomplished:'-',deliveryReports:'-',deliveryInvoice:'-',staffId:randomUUID(),customerSnapshot:'Buyer',companySnapshot:{name:'Company'},subTotal:'100',taxAmount:'11',total:'111',createdAt:'2026-09-01T00:00:00.000Z',updatedAt:'2026-09-01T00:00:00.000Z',futureMarketingColumn:'should not be stored',items:[{id:randomUUID(),itemSizeId:randomUUID(),position:0,serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,subTotal:'100',priceSelection:null,isActive:true,version:0,futureItemColumn:'should not be stored'}]};
  const originalFetch=global.fetch;
  let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0,quotationHttpStatus=200;
  let authInspectorCalls=0,authInspectorFails=false,authInspectorNames=null,authInspectorMissing=null;
@@ -38,16 +42,12 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
    const rows=requested.filter(id=>catalog[id]!==undefined&&!authInspectorMissing?.includes(id)).map(id=>({id,name:catalog[id]}));
    return {ok:true,json:async()=>({data:{inspectors:token==='Bearer other'?[]:rows}})};
   }
-  if(String(url).includes('/company-contract-references/')) {
-   assert(String(url).endsWith('/'+companyId));
-   if(upstreamFails)throw Error('offline');
-   return {ok:contractStatus===200,status:contractStatus,json:async()=>({data:{...contract,company:{...contract.company,officeBranchId:token==='Bearer other'?otherBranch:contract.company.officeBranchId}}})};
-  }
   if(String(url).includes('/contract-references/')) {
    contractReferenceCalls++;
    const referenced=String(url).split('/').pop();
    if(upstreamFails)throw Error('offline');
    if(referenced!==contractId)return {ok:false,status:404,json:async()=>({message:'Referenced record not found'})};
+   if(contractStatus!==200)return {ok:false,status:contractStatus,json:async()=>({message:'Unable to validate reference with upstream service'})};
    return {ok:true,json:async()=>({data:{...contract,company:{...contract.company,officeBranchId:token==='Bearer other'?otherBranch:contract.company.officeBranchId}}})};
   }
   quotationCalls++;
@@ -67,7 +67,7 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
  };
  const inspectorNames=['Budi Tester','Agus Helper'];
  const inspectorPairs=[{userId:inspectorA,name:inspectorNames[0]},{userId:inspectorB,name:inspectorNames[1]}];
- const raw={companyId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
+ const raw={contractId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
  const year=workOrderDate().getUTCFullYear();
  // Quotation basis is resolved live from Marketing; the mock serves the current quotation state for every registered ID.
  const quotationIds=new Set([quoteId]);
@@ -79,7 +79,15 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await seedInspector(inspectorA,branch,'Budi','Tester');await seedInspector(inspectorB,branch,'Agus','Helper');await seedInspector(foreignInspector,otherBranch,'Foreign','Inspector');
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/reports`)).status,404);
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/documents`)).status,404);
-  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[inspectorPairs[0],inspectorPairs[0]]},{inspectors:[{userId:'not-a-uuid',name:'X'}]},{inspectors:[{userId:randomUUID(),name:'Ghost Inspector'}]},{inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},{inspectors:[{userId:inspectorA,name:'Wrong Name'}]},{inspectors:[{inspectorId:inspectorA}]},{inspectors:[{userId:inspectorA}]},{endDate:'2026-01-01'},{quotationId:quoteId,endDate:undefined},{quotationId:quoteId,inspectors:undefined},{quotationVersion:0},{contractVersion:1},{summary:'Inspection'},{companyId:null},{quotationId:quoteId,quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
+  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[inspectorPairs[0],inspectorPairs[0]]},{inspectors:[{userId:'not-a-uuid',name:'X'}]},{inspectors:[{userId:randomUUID(),name:'Ghost Inspector'}]},{inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},{inspectors:[{userId:inspectorA,name:'Wrong Name'}]},{inspectors:[{inspectorId:inspectorA}]},{inspectors:[{userId:inspectorA}]},{endDate:'2026-01-01'},{contractVersion:1},{summary:'Inspection'},{quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
+  // The document basis is IDs only: companyId is no longer accepted at all.
+  for(const invalid of [{companyId},{companyId:randomUUID()},{companyId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
+  // Both basis fields empty, or both supplied, is not exactly one basis.
+  for(const invalid of [{contractId:null},{contractId:null,quotationId:null},{contractId,quotationId:quoteId}])await request('POST','/work-orders',{...raw,...invalid},400);
+  // A quotation basis still requires endDate and inspectors of its own.
+  const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
+  await request('POST','/work-orders',{...quotationBasis,endDate:undefined},400);
+  await request('POST','/work-orders',{...quotationBasis,inspectors:undefined},400);
   const row=await request('POST','/work-orders',raw,201);
   assert.equal(row.status,'DRAFT');
   for(const token of ['field','wrong','no-section','admin','manager']){
@@ -110,20 +118,43 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   await request('GET','/work-orders/'+row.id,undefined,404,'other');await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-11-01'},404,'other');await request('DELETE','/work-orders/'+row.id,{version:0},404,'other');
   assert.equal(row.contractId,contractId);assert.equal(row.contractSnapshot.companyId,companyId);
   assert.equal(row.contractSnapshot.version,contract.version);
+  // Lean contract snapshot: number/date/period/company identity only.
+  assert.equal(row.contractSnapshot.contractNumber,contract.contractNumber);
+  assert.equal(row.contractSnapshot.contractDate,contract.contractDate);
+  assert.equal(row.contractSnapshot.effectiveFrom,contract.effectiveFrom);
+  assert.equal(row.contractSnapshot.effectiveUntil,contract.effectiveUntil);
+  assert.equal(row.contractSnapshot.companyName,contract.company.name);
+  assert.equal(Object.hasOwn(row.contractSnapshot,'prices'),false,'contract snapshot never stores price rows');
+  assert.equal(Object.hasOwn(row.contractSnapshot,'company'),false,'contract snapshot stores company identity, not the full company');
   for(const status of [404,409]){contractStatus=status;await request('POST','/work-orders',raw,status);}contractStatus=200;
   upstreamFails=true;await request('POST','/work-orders',raw,503);upstreamFails=false;
+  // A contract whose company linkage is inconsistent is rejected by the reference
+  // identity guard, the same way an unknown contract ID is.
   contract.companyId=randomUUID();await request('POST','/work-orders',raw,404);contract.companyId=companyId;
   contract.company.officeBranchId=otherBranch;await request('POST','/work-orders',raw,404);contract.company.officeBranchId=branch;
   contract.company.revoked=true;await request('POST','/work-orders',raw,409);contract.company.revoked=false;
   contract.effectiveFrom='2098-01-01T00:00:00.000Z';await request('POST','/work-orders',raw,409);contract.effectiveFrom='2000-01-01T00:00:00.000Z';
-  const basis={...raw,companyId:null,quotationId:quoteId};
+  const basis={...quotationBasis};
   await seedQuotationSnapshot({status:'CREATED'});await request('POST','/work-orders',basis,409);
   await seedQuotationSnapshot({status:'APPROVED'});
-  contract.status='CREATE';await request('POST','/work-orders',raw,409);contract.status='ACTIVE';
+  contract.status='CREATE';await request('POST','/work-orders',raw,409);contract.status='APPROVED';
   contract.effectiveUntil='2000-01-02T00:00:00.000Z';await request('POST','/work-orders',raw,409);contract.effectiveUntil='2099-01-01T00:00:00.000Z';
   await request('PATCH','/work-orders/'+row.id,{version:0,companyId:null},400);
   const linked=await request('POST','/work-orders',basis,201);assert.equal(linked.quotationSnapshot.id,quoteId);
   assert.equal(linked.quotationSnapshot.version,quotation.version);
+  // Lean quotation snapshot: identity and descriptive content, no price anywhere.
+  for(const priceField of ['subTotal','taxAmount','total','tax','taxSourceId'])
+   assert.equal(Object.hasOwn(linked.quotationSnapshot,priceField),false,`quotation snapshot never stores ${priceField}`);
+  assert.equal(linked.quotationSnapshot.subject,quotation.subject);
+  assert.equal(linked.quotationSnapshot.customerSnapshot,quotation.customerSnapshot);
+  assert.deepEqual(linked.quotationSnapshot.companySnapshot,quotation.companySnapshot);
+  assert.equal(linked.quotationSnapshot.items.length,1);
+  assert.deepEqual(linked.quotationSnapshot.items[0],{id:quotation.items[0].id,itemSizeId:quotation.items[0].itemSizeId,position:0,
+   serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',isActive:true,version:0},
+   'quotation snapshot items carry description and quantity only');
+  // The snapshot is an allowlist projection: a future Marketing column never arrives.
+  assert.equal(Object.hasOwn(linked.quotationSnapshot,'futureMarketingColumn'),false);
+  assert.equal(Object.hasOwn(linked.quotationSnapshot.items[0],'futureItemColumn'),false);
   const list=await request('GET','/work-orders');
   const listed=list.workOrders.find(workOrder=>workOrder.id===linked.id);
   assert(listed,'created work order is returned by the list endpoint');
@@ -149,17 +180,17 @@ test('Work order HTTP CRUD, company contract resolution, inspectors, branch isol
   assert.equal(races.filter(r=>r.status==='fulfilled').length,1);assert(races.filter(r=>r.status==='rejected').every(r=>r.reason.statusCode===409));
   const winner=await repo.get(row.id,actor);assert.equal(winner.startDate.toISOString().slice(0,10),winner.inspectors[0].name==='Inspector 2'?'2026-09-18':winner.startDate.toISOString().slice(0,10));
   contract.version=7;
-  const cleared=await request('PATCH','/work-orders/'+row.id,{version:2,companyId,inspectors:[]});assert.equal(cleared.quotationSnapshot,null);assert.equal(cleared.quotationId,null);assert.equal(cleared.inspectors.length,0);
+  const cleared=await request('PATCH','/work-orders/'+row.id,{version:2,contractId,inspectors:[]});assert.equal(cleared.quotationSnapshot,null);assert.equal(cleared.quotationId,null);assert.equal(cleared.inspectors.length,0);
   assert.equal(cleared.contractSnapshot.version,7);
   // Explicit contract basis: contractId is validated through the contract reference endpoint; no version is submitted.
   contract.version=3;
-  const byContract=await request('POST','/work-orders',{...raw,companyId:null,contractId},201);
+  const byContract=await request('POST','/work-orders',raw,201);
   assert.equal(byContract.status,'DRAFT');assert.equal(byContract.contractId,contractId);
   assert.equal(byContract.contractSnapshot.id,contractId);assert.equal(byContract.quotationId,null);
   assert(contractReferenceCalls>=1);
-  await request('POST','/work-orders',{...raw,companyId:null,contractId:randomUUID()},404);
-  await request('POST','/work-orders',{...raw,contractId},400);
-  await request('POST','/work-orders',{...raw,contractId,quotationId:quoteId},400);
+  await request('POST','/work-orders',{...raw,contractId:randomUUID()},404);
+  await request('POST','/work-orders',{...raw,contractId:null},400);
+  await request('POST','/work-orders',{...raw,quotationId:quoteId},400);
   assert.equal((await request('GET','/work-orders/'+byContract.id)).contractId,contractId);
   assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────

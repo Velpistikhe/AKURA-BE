@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
-import { QuotationSnapshot, ContractSnapshot, validateContract } from '../../integrations/gateway.js';
+import { QuotationSnapshot, ContractSnapshot, validateContract, toQuotationSnapshot, toContractSnapshot } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
@@ -69,26 +69,26 @@ async function resolveInspectorUsers(tx: Prisma.TransactionClient, inspectors: {
     throw new HttpError('One or more inspectors do not match active Field Service users in this branch', 400);
   return inspectors.map(({ userId, name }) => ({ userId, name: name.trim() }));
 }
-function reference(input: { quotationId?: string | null; companyId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+/**
+ * Builds the persisted basis columns from the live Marketing payload the route
+ * resolved. Exactly one basis is required, it must belong to the actor branch, and
+ * only a reduced snapshot is stored: a contract keeps its number, dates and company
+ * identity, a quotation keeps its identity and descriptive content without any price.
+ */
+function reference(input: { quotationId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
   const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };
-  if (Number(!!input.quotationId) + Number(!!input.contractId) + Number(!!input.companyId) !== 1) throw new HttpError('Exactly one quotation, contract or company is required', 400);
-  if (input.companyId) {
-    const contract = source as ContractSnapshot | null;
-    if (!contract || contract.companyId !== input.companyId || contract.company?.id !== input.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
-    validateContract(contract);
-    return { ...cleared, contractId: contract.id, contractSnapshot: json(contract) };
-  }
+  if (Number(!!input.quotationId) + Number(!!input.contractId) !== 1) throw new HttpError('Exactly one quotation or contract is required', 400);
   if (input.contractId) {
     const contract = source as ContractSnapshot | null;
     if (!contract || contract.id !== input.contractId
       || contract.company?.id !== contract.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
     validateContract(contract);
-    return { ...cleared, contractId: contract.id, contractSnapshot: json(contract) };
+    return { ...cleared, contractId: contract.id, contractSnapshot: json(toContractSnapshot(contract)) };
   }
   const quote = source as QuotationSnapshot | null;
   if (!quote || quote.id !== input.quotationId || quote.officeBranchId !== actor.officeBranchId || !quote.isActive || quote.status !== 'APPROVED') throw new HttpError('An APPROVED quotation in this branch is required', 409);
   if (quote.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT')) throw new HttpError('Use contract as the work order basis', 409);
-  return { ...cleared, quotationId: quote.id, quotationSnapshot: json(quote) };
+  return { ...cleared, quotationId: quote.id, quotationSnapshot: json(toQuotationSnapshot(quote)) };
 }
 function checkDates(startDate: Date, endDate?: Date | null) {
   if (endDate && endDate < startDate) throw new HttpError('End date cannot precede start date', 400);
@@ -127,7 +127,7 @@ export const workOrderRepository = {
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-    const { inspectors = [], quotationId: _quotationId, companyId: _companyId, contractId: _contractId, ...fields } = input;
+    const { inspectors = [], quotationId: _quotationId, contractId: _contractId, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
     // The Work Order is always created as DRAFT; the request never carries status.
@@ -173,8 +173,8 @@ export const workOrderRepository = {
     return workOrder;
   },
   async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-    const { version, inspectors, quotationId, companyId, contractId, ...fields } = input;
-    const quotation = (quotationId !== undefined || companyId !== undefined || contractId !== undefined) ? reference({ quotationId, companyId, contractId }, quote, actor) : {};
+    const { version, inspectors, quotationId, contractId, ...fields } = input;
+    const quotation = (quotationId !== undefined || contractId !== undefined) ? reference({ quotationId, contractId }, quote, actor) : {};
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
       const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },
@@ -219,15 +219,14 @@ export const workOrderRepository = {
       const snapshot = stored.quotationSnapshot as Record<string, unknown> | null;
       // Validity gate: Marketing is the source of truth. The stored snapshot must
       // still describe the same APPROVED, active quotation in this branch. Version
-      // equality is authoritative because every Marketing content mutation bumps
-      // the quotation version; the remaining fields protect against snapshot drift.
+      // equality is authoritative because every Marketing content mutation bumps the
+      // quotation version; the remaining fields protect against snapshot drift.
+      // Monetary totals are deliberately absent: the snapshot holds no prices.
       if (!snapshot || !snapshotsMatch(
         { id: quote.id, officeBranchId: quote.officeBranchId, version: quote.version,
-          status: quote.status, isActive: quote.isActive, subject: quote.subject,
-          subTotal: quote.subTotal, taxAmount: quote.taxAmount, total: quote.total },
+          status: quote.status, isActive: quote.isActive, subject: quote.subject },
         { id: stored.quotationId, officeBranchId: stored.officeBranchId, version: snapshot.version,
-          status: snapshot.status, isActive: snapshot.isActive, subject: snapshot.subject,
-          subTotal: snapshot.subTotal, taxAmount: snapshot.taxAmount, total: snapshot.total },
+          status: snapshot.status, isActive: snapshot.isActive, subject: snapshot.subject },
       )) {
         throw new HttpError('Work order quotation snapshot does not match Marketing data; reload the quotation', 409);
       }
