@@ -30,7 +30,7 @@ const note = z.string().trim().max(5000).nullable().optional();
 const inspectors = z.array(z.object({
   userId: z.string().uuid(),
   name: z.string().trim().min(1).max(255),
-}).strict()).max(100)
+}).strict()).min(1, 'At least one inspector is required').max(100)
   .refine(rows => new Set(rows.map(({ userId }) => userId)).size === rows.length, 'Inspector user IDs must be unique');
 const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),

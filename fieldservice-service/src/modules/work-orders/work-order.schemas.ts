@@ -10,7 +10,7 @@ const inspectorNames = z.array(z.string().trim().min(1).max(255)).max(100)
 const inspectorUsers = z.array(z.object({
   userId: z.string().uuid(),
   name: z.string().trim().min(1).max(255),
-}).strict()).max(100)
+}).strict()).min(1, 'At least one inspector is required').max(100)
   .refine(rows => new Set(rows.map(({ userId }) => userId.toLowerCase())).size === rows.length, 'Inspector user IDs must be unique');
 const fields = {
   contractId: z.string().uuid().nullable().optional(),
@@ -26,10 +26,12 @@ const validReference = (value: Reference) =>
   Number(!!value.quotationId) + Number(!!value.contractId) === 1;
 // Creation always starts at DRAFT; status transitions are edits, never part of create.
 // The quotation/contract content is snapshotted by the server, so clients only send IDs.
-export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers.optional() }).strict()
+// Every creation carries the inspector pairs; at least one is required for
+// both quotation and contract bases (PATCH keeps the name-based array and []).
+export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers }).strict()
   .refine(validReference, 'Supply exactly one quotationId or contractId')
-  .refine(value => !value.quotationId || (value.endDate !== undefined && value.inspectors !== undefined),
-    'A quotation-based Work order requires quotationId, startDate, endDate and inspectors');
+  .refine(value => !value.quotationId || value.endDate !== undefined,
+    'A quotation-based Work order requires quotationId, startDate and endDate');
 // The DRAFT -> IN_PROGRESS transition must go through POST /:id/start (which
 // re-validates the quotation snapshot against Marketing); PATCH may not set it.
 // Other statuses remain simple CRUD labels as before.

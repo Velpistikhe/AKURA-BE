@@ -63,6 +63,7 @@ test('Create work order from quotation validates locally and forwards through Fi
       {}, { startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector] },
       { quotationId: randomUUID(), startDate: '2026-10-05', endDate: '2026-10-01', inspectors: [inspector] },
       { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [] },
       { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector, inspector] },
       { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [{ userId: 'not-a-uuid', name: 'Ghost' }] },
       { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], quotationVersion: 0 },

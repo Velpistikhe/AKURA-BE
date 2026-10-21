@@ -92,7 +92,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   await seedInspector(inspectorA,branch,'Budi','Tester');await seedInspector(inspectorB,branch,'Agus','Helper');await seedInspector(foreignInspector,otherBranch,'Foreign','Inspector');
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/reports`)).status,404);
   assert.equal((await originalFetch(`http://127.0.0.1:${server.address().port}/documents`)).status,404);
-  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[inspectorPairs[0],inspectorPairs[0]]},{inspectors:[{userId:'not-a-uuid',name:'X'}]},{inspectors:[{userId:randomUUID(),name:'Ghost Inspector'}]},{inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},{inspectors:[{userId:inspectorA,name:'Wrong Name'}]},{inspectors:[{inspectorId:inspectorA}]},{inspectors:[{userId:inspectorA}]},{endDate:'2026-01-01'},{contractVersion:1},{summary:'Inspection'},{quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
+  for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[]},{inspectors:[inspectorPairs[0],inspectorPairs[0]]},{inspectors:[{userId:'not-a-uuid',name:'X'}]},{inspectors:[{userId:randomUUID(),name:'Ghost Inspector'}]},{inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},{inspectors:[{userId:inspectorA,name:'Wrong Name'}]},{inspectors:[{inspectorId:inspectorA}]},{inspectors:[{userId:inspectorA}]},{endDate:'2026-01-01'},{contractVersion:1},{summary:'Inspection'},{quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
   // The document basis is IDs only: companyId is no longer accepted at all.
   for(const invalid of [{companyId},{companyId:randomUUID()},{companyId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
   // Both basis fields empty, or both supplied, is not exactly one basis.
@@ -101,6 +101,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
   await request('POST','/work-orders',{...quotationBasis,endDate:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:undefined},400);
+  await request('POST','/work-orders',{...quotationBasis,inspectors:[]},400);
   const row=await request('POST','/work-orders',raw,201);
   assert.equal(row.status,'DRAFT');
   for(const token of ['field','wrong','no-section','admin','manager']){
