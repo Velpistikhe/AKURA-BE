@@ -436,6 +436,12 @@ model Quotation {
   /// Increments only when an approved quotation is replaced by a new draft.
   revision            Int                @default(0)
   isActive            Boolean            @default(true) @map("is_active")
+  /// True while the quotation backs a live Work Order in Field Service.
+  hasWorkOrder        Boolean            @default(false) @map("has_work_order")
+  /// Field Service Work Order id. Remote reference, not a foreign key.
+  workOrderId         String?            @map("work_order_id") @db.Uuid
+  /// Work Order identity captured when the work order was published.
+  workOrderSnapshot   Json?              @map("work_order_snapshot") @db.JsonB
   createdById         String             @map("created_by_id") @db.Uuid
   createdByName       String             @map("created_by_name")
   updatedById         String?            @map("updated_by_id") @db.Uuid
@@ -448,6 +454,7 @@ model Quotation {
 
   @@unique([officeBranchId, numberYear, no, revision])
   @@index([officeBranchId, isActive, createdAt])
+  @@index([officeBranchId, workOrderId])
   @@index([staffId])
   @@map("quotations")
 }

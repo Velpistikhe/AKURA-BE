@@ -10,8 +10,8 @@ const { createWorkOrderFromQuotationSchema } = require('../dist/modules/quotatio
 test('Create work order from quotation validates locally and forwards through Field Service', async (t) => {
   const branch = randomUUID(), actor = { id: randomUUID(), name: 'WO Test' }, inspectorId = randomUUID();
   const inspector = { userId: inspectorId, name: 'Budi Inspector' };
-  const originalFetch = global.fetch, originalFindActive = quotationRepository.findActive;
-  t.after(() => { global.fetch = originalFetch; quotationRepository.findActive = originalFindActive; });
+  const originalFetch = global.fetch, originalFindActive = quotationRepository.findActive, originalAttachWorkOrder = quotationRepository.attachWorkOrder;
+  t.after(() => { global.fetch = originalFetch; quotationRepository.findActive = originalFindActive; quotationRepository.attachWorkOrder = originalAttachWorkOrder; });
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
@@ -100,7 +100,14 @@ test('Create work order from quotation validates locally and forwards through Fi
 
     // Cross-service forward: token, service credentials and payload are asserted.
     const approved = fixtureQuotation({ status: 'APPROVED' });
-    const workOrder = { id: randomUUID(), number: 'WO/2026/000001', status: 'DRAFT', quotationId: approved.id, startDate: '2026-10-01', endDate: '2026-10-05' };
+    const workOrder = { id: randomUUID(), number: 'WO/2026/000001', status: 'DRAFT', quotationId: approved.id,
+      officeBranchId: branch, revoked: false, version: 0, startDate: '2026-10-01', endDate: '2026-10-05' };
+    const attached = [];
+    quotationRepository.attachWorkOrder = async (id, officeBranchId, order, actor) => {
+      attached.push({ id, officeBranchId, order, actor });
+      return approved;
+    };
+    t.after(() => { quotationRepository.attachWorkOrder = originalAttachWorkOrder; });
     global.fetch = async (url, options) => {
       forwarded = { url: String(url), options };
       if (forwardMode === 'down') throw new Error('offline');
@@ -111,6 +118,11 @@ test('Create work order from quotation validates locally and forwards through Fi
     const created = await request(approved.id, bodyFor(approved.id));
     assert.equal(created.message, 'Work order created successfully');
     assert.deepEqual(created.data, workOrder);
+    // The Work Order reference is stored on the quotation before the response.
+    assert.equal(attached.length, 1, 'the Work Order link must be persisted before responding');
+    assert.equal(attached[0].id, approved.id);
+    assert.equal(attached[0].officeBranchId, branch);
+    assert.equal(attached[0].order.id, workOrder.id);
     assert.match(forwarded.url, /\/api\/v1\/fieldservice\/work-orders$/);
     assert.equal(forwarded.options.method, 'POST');
     assert.equal(forwarded.options.headers.authorization, 'Bearer user-token');

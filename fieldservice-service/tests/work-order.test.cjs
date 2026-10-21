@@ -3,6 +3,9 @@ const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
 const express=require('express');
 require('dotenv').config();
+// Shared secret for the synchronous Marketing callback that clears the
+// quotation Work Order link before a revoke commits.
+process.env.WORK_ORDER_SYNC_SECRET='work-order-sync-secret-test-0123456789abcdef';
 const {prisma}=require('../dist/config/db.js');
 const {env}=require('../dist/config/env.js');
 const routes=require('../dist/routes/index.js').default;
@@ -27,8 +30,18 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
  const originalFetch=global.fetch;
  let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0,quotationHttpStatus=200;
  let authInspectorCalls=0,authInspectorFails=false,authInspectorNames=null,authInspectorMissing=null;
+ let marketingCallbackCalls=0,marketingCallbackMode='ok',marketingCallbackBodies=[];
  global.fetch=async(url,options)=>{
   if(!String(url).startsWith(env.API_GATEWAY_URL+'/api/v1/'))return originalFetch(url,options);
+  // Synchronous Marketing callback used by DELETE before the revoke commits.
+  if(String(url).endsWith('/marketing/internal/work-orders/events')){
+   marketingCallbackCalls++;
+   marketingCallbackBodies.push(JSON.parse(options.body));
+   if(marketingCallbackMode==='down')throw Error('offline');
+   if(marketingCallbackMode==='reject')return {ok:false,status:409,json:async()=>({message:'Quotation is linked to a different Work Order'})};
+   if(marketingCallbackMode==='invalid')return {ok:true,status:200,json:async()=>({success:true,workOrderId:'wrong-id'})};
+   return {ok:true,status:200,json:async()=>({success:true,workOrderId:JSON.parse(options.body).workOrderId,quotationId:JSON.parse(options.body).quotationId,revoked:true})};
+  }
   const token=options.headers.Authorization;
   if(String(url).endsWith('/auth/me'))return {ok:true,json:async()=>({data:{id:user,officeBranchId:token==='Bearer other'?otherBranch:branch,isActive:token!=='Bearer inactive',role:token==='Bearer admin'?'ADMIN':token==='Bearer manager'?'APP_MANAGER':'USER',section:token==='Bearer wrong'?'HRD_MANAGEMENT':['Bearer admin','Bearer manager','Bearer no-section'].includes(token)?null:token==='Bearer field'?'FIELD_SERVICE':'MARKETING',firstName:'Test',lastName:'User',username:'test'}})};
   // Branch-scoped Auth inspector validation used by POST /:id/start. Auth only
@@ -245,7 +258,13 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   authInspectorNames=null;
   assert(authInspectorCalls>=authCallsBefore+3,'start re-validates stored inspectors against Auth');
   assert.equal((await repo.get(linked.id,actor)).status,'DRAFT');
+  const callbacksBeforeRevoke=marketingCallbackCalls;
   const revoked=await request('DELETE','/work-orders/'+linked.id,{version:0});assert.equal(revoked.revoked,true);assert.equal(revoked.inspectors.length,2);
+  assert.equal(marketingCallbackCalls,callbacksBeforeRevoke+1,'Marketing must be notified before revoke commits');
+  assert.equal(marketingCallbackBodies.at(-1).workOrderId,linked.id);
+  assert.equal(marketingCallbackBodies.at(-1).quotationId,quoteId);
+  assert.equal(marketingCallbackBodies.at(-1).officeBranchId,branch);
+  assert.equal(marketingCallbackBodies.at(-1).revoked,true);
   assert.equal((await request('GET','/work-orders/'+linked.id)).revoked,true);await request('PATCH','/work-orders/'+linked.id,{version:1,startDate:'2026-10-01'},409);await request('DELETE','/work-orders/'+linked.id,{version:1},409);
   // Revoking linked frees quoteId: a new Work Order from the same quotation succeeds.
   const recreated=await request('POST','/work-orders',basis,201);assert.equal(recreated.quotationId,quoteId);assert.notEqual(recreated.id,linked.id);

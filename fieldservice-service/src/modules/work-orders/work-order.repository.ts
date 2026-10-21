@@ -167,6 +167,10 @@ export const workOrderRepository = {
     }));
     return { workOrders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
+  async findActiveByQuotation(quotationId: string, actor: Actor) {
+    return prisma.workOrder.findFirst({ where: { quotationId, officeBranchId: actor.officeBranchId, revoked: false },
+      select: { id: true, quotationId: true, officeBranchId: true, revoked: true, number: true, status: true, version: true } });
+  },
   async get(id: string, actor: Actor) {
     const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
     if (!workOrder) throw new HttpError('Work order not found', 404);
@@ -245,7 +249,7 @@ export const workOrderRepository = {
       return saveHistory(tx, row, before, actor, 'START');
     }, { maxWait: 10000, timeout: 20000 });
   },
-  async revoke(id: string, version: number, actor: Actor) {
+  async revoke(id: string, version: number, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
       const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },
@@ -255,7 +259,13 @@ export const workOrderRepository = {
         throw new HttpError('Work order has changed or is revoked; reload before retrying', 409);
       }
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
-      return saveHistory(tx, row, before, actor, 'REVOKE');
+      // The history row is written before the Marketing callback so the only
+      // remaining step after Marketing acknowledges is the commit itself.
+      const history = await saveHistory(tx, row, before, actor, 'REVOKE');
+      // Marketing is told before the commit. A failed callback aborts the
+      // transaction, so the Work Order stays live and both services agree.
+      if (beforeCommit && row.quotationId) await beforeCommit(row);
+      return history;
     });
   },
 };

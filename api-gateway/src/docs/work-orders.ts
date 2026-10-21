@@ -116,6 +116,7 @@ export const workOrderSchemas = {
   QuotationOptionList: envelope({ type: 'object', required: ['quotations'], properties: { quotations: { type: 'array', items: ref('QuotationOption') } } }),
 };
 const id = { in: 'path', name: 'id', required: true, schema: uuid };
+const quotationId = { in: 'path', name: 'quotationId', required: true, schema: uuid };
 const operation = (summary: string, response: string, parameters: object[], body?: string, code = 200) => ({
   summary, tags: ['Work Order'], security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
   description: 'Work Order. Requires an active profile with matching authenticated branch. POST/DELETE/start require section MARKETING. PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass write section restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is verified through Auth. The server generates number WO/YYYY/000001 and date in Asia/Jakarta; number counters restart each year independently per branch. number, date, branch and audit fields cannot be submitted or changed. Exactly one document basis is required: APPROVED quotationId or contractId, both resolved live from the Marketing references (the payload carries IDs only; quotation content, contract content and their versions are never submitted) and validated for the authenticated branch, for an APPROVED and active quotation, and for an APPROVED contract inside its effective period (end exclusive). The stored snapshot is reduced: quotationSnapshot keeps quotation identity and descriptive content with items but no price, contractSnapshot keeps contract number, date, effective period and company identity only. Creation with quotationId requires startDate, endDate and the inspectors array of { userId, name } pairs copied from the inspector options snapshot, each re-validated against the local FieldServiceUser read model of the authenticated branch (the name must equal the snapshot display name; the confirmed userId and name are stored at write time). PATCH keeps the inspector names array contract. Creation without a basis and clearing the basis on PATCH are rejected. A quotation may back only one live Work Order per branch: creating a Work Order, or replacing the basis on PATCH, while another non-revoked Work Order already references the same quotation returns 409; revoking that Work Order (DELETE) frees the quotation again. Replacing the basis clears the opposite reference and captures a new snapshot; omitted basis fields preserve the stored snapshot. PATCH/DELETE/start require the current version; conflicts and revoked writes return 409. PATCH rejects status IN_PROGRESS: DRAFT to IN_PROGRESS happens only via POST /{id}/start, which re-validates the stored inspector snapshot and quotation snapshot live against Auth and Marketing before the transition. Inspectors are saved atomically with the Work Order. DELETE is a soft delete (sets revoked=true) and retains inspectors and allocated numbers. Detail can read revoked work orders within the branch.',
@@ -139,6 +140,13 @@ export const workOrderPaths = {
   }
 },
 
+  '/api/v1/fieldservice/work-orders/by-quotation/{quotationId}': {
+    get: {
+      ...operation('Find active Work Order by quotation', 'WorkOrderResponse', [quotationId]),
+      description: 'Returns the non-revoked Work Order of the given quotation in the authenticated branch, or null data when the quotation has no live Work Order. Used by Marketing before allowing a quotation revision so a quotation with a live Work Order cannot be revised. Revoked Work Orders are never returned. Requires an active profile with a matching authenticated branch.',
+      responses: { 200: { description: 'Active Work Order found, or null when none exists', content: { 'application/json': { schema: ref('WorkOrderResponse') } } }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 503: { description: 'Referenced service unavailable' } },
+    },
+  },
   '/api/v1/fieldservice/work-orders/{id}/history': {
     get: { ...operation('Read Work Order change history', 'WorkOrderHistoryResponse', [id, query('page', { type: 'integer', minimum: 1, maximum: 1000000, default: 1 }), query('limit', { type: 'integer', minimum: 1, maximum: 100, default: 20 })]),
       description: 'Append-only CREATE/UPDATE/REVOKE history in descending version order, scoped to the authenticated branch. Available after revocation. Supports page (default 1) and limit (default 20, maximum 100); no request body. Includes before/after snapshots with inspectors, labeled field changes (field/label/before/after) and actor/actionLabel/changedAt. CREATE has beforeSnapshot=null. A Work Order without recorded changes returns an empty history array and total=0. History and each mutation commit atomically. Records existing before this feature start history at their next mutation; no historical events are invented.' },
@@ -150,7 +158,11 @@ export const workOrderPaths = {
   '/api/v1/fieldservice/work-orders/{id}': {
     get: operation('Get Work Order', 'WorkOrderResponse', [id]),
     patch: operation('Update Work Order and inspectors', 'WorkOrderResponse', [id], 'WorkOrderUpdate'),
-    delete: operation('Revoke Work Order', 'WorkOrderResponse', [id], 'WorkOrderDelete'),
+    delete: {
+      ...operation('Revoke Work Order', 'WorkOrderResponse', [id], 'WorkOrderDelete'),
+      description: 'Soft-revokes the Work Order and records REVOKE history. For quotation-based Work Orders, Field Service synchronously notifies Marketing before committing the revoke. If Marketing cannot clear the quotation Work Order link, the Field Service transaction is rolled back and the API returns an error; retry after Marketing is available.',
+      responses: { 200: { description: 'Work Order revoked', content: { 'application/json': { schema: ref('WorkOrderResponse') } } }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 404: { description: 'Work Order not found' }, 409: { description: 'Work Order changed or Marketing rejected the quotation link update' }, 503: { description: 'Marketing unavailable; revoke was rolled back' } },
+    },
   },
   '/api/v1/fieldservice/work-orders/{id}/start': {
     post: {

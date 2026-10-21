@@ -8,6 +8,7 @@ import { getAccessToken } from '../../utils/requestTokens.js';
 import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
 import { HttpError } from '../../utils/httpError.js';
 import { loadMarketingContacts } from '../user-sync/marketing-contact.repository.js';
+import { hasActiveWorkOrder, notifyFieldServiceWorkOrderRevoked } from './work-order.integration.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
@@ -78,7 +79,17 @@ export const quotationController = {
     send(req, res, 200, 'Quotation rejected successfully', await quotationRepository.reject(res.locals.params.quotationId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res)));
   },
   async revise(req: Request, res: Response) {
-    send(req, res, 201, 'Quotation revised successfully', await quotationRepository.revise(res.locals.params.quotationId, res.locals.body.version, getOfficeBranchId(res), getAuditActor(res)));
+    const branch = getOfficeBranchId(res);
+    const quotationId = res.locals.params.quotationId;
+    const quote = await quotationRepository.findActive(quotationId, branch);
+    // Local flag is checked first for a fast 409 without a network call. The
+    // live Field Service lookup is authoritative: it also rejects when Marketing
+    // is unreachable (fail-closed) and when a Work Order was created but this
+    // quotation row has not yet recorded the link.
+    if (quote.hasWorkOrder || await hasActiveWorkOrder(req, quotationId, branch)) {
+      throw new HttpError('A quotation with an active Work Order cannot be revised until the Work Order is revoked', 409);
+    }
+    send(req, res, 201, 'Quotation revised successfully', await quotationRepository.revise(quotationId, res.locals.body.version, branch, getAuditActor(res)));
   },
   async approve(req: Request, res: Response) {
 
@@ -143,8 +154,25 @@ export const quotationController = {
       const status = [400, 401, 403, 404, 409].includes(response.status) ? response.status : 502;
       throw new HttpError(body?.message || 'Unable to create the Work order in Field Service', status);
     }
-    try { send(req, res, 201, 'Work order created successfully', (await response.json() as { data: unknown }).data); }
-    catch { throw new HttpError('Invalid response from Field Service', 502); }
+    try {
+      const workOrder = (await response.json() as { data: { id: string; number: string; status: string; quotationId: string | null; officeBranchId: string; revoked: boolean; version: number } }).data;
+      if (!workOrder?.id || workOrder.quotationId !== quote.id || workOrder.officeBranchId !== branch || workOrder.revoked !== false
+        || !Number.isInteger(workOrder.version)) {
+        throw new HttpError('Invalid response from Field Service', 502);
+      }
+      try {
+        await quotationRepository.attachWorkOrder(quote.id, branch, workOrder, getAuditActor(res));
+      } catch (error) {
+        // Marketing could not store the link, so the Work Order must not stay
+        // live: revoke it in Field Service before reporting the failure.
+        await notifyFieldServiceWorkOrderRevoked(workOrder.id, workOrder.version, req).catch(() => undefined);
+        throw error;
+      }
+      send(req, res, 201, 'Work order created successfully', workOrder);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError('Invalid response from Field Service', 502);
+    }
   },
   async delete(req: Request, res: Response) {
     send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));

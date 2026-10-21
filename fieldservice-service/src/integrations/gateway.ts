@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { serviceUrl, serviceHeaders } from '../utils/serviceUrl.js';
 import { getAccessToken } from '../utils/requestTokens.js';
 import { HttpError } from '../utils/httpError.js';
+import { env } from '../config/env.js';
 
 export async function gatewayGet(path: string, req: Request): Promise<unknown> {
   const token = getAccessToken(req);
@@ -133,6 +134,36 @@ export const inspectorReferenceSchema = z.object({ id: z.string().uuid(), name: 
 export type InspectorReference = z.infer<typeof inspectorReferenceSchema>;
 const inspectorListSchema = z.object({ inspectors: z.array(inspectorReferenceSchema) });
 export type StoredInspector = { userId: string | null; name: string };
+/**
+ * Notifies Marketing that a Work Order was revoked so the quotation reference
+ * is cleared on the Marketing side. The callback runs inside the revoke
+ * transaction: a failure aborts the transaction, so the Work Order stays live
+ * and both services keep agreeing on the quotation state.
+ */
+export async function notifyMarketingWorkOrderRevoked(workOrder: { id: string; quotationId: string | null; officeBranchId: string }, req: Request): Promise<void> {
+  if (!workOrder.quotationId) return;
+  if (!env.WORK_ORDER_SYNC_SECRET) throw new HttpError('Work Order callback credentials are not configured', 503);
+  const callbackPath = 'marketing/internal/work-orders/events';
+  let response: globalThis.Response;
+  try {
+    response = await fetch(serviceUrl(callbackPath), {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+      headers: { 'content-type': 'application/json', 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET,
+        ...serviceHeaders(callbackPath), ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
+      body: JSON.stringify({ workOrderId: workOrder.id, quotationId: workOrder.quotationId, officeBranchId: workOrder.officeBranchId,
+        revoked: true, workOrderSnapshot: { ...workOrder, revoked: true } }),
+    });
+  } catch { throw new HttpError('Marketing Service is unavailable; Work Order revoke was not applied', 503); }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { message?: string } | null;
+    throw new HttpError(body?.message || 'Marketing Service rejected the Work Order revoke', response.status === 404 || response.status === 409 ? response.status : 503);
+  }
+  const acknowledgment = await response.json().catch(() => null) as { success?: boolean; workOrderId?: string } | null;
+  if (acknowledgment?.success !== true || acknowledgment.workOrderId !== workOrder.id) {
+    throw new HttpError('Invalid acknowledgment from Marketing Service; Work Order revoke was not applied', 502);
+  }
+}
+
 /**
  * Live Auth validation used before a Work order starts. Auth is the source of
  * truth for FIELD_SERVICE users: the stored inspector snapshot (id + display

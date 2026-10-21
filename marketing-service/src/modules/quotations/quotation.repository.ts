@@ -15,7 +15,7 @@ const listSelect = {
   id: true, officeBranchId: true, no: true, numberYear: true, date: true,
   subject: true, customerSnapshot: true, companySnapshot: true,
   status: true, invoiceStatus: true, subTotal: true, taxAmount: true, total: true,
-  version: true, revision: true, isActive: true,
+  version: true, revision: true, isActive: true, hasWorkOrder: true, workOrderId: true,
   createdById: true, createdByName: true, updatedById: true, updatedByName: true,
   createdAt: true, updatedAt: true,
 } satisfies Prisma.QuotationSelect;
@@ -92,6 +92,7 @@ const historyFields = [
   ['location', 'Location'], ['accomplished', 'Accomplished'], ['deliveryReports', 'Delivery reports'], ['deliveryInvoice', 'Delivery invoice'],
   ['staffId', 'Staff'], ['customerSnapshot', 'Customer'], ['companySnapshot', 'Company'], ['status', 'Status'], ['invoiceStatus', 'Invoice status'],
   ['subTotal', 'Subtotal'], ['taxAmount', 'Tax amount'], ['total', 'Total'], ['revision', 'Revision'], ['isActive', 'Active status'],
+  ['hasWorkOrder', 'Work order status'], ['workOrderId', 'Work order'],
   ['items', 'Quotation items'],
 ] as const;
 const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -156,6 +157,48 @@ export const isContractPriced = (items: { priceSelection: Prisma.JsonValue }[]):
     && (item.priceSelection as Record<string, unknown>).priceSource === 'CONTRACT');
 
 export const quotationRepository = {
+  /**
+   * Binds a freshly created Field Service Work Order to the quotation before the
+   * caller receives a success response. Conditional updateMany keeps concurrent
+   * claims from binding two Work Orders: a quotation accepts exactly one live
+   * reference until the revoke event clears it.
+   */
+  async attachWorkOrder(id: string, officeBranchId: string, workOrder: { id: string; number: string; status: string; quotationId: string | null }, actor: AuditActor) {
+    return prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
+      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true, isActive: true, status: true } });
+      if (!quote) throw new HttpError('Quotation not found', 404);
+      // Idempotent retry: the same Work Order may already be linked.
+      if (quote.hasWorkOrder && quote.workOrderId === workOrder.id) return tx.quotation.findUniqueOrThrow({ where: { id }, include });
+      if (quote.hasWorkOrder || quote.workOrderId) throw new HttpError('Quotation already has a Work Order', 409);
+      // A revision may have claimed the row while Field Service was creating the
+      // Work Order; the caller compensates by revoking the new Work Order.
+      if (!quote.isActive || quote.status !== 'APPROVED') throw new HttpError('Quotation is no longer an active APPROVED quotation', 409);
+      const claimed = await tx.quotation.updateMany({
+        where: { id, officeBranchId, hasWorkOrder: false, workOrderId: null },
+        data: { hasWorkOrder: true, workOrderId: workOrder.id, workOrderSnapshot: json(workOrder), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
+      });
+      if (!claimed.count) throw new HttpError('Quotation already has a Work Order', 409);
+      await saveRevision(tx, id, actor, 'WORK_ORDER_LINKED');
+      return tx.quotation.findUniqueOrThrow({ where: { id }, include });
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+  /**
+   * Clears the live Work Order reference. Idempotent: an already-cleared
+   * quotation is acknowledged, while a quotation pointing at a different
+   * Work Order is rejected so a late callback cannot drop a newer link.
+   */
+  async clearWorkOrder(id: string, officeBranchId: string, workOrderId: string) {
+    return prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
+      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true } });
+      if (!quote) throw new HttpError('Quotation not found', 404);
+      if (!quote.hasWorkOrder && !quote.workOrderId) return;
+      if (quote.workOrderId !== workOrderId) throw new HttpError('Quotation is linked to a different Work Order', 409);
+      await tx.quotation.update({ where: { id }, data: { hasWorkOrder: false, workOrderId: null, workOrderSnapshot: Prisma.DbNull, version: { increment: 1 } } });
+      await saveRevision(tx, id, { id: workOrderId, name: 'Field Service' }, 'WORK_ORDER_UNLINKED');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
   async find(id: string, officeBranchId: string) {
     const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId }, include: detailInclude });
     if (!quote) throw new HttpError('Quotation not found', 404);
@@ -383,6 +426,9 @@ export const quotationRepository = {
       if (!source) throw new HttpError('Quotation not found', 404);
       if (!source.isActive || source.status !== 'APPROVED' || source.version !== version) {
         throw new HttpError('Only an active APPROVED quotation with the current version can be revised', 409);
+      }
+      if (source.hasWorkOrder) {
+        throw new HttpError('A quotation with an active Work Order cannot be revised until the Work Order is revoked', 409);
       }
       const revised = await tx.quotation.update({ where: { id }, data: {
         status: 'REVISED', isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name,

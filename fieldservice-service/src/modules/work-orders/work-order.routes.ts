@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadContract, loadQuotationForBasis, loadQuotationForStart, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { loadContract, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderRevoked, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null };
@@ -18,6 +19,10 @@ const actor = (res: Response): Actor => res.locals.workOrderActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => res.status(status).json({ status, success: true, message: 'Request completed successfully', data, requestId: req.headers['x-request-id'] });
 router.use(requireActor);
 router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
+router.get('/by-quotation/:quotationId', asyncHandler(async (req, res) => {
+  const quotationId = z.string().uuid().parse(req.params.quotationId);
+  send(req, res, await repository.findActiveByQuotation(quotationId, actor(res)));
+}));
 router.get('/:id/history', asyncHandler(async (req, res) => {
   const { page, limit } = workOrderHistorySchema.parse(req.query);
   send(req, res, await repository.history(workOrderIdSchema.parse(req.params.id), page, limit, actor(res)));
@@ -51,6 +56,6 @@ router.patch('/:id', requireWorkOrderSection('MARKETING', 'FIELD_SERVICE'), asyn
 }));
 router.delete('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const { version } = deleteWorkOrderSchema.parse(req.body);
-  send(req, res, await repository.revoke(workOrderIdSchema.parse(req.params.id), version, actor(res)));
+  send(req, res, await repository.revoke(workOrderIdSchema.parse(req.params.id), version, actor(res), row => notifyMarketingWorkOrderRevoked(row, req)));
 }));
 export default router;
