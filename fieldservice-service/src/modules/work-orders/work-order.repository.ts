@@ -217,6 +217,7 @@ export const workOrderRepository = {
         where,
         select: {
           id: true, officeBranchId: true, number: true, date: true, contractId: true,
+          quotationSnapshot: true, contractSnapshot: true,
           quotationId: true, startDate: true, endDate: true, status: true, revoked: true, version: true,
           createdById: true, createdByName: true, updatedById: true, updatedByName: true,
           createdAt: true, updatedAt: true,
@@ -225,12 +226,22 @@ export const workOrderRepository = {
       }),
       prisma.workOrder.count({ where }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    const workOrders = rows.map(row => ({
-      ...row,
-      date: row.date.toISOString().slice(0, 10),
-      startDate: row.startDate.toISOString().slice(0, 10),
-      endDate: row.endDate?.toISOString().slice(0, 10) ?? null,
-    }));
+    const workOrders = rows.map(({ quotationSnapshot, contractSnapshot, ...row }) => {
+      const quotation = row.quotationId && quotationSnapshot && typeof quotationSnapshot === 'object' && !Array.isArray(quotationSnapshot) ? quotationSnapshot : null;
+      const contract = row.contractId && contractSnapshot && typeof contractSnapshot === 'object' && !Array.isArray(contractSnapshot) ? contractSnapshot : null;
+      return {
+        ...row,
+        quotationNo: typeof quotation?.no === 'number' ? quotation.no : null,
+        quotationDate: typeof quotation?.date === 'string' && quotation.date ? quotation.date.slice(0, 10) : null,
+        contractNumber: typeof contract?.contractNumber === 'string' ? contract.contractNumber : null,
+        contractDate: typeof contract?.contractDate === 'string' && contract.contractDate ? contract.contractDate.slice(0, 10) : null,
+        companyId: typeof contract?.companyId === 'string' ? contract.companyId : null,
+        company: typeof contract?.companyName === 'string' ? contract.companyName : null,
+        date: row.date.toISOString().slice(0, 10),
+        startDate: row.startDate.toISOString().slice(0, 10),
+        endDate: row.endDate?.toISOString().slice(0, 10) ?? null,
+      };
+    });
     return { workOrders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async findActiveByQuotation(quotationId: string, actor: Actor) {

@@ -322,10 +322,43 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.equal(Object.hasOwn(listed,'inspectors'),false,'list response omits inspectors');
   assert.equal(Object.hasOwn(listed,'quotationSnapshot'),false,'list response omits quotation snapshot');
   assert.equal(Object.hasOwn(listed,'contractSnapshot'),false,'quotation-based list row omits null contract snapshot');
+  assert.equal(listed.quotationNo,quotation.no);
+  assert.equal(listed.quotationDate,'2026-09-01');
+  assert.equal(listed.contractNumber,null);
   const listedContract=list.workOrders.find(workOrder=>workOrder.id===row.id);
   assert(listedContract,'contract-based work order is returned by the list endpoint');
   assert.equal(listedContract.contractId,contractId);
   assert.equal(Object.hasOwn(listedContract,'contractSnapshot'),false,'contract-based list row omits contract snapshot');
+  assert.equal(Object.hasOwn(listedContract,'quotationSnapshot'),false);
+  assert.equal(listedContract.contractNumber,contract.contractNumber);
+  assert.equal(listedContract.contractDate,'2026-01-01');
+  assert.equal(listedContract.companyId,companyId);
+  assert.equal(listedContract.company,contract.company.name);
+  assert.equal(listedContract.quotationNo,null);
+  assert.equal(listedContract.quotationDate,null);
+  assert.deepEqual((await request('GET','/work-orders/'+linked.id)).quotationSnapshot,linked.quotationSnapshot);
+  // Missing historical snapshot values must not break the list response.
+  try {
+   for(const snapshot of [{...linked.quotationSnapshot,no:null,date:null},{},require('@prisma/client').Prisma.DbNull]){
+    await prisma.workOrder.update({where:{id:linked.id},data:{quotationSnapshot:snapshot}});
+    const missing=await request('GET','/work-orders?quotationId='+quoteId+'&limit=1');
+    assert.equal(missing.pagination.total,1);
+    assert.equal(missing.workOrders[0].quotationNo,null);
+    assert.equal(missing.workOrders[0].quotationDate,null);
+    assert.equal(Object.hasOwn(missing.workOrders[0],'quotationSnapshot'),false);
+   }
+   for(const snapshot of [{},require('@prisma/client').Prisma.DbNull]){
+    await prisma.workOrder.update({where:{id:row.id},data:{contractSnapshot:snapshot}});
+    const missing=await request('GET','/work-orders?contractId='+contractId);
+    assert.equal(missing.workOrders.find(item=>item.id===row.id).contractNumber,null);
+    assert.equal(missing.workOrders.find(item=>item.id===row.id).contractDate,null);
+    assert.equal(missing.workOrders.find(item=>item.id===row.id).companyId,null);
+    assert.equal(missing.workOrders.find(item=>item.id===row.id).company,null);
+   }
+  } finally {
+   await prisma.workOrder.update({where:{id:linked.id},data:{quotationSnapshot:linked.quotationSnapshot}});
+   await prisma.workOrder.update({where:{id:row.id},data:{contractSnapshot:row.contractSnapshot}});
+  }
   for(const field of ['date','startDate'])assert.match(listed[field],/^\d{4}-\d{2}-\d{2}$/,`${field} is serialized as a date`);
   assert.match(listed.endDate,/^\d{4}-\d{2}-\d{2}$/,'endDate is serialized as a date');
   // Only one non-revoked Work Order may reference a quotation per branch; a second
