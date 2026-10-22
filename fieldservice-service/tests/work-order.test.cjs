@@ -409,6 +409,22 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   authInspectorNames=null;
   assert(authInspectorCalls>=authCallsBefore+3,'start re-validates stored inspectors against Auth');
   assert.equal((await repo.get(linked.id,actor)).status,'DRAFT');
+  const assertRevokeRejected=async(id,version,status,message,token='valid')=>{
+   const before=await repo.get(id,actor);
+   const history=await repo.history(id,1,100,actor);
+   const callbacks=marketingCallbackCalls;
+   await request('DELETE','/work-orders/'+id,{version},status,token,message);
+   assert.deepEqual(await repo.get(id,actor),before,'Rejected revoke must not change the work order');
+   assert.deepEqual(await repo.history(id,1,100,actor),history,'Rejected revoke must not write history');
+   assert.equal(marketingCallbackCalls,callbacks,'Rejected revoke must not notify Marketing');
+  };
+  await assertRevokeRejected(linked.id,1,409,/reload before retrying/);
+  await assertRevokeRejected(linked.id,0,404,/Work order not found/,'other');
+  for(const status of ['COMPLETED','CANCELED']){
+   await prisma.workOrder.update({where:{id:linked.id},data:{status}});
+   await assertRevokeRejected(linked.id,0,409,/^Completed or canceled work orders cannot be revoked$/);
+  }
+  await prisma.workOrder.update({where:{id:linked.id},data:{status:'DRAFT'}});
   const callbacksBeforeRevoke=marketingCallbackCalls;
   const revoked=await request('DELETE','/work-orders/'+linked.id,{version:0});assert.equal(revoked.revoked,true);assert.equal(revoked.inspectors.length,2);
   assert.equal(marketingCallbackCalls,callbacksBeforeRevoke+1,'Marketing must be notified before revoke commits');
@@ -416,7 +432,8 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.equal(marketingCallbackBodies.at(-1).quotationId,quoteId);
   assert.equal(marketingCallbackBodies.at(-1).officeBranchId,branch);
   assert.equal(marketingCallbackBodies.at(-1).revoked,true);
-  assert.equal((await request('GET','/work-orders/'+linked.id)).revoked,true);await request('PATCH','/work-orders/'+linked.id,{version:1,startDate:'2026-10-01'},409);await request('DELETE','/work-orders/'+linked.id,{version:1},409);
+  assert.equal((await request('GET','/work-orders/'+linked.id)).revoked,true);await request('PATCH','/work-orders/'+linked.id,{version:1,startDate:'2026-10-01'},409);
+  await assertRevokeRejected(linked.id,1,409,/^Work order is already revoked$/);
   // Revoking linked frees quoteId: a new Work Order from the same quotation succeeds.
   const recreated=await request('POST','/work-orders',basis,201);assert.equal(recreated.quotationId,quoteId);assert.notEqual(recreated.id,linked.id);
   await request('POST','/work-orders',basis,409);
@@ -455,6 +472,15 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
   Object.assign(raw,{startDate:'2027-03-15',endDate:'2027-03-20'});
   assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000013`);
+  const inProgress=await request('GET','/work-orders/'+byContract.id);
+  assert.equal(inProgress.status,'IN_PROGRESS');
+  const callbacksBeforeContractRevoke=marketingCallbackCalls;
+  const revokedInProgress=await request('DELETE','/work-orders/'+byContract.id,{version:inProgress.version});
+  assert.equal(revokedInProgress.revoked,true);
+  assert.equal(revokedInProgress.version,inProgress.version+1);
+  assert.equal(revokedInProgress.status,'IN_PROGRESS');
+  assert.equal((await repo.history(byContract.id,1,20,actor)).history[0].action,'REVOKE');
+  assert.equal(marketingCallbackCalls,callbacksBeforeContractRevoke);
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
   const where={officeBranchId:{in:branches}};

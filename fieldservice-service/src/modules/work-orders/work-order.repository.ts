@@ -333,11 +333,16 @@ export const workOrderRepository = {
   async revoke(id: string, version: number, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
-      const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },
+      if (!before) throw new HttpError('Work order not found', 404);
+      if (before.revoked) throw new HttpError('Work order is already revoked', 409);
+      if (before.status === 'COMPLETED' || before.status === 'CANCELED')
+        throw new HttpError('Completed or canceled work orders cannot be revoked', 409);
+      const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false,
+        status: { notIn: ['COMPLETED', 'CANCELED'] } },
         data: { revoked: true, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       if (!claimed.count) {
         if (!await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId } })) throw new HttpError('Work order not found', 404);
-        throw new HttpError('Work order has changed or is revoked; reload before retrying', 409);
+        throw new HttpError('Work order has changed or cannot be revoked; reload before retrying', 409);
       }
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
       // The history row is written before the Marketing callback so the only
