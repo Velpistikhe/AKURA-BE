@@ -174,6 +174,10 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   if(!String(url).startsWith(env.API_GATEWAY_URL+'/api/v1/'))return originalFetch(url,options);
   // Synchronous Marketing callback used by DELETE before the revoke commits.
   if(String(url).endsWith('/marketing/internal/work-orders/events')){
+   assert.equal(String(url),env.API_GATEWAY_URL+'/api/v1/marketing/internal/work-orders/events');
+   assert.equal(options.headers['x-service-name'],'fieldservice-service');
+   assert.equal(options.headers['x-service-secret'],env.GATEWAY_SECRET);
+   assert.equal(options.headers['x-work-order-sync-secret'],env.WORK_ORDER_SYNC_SECRET);
    marketingCallbackCalls++;
    marketingCallbackBodies.push(JSON.parse(options.body));
    if(marketingCallbackMode==='down')throw Error('offline');
@@ -213,9 +217,11 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
  app.use((req,res,next)=>{req.user={sub:user,type:'access',officeBranchId:['Bearer other','Bearer stale'].includes(req.headers.authorization)?otherBranch:branch};next();});
  app.use(routes);app.use(errorHandler);
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
- const request=async(method,path,body,status=200,token='valid')=>{
+ const request=async(method,path,body,status=200,token='valid',expectedMessage)=>{
   const response=await originalFetch(`http://127.0.0.1:${server.address().port}${path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token,'x-office-branch-id':otherBranch},...(body===undefined?{}:{body:JSON.stringify(body)})});
-  const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));return result.data;
+  const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));
+  if(expectedMessage)assert.match(result.message,expectedMessage);
+  return result.data;
  };
  const inspectorNames=['Budi Tester','Agus Helper'];
  const inspectorPairs=[{userId:inspectorA,name:inspectorNames[0]},{userId:inspectorB,name:inspectorNames[1]}];
@@ -293,6 +299,8 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   contract.status='CREATE';await request('POST','/work-orders',raw,409);contract.status='APPROVED';
   contract.effectiveUntil='2000-01-02T00:00:00.000Z';await request('POST','/work-orders',raw,409);contract.effectiveUntil='2099-01-01T00:00:00.000Z';
   await request('PATCH','/work-orders/'+row.id,{version:0,companyId:null},400);
+  // Contract-priced quotations can be used directly and still exclude prices from the snapshot.
+  quotation.items[0].priceSelection={priceSource:'CONTRACT',contractId};
   const linked=await request('POST','/work-orders',basis,201);assert.equal(linked.quotationSnapshot.id,quoteId);
   assert.equal(linked.quotationSnapshot.version,quotation.version);
   // Lean quotation snapshot: identity and descriptive content, no price anywhere.
@@ -350,6 +358,8 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
   // linked still holds quoteId, so the startable Work Order uses a second quotation.
   await seedQuotationSnapshotFor(startableQuoteId);
+  // A different contract-priced quotation must still enforce inspector schedule conflicts.
+  await request('POST','/work-orders',{...basis,quotationId:startableQuoteId},409,'valid',/inspectors have an overlapping work order/);
   const startable=await request('POST','/work-orders',{...basis,quotationId:startableQuoteId,startDate:'2026-12-15',endDate:'2026-12-20'},201);
   assert.equal(startable.status,'DRAFT');
   await request('POST','/work-orders/'+startable.id+'/start',{version:99},409);

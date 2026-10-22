@@ -92,15 +92,13 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal((await request(missingId, bodyFor(missingId), 404)).message, 'Quotation not found');
     assert.equal(gatewayCalls(), 0);
 
-    // Fail fast on status/pricing without contacting Field Service.
+    // Fail fast on status without contacting Field Service.
     const draftQuote = fixtureQuotation({ status: 'CREATED' });
     assert.equal((await request(draftQuote.id, bodyFor(draftQuote.id), 409)).message, 'Work order requires an APPROVED quotation');
-    const contractPriced = fixtureQuotation({ status: 'APPROVED', items: [{ priceSelection: { priceSource: 'CONTRACT' } }] });
-    assert.equal((await request(contractPriced.id, bodyFor(contractPriced.id), 409)).message, 'Use contract as the work order basis for contract pricing');
     assert.equal(calls, 0);
 
     // Cross-service forward: token, service credentials and payload are asserted.
-    const approved = fixtureQuotation({ status: 'APPROVED' });
+    const approved = fixtureQuotation({ status: 'APPROVED', items: [{ priceSelection: { priceSource: 'CONTRACT' } }] });
     const workOrder = { id: randomUUID(), number: 'WO/2026/000001', status: 'DRAFT', quotationId: approved.id,
       officeBranchId: branch, revoked: false, version: 0, startDate: '2026-10-01', endDate: '2026-10-05' };
     const attached = [];
@@ -124,7 +122,7 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(attached[0].id, approved.id);
     assert.equal(attached[0].officeBranchId, branch);
     assert.equal(attached[0].order.id, workOrder.id);
-    assert.match(forwarded.url, /\/api\/v1\/fieldservice\/work-orders$/);
+    assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/fieldservice/work-orders`);
     assert.equal(forwarded.options.method, 'POST');
     assert.equal(forwarded.options.headers.authorization, 'Bearer user-token');
     assert.equal(forwarded.options.headers['x-service-name'], 'marketing-service');
@@ -138,6 +136,11 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(JSON.parse(forwarded.options.body).summary, undefined, 'summary no longer exists on the Work order');
     assert.equal(JSON.parse(forwarded.options.body).status, undefined, 'status must never be forwarded; Field Service stores DRAFT');
     assert.equal(JSON.parse(forwarded.options.body).officeBranchId, undefined, 'branch must never be client-supplied');
+
+    for (const sources of [['PRIMARY'], ['SISTER_COMPANY'], ['PRIMARY', 'CONTRACT']]) {
+      approved.items = sources.map(priceSource => ({ priceSelection: { priceSource } }));
+      assert.equal((await request(approved.id, bodyFor(approved.id))).data.id, workOrder.id);
+    }
 
     forwardMode = 'down';
     assert.equal((await request(approved.id, bodyFor(approved.id), 503)).message, 'Field Service is unavailable; retry later');

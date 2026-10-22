@@ -151,11 +151,6 @@ export const buildQuotationListWhere = (
   return { officeBranchId, ...(clauses.length ? { AND: clauses } : {}) };
 };
 
-// Contract-priced quotations must be based on a contract, never on the quotation.
-export const isContractPriced = (items: { priceSelection: Prisma.JsonValue }[]): boolean =>
-  items.some(item => item.priceSelection && typeof item.priceSelection === 'object'
-    && (item.priceSelection as Record<string, unknown>).priceSource === 'CONTRACT');
-
 export const quotationRepository = {
   /**
    * Binds a freshly created Field Service Work Order to the quotation before the
@@ -256,8 +251,7 @@ export const quotationRepository = {
   /**
    * Cross-section list of APPROVED quotations as downstream document bases
    * (Field Service work-order options). The branch always comes from the
-   * caller's access token; contract-priced quotations are excluded because
-   * those must use the contract basis.
+   * caller's access token. All quotation price sources are eligible.
    */
   async listReference(officeBranchId: string) {
     const where: Prisma.QuotationWhereInput = { officeBranchId, status: 'APPROVED', isActive: true, pdfDocument: { isNot: null } };
@@ -265,11 +259,9 @@ export const quotationRepository = {
       where, take: 1000,
       orderBy: [{ pdfDocument: { approvedAt: 'desc' } }, { id: 'asc' }],
       select: { ...listSelect,
-        pdfDocument: { select: { approvedAt: true } },
-        items: { where: { isActive: true }, select: { priceSelection: true } } },
+        pdfDocument: { select: { approvedAt: true } } },
     });
-    return { quotations: rows.filter(row => !isContractPriced(row.items))
-      .map(({ items: _items, pdfDocument, ...row }) => ({ ...row, approvedAt: pdfDocument!.approvedAt })) };
+    return { quotations: rows.map(({ pdfDocument, ...row }) => ({ ...row, approvedAt: pdfDocument!.approvedAt })) };
   },
   async create(input: unknown, officeBranchId: string, actor: AuditActor) {
     const { items, companyId, date: _clientDate, ...data } = createQuotationSchema.parse(input);

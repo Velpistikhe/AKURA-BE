@@ -87,7 +87,6 @@ function reference(input: { quotationId?: string | null; contractId?: string | n
   }
   const quote = source as QuotationSnapshot | null;
   if (!quote || quote.id !== input.quotationId || quote.officeBranchId !== actor.officeBranchId || !quote.isActive || quote.status !== 'APPROVED') throw new HttpError('An APPROVED quotation in this branch is required', 409);
-  if (quote.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT')) throw new HttpError('Use contract as the work order basis', 409);
   return { ...cleared, quotationId: quote.id, quotationSnapshot: json(toQuotationSnapshot(quote)) };
 }
 function checkDates(startDate: Date, endDate?: Date | null) {

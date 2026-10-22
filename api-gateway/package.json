@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Express TypeScript API Gateway for Microservices Architecture",
   "main": "dist/server.js",
+  "engines": {
+    "node": "^22.15.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "rimraf dist && tsc",
@@ -25,12 +28,12 @@
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",
-    "http-proxy-middleware": "^3.0.0",
+    "http-proxy-middleware": "^4.2.0",
     "jose": "^6.1.0",
-    "uuid": "^10.0.0",
-    "winston": "^3.13.0",
     "swagger-ui-dist": "^5.32.14",
     "swagger-ui-express": "^4.6.3",
+    "uuid": "^10.0.0",
+    "winston": "^3.13.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

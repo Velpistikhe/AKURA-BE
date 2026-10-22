@@ -21,7 +21,7 @@ router.get('/inspectors', asyncHandler(async (req, res) => {
 
 /**
  * Branch-scoped approved quotations resolved live from Marketing. Marketing
- * already filters to active APPROVED non-contract-priced quotations of the
+ * returns active APPROVED quotations with any price source in the
  * authenticated branch and caps the list; the response shape is unchanged for
  * existing consumers.
  */

@@ -1,20 +1,48 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { createRequire } = require('node:module');
+const { pathToFileURL } = require('node:url');
 const localRequire = createRequire(path.resolve(__dirname, '../api-gateway/package.json'));
 localRequire('tsx/cjs');
 const express = localRequire('express');
 const listen = app => new Promise(resolve => { const server = app.listen(0, '127.0.0.1', () => resolve(server)); });
 
 async function main() {
+  const { generateKeyPair, exportJWK, SignJWT } = await import(pathToFileURL(localRequire.resolve('jose')).href);
+  const { privateKey, publicKey } = await generateKeyPair('RS256');
+  const jwk = { ...await exportJWK(publicKey), kid: 'gateway-test', alg: 'RS256' };
   const downstream = express();
   let deliveries = 0;
+  let workOrderCreations = 0;
+  let workOrderRevocations = 0;
   downstream.use((req, res, next) => {
     const secret = req.headers['x-gateway-secret'];
     if (!['auth-secret', 'marketing-secret', 'field-secret'].includes(secret)) return res.sendStatus(403);
     next();
   });
   downstream.use(express.json());
+  downstream.get('/.well-known/jwks.json', (_req, res) => res.json({ keys: [jwk] }));
+  downstream.post('/work-orders', (req, res) => {
+    assert.equal(req.headers['x-gateway-secret'], 'field-secret');
+    assert.equal(req.headers['x-service-secret'], undefined);
+    assert.equal(req.headers['x-service-name'], undefined);
+    assert.equal(req.headers['x-user-id'], 'marketing-actor');
+    assert.equal(req.headers['x-office-branch-id'], 'branch-test');
+    assert.equal(req.headers['x-request-id'], 'create-work-order');
+    assert.equal(req.body.quotationId, 'quotation-test');
+    workOrderCreations++;
+    res.status(201).json({ data: { id: 'work-order-test', quotationId: req.body.quotationId } });
+  });
+  downstream.post('/internal/work-orders/events', (req, res) => {
+    assert.equal(req.headers['x-gateway-secret'], 'marketing-secret');
+    assert.equal(req.headers['x-service-secret'], undefined);
+    assert.equal(req.headers['x-service-name'], undefined);
+    assert.equal(req.headers['x-user-id'], undefined);
+    if (req.headers['x-work-order-sync-secret'] !== 'work-order-secret') return res.sendStatus(403);
+    assert.equal(req.body.revoked, true);
+    workOrderRevocations++;
+    res.json({ success: true, workOrderId: req.body.workOrderId });
+  });
   downstream.get('/me', (req, res) => {
     // Simulate a deployment rejecting a reused Vercel routing marker.
     if (req.headers['x-vercel-id']) return res.sendStatus(508);
@@ -50,6 +78,7 @@ async function main() {
       AUTH_SERVICE_GATEWAY_SECRET: 'auth-secret', APP_MANAGER_SERVICE_GATEWAY_SECRET: 'app-secret',
       MARKETING_SERVICE_GATEWAY_SECRET: 'marketing-secret', FINANCE_SERVICE_GATEWAY_SECRET: 'finance-secret',
       FIELDSERVICE_SERVICE_GATEWAY_SECRET: 'field-secret', CORS_ORIGIN: 'http://localhost:4173',
+      JWT_ISSUER: 'akura-auth', JWT_AUDIENCE: 'akura-api',
     });
     const app = localRequire(path.resolve(__dirname, '../api-gateway/src/app.ts')).default;
     gateway = await listen(app);
@@ -107,7 +136,37 @@ async function main() {
     assert.equal(fieldAccepted.status, 200);
     assert.deepEqual(await fieldAccepted.json(), { success: true, eventId: 'test-field-user-event' });
     assert.equal((await fetch(fieldUserEndpoint, { method: 'POST', headers: { ...headers, 'x-service-name': 'marketing-service', 'x-service-secret': 'marketing-secret' }, body: '{}' })).status, 403);
-    console.log('PASS: actual gateway proxy, Finance-only tax delivery, Auth-only user delivery to Marketing and Field Service, header replacement, JWT requirement and Swagger gateway paths.');
+    // Revoke callbacks must use the Field Service identity and the shared delivery secret.
+    const workOrderEndpoint = `${base}/api/v1/marketing/internal/work-orders/events`;
+    const workOrderHeaders = { 'content-type': 'application/json', 'x-service-name': 'fieldservice-service', 'x-service-secret': 'field-secret', 'x-work-order-sync-secret': 'work-order-secret' };
+    const revoke = supplied => fetch(workOrderEndpoint, {
+      method: 'POST', headers: supplied,
+      body: JSON.stringify({ workOrderId: 'work-order-test', quotationId: 'quotation-test', revoked: true }),
+    });
+    assert.equal((await revoke({ 'content-type': 'application/json', 'x-work-order-sync-secret': 'work-order-secret' })).status, 403);
+    assert.equal((await revoke({ ...workOrderHeaders, 'x-service-name': 'marketing-service', 'x-service-secret': 'marketing-secret' })).status, 403);
+    assert.equal((await revoke({ ...workOrderHeaders, 'x-work-order-sync-secret': 'wrong' })).status, 403);
+    assert.equal(workOrderRevocations, 0);
+    const revoked = await revoke({ ...workOrderHeaders, 'x-user-id': 'forged' });
+    assert.equal(revoked.status, 200);
+    assert.deepEqual(await revoked.json(), { success: true, workOrderId: 'work-order-test' });
+    assert.equal(workOrderRevocations, 1);
+
+    // Marketing creates Work Orders through the authenticated Field Service gateway route.
+    const createHeaders = { 'content-type': 'application/json', 'x-service-name': 'marketing-service', 'x-service-secret': 'marketing-secret', 'x-request-id': 'create-work-order' };
+    const create = supplied => fetch(`${base}/api/v1/fieldservice/work-orders`, {
+      method: 'POST', headers: supplied, body: JSON.stringify({ quotationId: 'quotation-test' }),
+    });
+    assert.equal((await create(createHeaders)).status, 401);
+    assert.equal(workOrderCreations, 0);
+    const token = await new SignJWT({ type: 'access', officeBranchId: 'branch-test', section: 'MARKETING' })
+      .setProtectedHeader({ alg: 'RS256', kid: jwk.kid }).setSubject('marketing-actor')
+      .setIssuer('akura-auth').setAudience('akura-api').setIssuedAt().setExpirationTime('5m').sign(privateKey);
+    const created = await create({ ...createHeaders, authorization: `Bearer ${token}`, 'x-user-id': 'forged' });
+    assert.equal(created.status, 201);
+    assert.deepEqual(await created.json(), { data: { id: 'work-order-test', quotationId: 'quotation-test' } });
+    assert.equal(workOrderCreations, 1);
+    console.log('PASS: gateway proxy, Work Order create and revoke routing, service caller restrictions, header replacement, JWT verification and Swagger gateway paths.');
   } finally {
     if (gateway) await new Promise(resolve => gateway.close(resolve));
     await new Promise(resolve => target.close(resolve));

@@ -131,10 +131,6 @@ export const quotationController = {
     if (input.quotationId !== res.locals.params.quotationId) throw new HttpError('quotationId must match the quotation in the URL', 400);
     const quote = await quotationRepository.findActive(input.quotationId, branch);
     if (quote.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
-    if (quote.items.some(item => item.priceSelection && typeof item.priceSelection === 'object'
-      && (item.priceSelection as Record<string, unknown>).priceSource === 'CONTRACT')) {
-      throw new HttpError('Use contract as the work order basis for contract pricing', 409);
-    }
     const token = getAccessToken(req);
     if (!token) throw new HttpError('Access token is required', 401);
     const path = 'fieldservice/work-orders';

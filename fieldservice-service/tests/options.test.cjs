@@ -27,7 +27,7 @@ test('Inspector and quotation option endpoints are branch scoped and eligibility
         id: user, officeBranchId: token === 'Bearer other' ? otherBranch : branch, isActive: true,
         role: 'USER', section: 'FIELD_SERVICE', firstName: 'Test', lastName: 'User', username: 'test' } }) };
     }
-    // Marketing owns eligibility (APPROVED, active, non-contract-priced, branch from the token).
+    // Marketing owns eligibility (APPROVED, active, including contract-priced, branch from the token).
     if (String(url).endsWith('/marketing/quotation-references')) {
       listCalls++;
       if (upstreamFails) throw Error('offline');

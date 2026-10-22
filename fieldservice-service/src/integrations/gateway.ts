@@ -133,8 +133,6 @@ export async function loadQuotationForStart(req: Request, id: string, branch: st
   const quotation = parsed.data;
   if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError(mismatch, 409);
   if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError(mismatch, 409);
-  if (quotation.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT'))
-    throw new HttpError(mismatch, 409);
   return quotation;
 }
 
@@ -225,7 +223,6 @@ export async function loadQuotationForBasis(req: Request, id: string, branch: st
   const quotation = parsed.data;
   if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError('Quotation not found', 404);
   if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
-  if (quotation.items.some(item => (item.priceSelection as Record<string, unknown> | null)?.priceSource === 'CONTRACT')) throw new HttpError('Use contract as the work order basis for contract pricing', 409);
   return quotation;
 }
 
@@ -238,7 +235,7 @@ export const quotationReferenceOptionSchema = z.object({
 }).passthrough();
 export type QuotationReferenceOption = z.infer<typeof quotationReferenceOptionSchema>;
 
-/** Branch-scoped list of APPROVED, active, non-contract-priced quotation options. */
+/** Branch-scoped list of APPROVED, active quotation options with any price source. */
 export async function loadQuotationOptions(req: Request): Promise<QuotationReferenceOption[]> {
   const parsed = z.object({ quotations: z.array(quotationReferenceOptionSchema) }).passthrough()
     .safeParse(await gatewayGet('marketing/quotation-references', req));
