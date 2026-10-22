@@ -45,6 +45,14 @@ const normalizeSnapshot = (value: unknown): unknown => {
 const snapshotsMatch = (left: unknown, right: unknown): boolean =>
   JSON.stringify(normalizeSnapshot(left)) === JSON.stringify(normalizeSnapshot(right));
 
+// Linking/unlinking a Work Order in Marketing changes the quotation's version
+// and updatedAt without changing its content. Compare the price-free snapshot
+// itself so those bookkeeping writes cannot invalidate a newly created order.
+const quotationContent = (snapshot: Record<string, unknown>) => {
+  const { version: _version, updatedAt: _updatedAt, ...content } = snapshot;
+  return content;
+};
+
 const inspectorRows = (rows: { userId: string | null; name: string }[]) =>
   rows.map(({ userId, name }, position) => ({ userId, name, position }));
 /**
@@ -313,16 +321,11 @@ export const workOrderRepository = {
     if (stored.quotationId) {
       if (!quote) throw new HttpError('Quotation validation with Marketing service is required before starting', 409);
       const snapshot = stored.quotationSnapshot as Record<string, unknown> | null;
-      // Validity gate: Marketing is the source of truth. The stored snapshot must
-      // still describe the same APPROVED, active quotation in this branch. Version
-      // equality is authoritative because every Marketing content mutation bumps the
-      // quotation version; the remaining fields protect against snapshot drift.
-      // Monetary totals are deliberately absent: the snapshot holds no prices.
+      // Marketing is the source of truth. Check every persisted descriptive field,
+      // including items, while ignoring header bookkeeping changed by linking.
       if (!snapshot || !snapshotsMatch(
-        { id: quote.id, officeBranchId: quote.officeBranchId, version: quote.version,
-          status: quote.status, isActive: quote.isActive, subject: quote.subject },
-        { id: stored.quotationId, officeBranchId: stored.officeBranchId, version: snapshot.version,
-          status: snapshot.status, isActive: snapshot.isActive, subject: snapshot.subject },
+        quotationContent(toQuotationSnapshot(quote)),
+        quotationContent({ ...snapshot, id: stored.quotationId, officeBranchId: stored.officeBranchId }),
       )) {
         throw new HttpError('Work order quotation snapshot does not match Marketing data; reload the quotation', 409);
       }

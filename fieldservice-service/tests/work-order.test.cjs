@@ -413,10 +413,19 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   await request('POST','/work-orders/'+startable.id+'/start',{version:0},409);
   quotation.status='APPROVED';
   quotation.version=1;
+  quotation.updatedAt='2026-09-02T00:00:00.000Z';
+  quotation.subject='Changed scope';
   await request('POST','/work-orders/'+startable.id+'/start',{version:0},409);
-  quotation.version=0;
+  quotation.subject='Work';
+  quotation.items[0].quantityInspection='2';
+  await request('POST','/work-orders/'+startable.id+'/start',{version:0},409);
+  quotation.items[0].quantityInspection='1';
   assert.equal((await repo.get(startable.id,actor)).status,'DRAFT');
+  // Marketing attaching the Work Order bumps version/updatedAt only. The
+  // existing draft must start successfully without refreshing its snapshot.
   const started=await request('POST','/work-orders/'+startable.id+'/start',{version:0});
+  quotation.version=0;
+  quotation.updatedAt='2026-09-01T00:00:00.000Z';
   assert.equal(started.status,'IN_PROGRESS');assert.equal(started.version,1);
   assert.equal(started.updatedByName,'Test User');assert.equal(started.updatedById,user);
   const startHistory=await request('GET','/work-orders/'+startable.id+'/history');
