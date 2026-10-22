@@ -321,6 +321,11 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert(listed,'created work order is returned by the list endpoint');
   assert.equal(Object.hasOwn(listed,'inspectors'),false,'list response omits inspectors');
   assert.equal(Object.hasOwn(listed,'quotationSnapshot'),false,'list response omits quotation snapshot');
+  assert.equal(Object.hasOwn(listed,'contractSnapshot'),false,'quotation-based list row omits null contract snapshot');
+  const listedContract=list.workOrders.find(workOrder=>workOrder.id===row.id);
+  assert(listedContract,'contract-based work order is returned by the list endpoint');
+  assert.equal(listedContract.contractId,contractId);
+  assert.equal(Object.hasOwn(listedContract,'contractSnapshot'),false,'contract-based list row omits contract snapshot');
   for(const field of ['date','startDate'])assert.match(listed[field],/^\d{4}-\d{2}-\d{2}$/,`${field} is serialized as a date`);
   assert.match(listed.endDate,/^\d{4}-\d{2}-\d{2}$/,'endDate is serialized as a date');
   // Only one non-revoked Work Order may reference a quotation per branch; a second
@@ -353,7 +358,9 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   await request('POST','/work-orders',{...raw,contractId:randomUUID()},404);
   await request('POST','/work-orders',{...raw,contractId:null},400);
   await request('POST','/work-orders',{...raw,quotationId:quoteId},400);
-  assert.equal((await request('GET','/work-orders/'+byContract.id)).contractId,contractId);
+  const contractDetail=await request('GET','/work-orders/'+byContract.id);
+  assert.equal(contractDetail.contractId,contractId);
+  assert.deepEqual(contractDetail.contractSnapshot,byContract.contractSnapshot,'detail response retains stored contract snapshot');
   assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
   // linked still holds quoteId, so the startable Work Order uses a second quotation.

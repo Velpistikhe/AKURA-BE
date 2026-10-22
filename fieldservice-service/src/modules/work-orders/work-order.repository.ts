@@ -216,7 +216,7 @@ export const workOrderRepository = {
       prisma.workOrder.findMany({
         where,
         select: {
-          id: true, officeBranchId: true, number: true, date: true, contractId: true, contractSnapshot: true,
+          id: true, officeBranchId: true, number: true, date: true, contractId: true,
           quotationId: true, startDate: true, endDate: true, status: true, revoked: true, version: true,
           createdById: true, createdByName: true, updatedById: true, updatedByName: true,
           createdAt: true, updatedAt: true,
