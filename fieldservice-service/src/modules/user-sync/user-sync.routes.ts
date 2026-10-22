@@ -16,7 +16,15 @@ router.post('/internal/users/events', asyncHandler(async (req, res) => {
   const expected = env.USER_SYNC_SECRET;
   if (!expected || typeof supplied !== 'string' || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
     || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
-    res.status(403).json({ success: false, message: 'Invalid user sync delivery credentials' }); return;
+    // The response envelope matches every other Field Service error so the
+    // delivery monitor can read the same fields for every rejected layer.
+    res.status(403).json({
+      status: 403,
+      success: false,
+      message: 'Invalid user sync delivery credentials',
+      requestId: req.headers['x-request-id'],
+    });
+    return;
   }
   res.json(await applyFieldServiceUserSyncEvent(req.body));
 }));

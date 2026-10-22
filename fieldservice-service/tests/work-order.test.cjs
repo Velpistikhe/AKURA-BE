@@ -15,6 +15,145 @@ const {nextWorkOrderIdentity,workOrderDate}=require('../dist/modules/work-orders
 const {createWorkOrderSchema,updateWorkOrderSchema}=require('../dist/modules/work-orders/work-order.schemas.js');
 require('../dist/utils/logger.js').logger.silent=true;
 
+test('Creation rejects inspector date overlaps in every non-revoked status and serializes concurrent requests',async()=>{
+ const branch=randomUUID(),otherBranch=randomUUID(),user=randomUUID(),inspectorA=randomUUID(),inspectorB=randomUUID();
+ const actor={id:user,name:'Schedule Tester',officeBranchId:branch};
+ const contractId=randomUUID(),companyId=randomUUID();
+ const contract={id:contractId,companyId,status:'APPROVED',isActive:true,contractNumber:'SCHEDULE',
+  contractDate:'2026-01-01',effectiveFrom:'2000-01-01',effectiveUntil:'2099-01-01',
+  company:{id:companyId,name:'Schedule Company',officeBranchId:branch,revoked:false}};
+ const inspectors=[{userId:inspectorA,name:'Schedule A'},{userId:inspectorB,name:'Schedule B'}];
+ const input=(startDate='2026-09-15',endDate='2026-09-20',pairs=inspectors)=>
+  createWorkOrderSchema.parse({contractId,startDate,endDate:endDate??undefined,inspectors:pairs});
+ const create=(...args)=>repo.create(input(...args),contract,actor);
+ const conflict=promise=>assert.rejects(promise,error=>error.statusCode===409&&/overlapping work order/.test(error.message));
+ const where={officeBranchId:{in:[branch,otherBranch]}};
+ const clearOrders=async()=>{
+  await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
+  await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});
+  await prisma.workOrder.deleteMany({where});
+ };
+ try{
+  for(const inspector of inspectors)await prisma.fieldServiceUser.create({data:{id:inspector.userId,officeBranchId:branch,
+   user:{firstName:'Schedule',lastName:inspector.name.slice(-1)},sourceVersion:1,sourceCreatedAt:new Date(),sourceUpdatedAt:new Date()}});
+  for(const status of ['DRAFT','IN_PROGRESS','COMPLETED','CANCELED']){
+   const existing=await create();
+   await prisma.workOrder.update({where:{id:existing.id},data:{status}});
+   const sequence=await prisma.workOrderSequence.findFirst({where:{officeBranchId:branch}});
+   for(const [start,end] of [['2026-09-16','2026-09-18'],['2026-09-01','2026-09-30'],['2026-09-10','2026-09-15'],['2026-09-20','2026-09-25']]){
+    // A conflict for the second inspector alone must also reject creation.
+    await conflict(create(start,end,[inspectors[1]]));
+   }
+   assert.equal(await prisma.workOrder.count({where}),1);
+   assert.equal(await prisma.workOrderHistory.count({where:{workOrder:where}}),1);
+   assert.equal((await prisma.workOrderSequence.findFirst({where:{officeBranchId:branch}})).lastNumber,sequence.lastNumber);
+   await create('2026-09-01','2026-09-14');
+   await create('2026-09-21','2026-09-25');
+   await clearOrders();
+  }
+  const existing=await create('2026-09-15','2026-09-20',[inspectors[0]]);
+  await create('2026-09-15','2026-09-20',[inspectors[1]]);
+  await clearOrders();
+  // Deleted rows release the inspector schedule.
+  const revoked=await create();
+  await repo.revoke(revoked.id,0,actor);
+  await create();
+  await clearOrders();
+  // Name-only rows from PATCH still reserve their inspector's dates.
+  const legacy=await create();
+  await repo.update(legacy.id,updateWorkOrderSchema.parse({version:0,inspectors:['Schedule A']}),null,actor);
+  await conflict(create());
+  await clearOrders();
+  // Another branch never blocks the authenticated branch's schedule.
+  await prisma.workOrder.create({data:{officeBranchId:otherBranch,number:existing.number,date:new Date('2026-01-01'),
+   startDate:new Date('2026-09-15'),endDate:new Date('2026-09-20'),createdById:user,createdByName:actor.name,
+   inspectors:{create:{userId:inspectorA,name:'Schedule A',position:0}}}});
+  await create();
+  await clearOrders();
+  // Missing end dates extend indefinitely in both existing and requested orders.
+  await create('2026-09-15',null);
+  await conflict(create('2027-01-01','2027-01-02'));
+  await clearOrders();
+  await create('2027-01-01','2027-01-02');
+  await conflict(create('2026-09-15',null));
+  await clearOrders();
+  const races=await Promise.allSettled(Array.from({length:6},(_,i)=>create('2026-09-15','2026-09-20',i%2?[...inspectors].reverse():inspectors)));
+  assert.equal(races.filter(result=>result.status==='fulfilled').length,1);
+  assert(races.filter(result=>result.status==='rejected').every(result=>result.reason.statusCode===409));
+  assert.equal(await prisma.workOrder.count({where}),1);
+ }finally{
+  await clearOrders();
+  await prisma.workOrderSequence.deleteMany({where});
+  await prisma.fieldServiceUser.deleteMany({where:{id:{in:[inspectorA,inspectorB]}}});
+  await prisma.$disconnect();
+ }
+});
+
+test('PATCH rejects inspector schedule overlaps and keeps the stored state on rejection',async()=>{
+ const branch=randomUUID(),user=randomUUID(),inspectorA=randomUUID(),inspectorB=randomUUID();
+ const actor={id:user,name:'Patch Guard Tester',officeBranchId:branch};
+ const contractId=randomUUID(),companyId=randomUUID();
+ const contract={id:contractId,companyId,status:'APPROVED',isActive:true,contractNumber:'PATCH-GUARD',
+  contractDate:'2026-01-01',effectiveFrom:'2000-01-01',effectiveUntil:'2099-01-01',
+  company:{id:companyId,name:'Patch Guard Company',officeBranchId:branch,revoked:false}};
+ const guards=[{userId:inspectorA,name:'Guard A'},{userId:inspectorB,name:'Guard B'}];
+ const create=(startDate,endDate,pairs=guards)=>
+  repo.create(createWorkOrderSchema.parse({contractId,startDate,endDate,inspectors:pairs}),contract,actor);
+ const where={officeBranchId:branch};
+ const clearOrders=async()=>{
+  await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
+  await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});
+  await prisma.workOrder.deleteMany({where});
+ };
+ try{
+  for(const inspector of guards)await prisma.fieldServiceUser.create({data:{id:inspector.userId,officeBranchId:branch,
+   user:{firstName:'Guard',lastName:inspector.name.slice(-1)},sourceVersion:1,sourceCreatedAt:new Date(),sourceUpdatedAt:new Date()}});
+  // Guard A is booked twice in two non-overlapping windows; Guard B is booked
+  // in the same window as the first one. Different inspectors never block each
+  // other, so all three creations succeed.
+  const first=await create('2026-09-15','2026-09-20',[guards[0]]);
+  const second=await create('2026-10-01','2026-10-05',[guards[0]]);
+  const other=await create('2026-09-15','2026-09-20',[guards[1]]);
+  // Moving a period into a window the same inspector already holds is rejected.
+  await assert.rejects(repo.update(second.id,updateWorkOrderSchema.parse({version:0,startDate:'2026-09-16',endDate:'2026-09-18'}),null,actor),
+   error=>error.statusCode===409&&/overlapping work order/.test(error.message));
+  // Replacing the inspector list with an inspector that is already booked in an
+  // overlapping window is rejected too, even though PATCH only carries names:
+  // the name resolves back to the Auth user ID through the branch read model.
+  await assert.rejects(repo.update(other.id,updateWorkOrderSchema.parse({version:0,inspectors:['Guard A']}),null,actor),
+   error=>error.statusCode===409&&/overlapping work order/.test(error.message));
+  // A rejected PATCH leaves the stored Work Order untouched.
+  const unchangedSecond=await repo.get(second.id,actor);
+  assert.equal(unchangedSecond.version,0);
+  assert.equal(unchangedSecond.startDate.toISOString().slice(0,10),'2026-10-01');
+  assert.equal(unchangedSecond.endDate.toISOString().slice(0,10),'2026-10-05');
+  const unchangedOther=await repo.get(other.id,actor);
+  assert.equal(unchangedOther.version,0);
+  assert.deepEqual(unchangedOther.inspectors.map(x=>x.name),['Guard B']);
+  // Re-saving the same inspector and period stays valid: the edited Work Order
+  // never blocks itself.
+  const same=await repo.update(other.id,updateWorkOrderSchema.parse({version:0,inspectors:['Guard B']}),null,actor);
+  assert.equal(same.version,1);
+  assert.deepEqual(same.inspectors.map(x=>x.name),['Guard B']);
+  // A name-only row (written by PATCH) keeps its reservation: it is matched by
+  // name, so moving another Work Order of the same inspector into that window
+  // is still rejected.
+  await repo.update(first.id,updateWorkOrderSchema.parse({version:0,inspectors:['Guard A']}),null,actor);
+  const legacy=await create('2026-11-01','2026-11-05',[guards[0]]);
+  await assert.rejects(repo.update(legacy.id,updateWorkOrderSchema.parse({version:0,startDate:'2026-09-16',endDate:'2026-09-18'}),null,actor),
+   error=>error.statusCode===409&&/overlapping work order/.test(error.message));
+  // Clearing the inspector list releases the reservation.
+  const cleared=await repo.update(other.id,updateWorkOrderSchema.parse({version:1,inspectors:[]}),null,actor);
+  assert.equal(cleared.inspectors.length,0);
+  assert.equal((await repo.get(first.id,actor)).version,1,'an unrelated Work Order is never modified');
+ }finally{
+  await clearOrders();
+  await prisma.workOrderSequence.deleteMany({where});
+  await prisma.fieldServiceUser.deleteMany({where:{id:{in:[inspectorA,inspectorB]}}});
+  await prisma.$disconnect();
+ }
+});
+
 test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, branch isolation, concurrency and annual numbering',async()=>{
  const branch=randomUUID(),otherBranch=randomUUID(),clockBranch=randomUUID(),user=randomUUID(),quoteId=randomUUID();
  const inspectorA=randomUUID(),inspectorB=randomUUID(),foreignInspector=randomUUID();
@@ -98,7 +237,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // Both basis fields empty, or both supplied, is not exactly one basis.
   for(const invalid of [{contractId:null},{contractId:null,quotationId:null},{contractId,quotationId:quoteId}])await request('POST','/work-orders',{...raw,...invalid},400);
   // A quotation basis still requires endDate and inspectors of its own.
-  const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
+  const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-10-15',endDate:'2026-10-20',inspectors:inspectorPairs};
   await request('POST','/work-orders',{...quotationBasis,endDate:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:[]},400);
@@ -198,6 +337,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.equal(cleared.contractSnapshot.version,7);
   // Explicit contract basis: contractId is validated through the contract reference endpoint; no version is submitted.
   contract.version=3;
+  Object.assign(raw,{startDate:'2026-11-15',endDate:'2026-11-20'});
   const byContract=await request('POST','/work-orders',raw,201);
   assert.equal(byContract.status,'DRAFT');assert.equal(byContract.contractId,contractId);
   assert.equal(byContract.contractSnapshot.id,contractId);assert.equal(byContract.quotationId,null);
@@ -210,7 +350,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
   // linked still holds quoteId, so the startable Work Order uses a second quotation.
   await seedQuotationSnapshotFor(startableQuoteId);
-  const startable=await request('POST','/work-orders',{...basis,quotationId:startableQuoteId},201);
+  const startable=await request('POST','/work-orders',{...basis,quotationId:startableQuoteId,startDate:'2026-12-15',endDate:'2026-12-20'},201);
   assert.equal(startable.status,'DRAFT');
   await request('POST','/work-orders/'+startable.id+'/start',{version:99},409);
   upstreamFails=true;
@@ -283,6 +423,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   prisma.$use(async(params,next)=>{if(failHistory&&params.model==='WorkOrderHistory'&&params.action==='create')throw Error('History unavailable');return next(params);});
   const stable=await repo.get(row.id,actor);
   const sequenceBefore=await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}});
+  Object.assign(raw,{startDate:'2027-01-15',endDate:'2027-01-20'});
   await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor),/History unavailable/);
   await assert.rejects(repo.update(row.id,updateWorkOrderSchema.parse({version:3,startDate:'2026-09-16',inspectors:['Rollback']}),null,actor),/History unavailable/);
   await assert.rejects(repo.revoke(row.id,3,actor),/History unavailable/);
@@ -290,7 +431,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.deepEqual(await repo.get(row.id,actor),stable);
   assert.equal((await repo.history(row.id,1,20,actor)).pagination.total,4);
   assert.equal((await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}})).lastNumber,sequenceBefore.lastNumber);
-  const created=await Promise.all(Array.from({length:6},()=>repo.create(createWorkOrderSchema.parse(raw),contract,actor)));
+  const created=await Promise.all(Array.from({length:6},(_,i)=>repo.create(createWorkOrderSchema.parse({...raw,startDate:`2027-02-${String(i+1).padStart(2,'0')}`,endDate:`2027-02-${String(i+1).padStart(2,'0')}`}),contract,actor)));
   assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+6).padStart(6,'0')}`));
   // Child insertion failure must roll back both Work order and number allocation.
   let fail=true;
@@ -302,6 +443,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.equal((await allocate(end)).number,'WO/2026/000001');assert.equal((await allocate(end)).number,'WO/2026/000002');assert.equal((await allocate(start)).number,'WO/2027/000001');
   let reads=0;const crossed=await allocate(()=>++reads===1?end():start());assert.equal(crossed.number,'WO/2027/000002');assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
+  Object.assign(raw,{startDate:'2027-03-15',endDate:'2027-03-20'});
   assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000013`);
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));

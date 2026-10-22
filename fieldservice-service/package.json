@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test tests/service.test.cjs tests/work-order.test.cjs tests/user-sync.test.cjs tests/options.test.cjs",
-    "test:work-order": "tsc && node --test tests/work-order.test.cjs",
+    "test:work-order": "npm run build && node --test tests/work-order.test.cjs",
     "test:user-sync": "npm run build && node --test tests/user-sync.test.cjs tests/options.test.cjs",
     "db:generate": "prisma generate",
     "db:push": "prisma db push"

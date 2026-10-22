@@ -57,6 +57,15 @@ test('Field Service user sync stores active FIELD_SERVICE users, is idempotent a
       eventId: randomUUID(), officeBranchId: user.officeBranchId, version: 10,
       user: { ...user, section: 'ADMIN', version: 10 },
     }), error => error.statusCode === 400);
+
+    // A future Auth column must reach the read model instead of being rejected
+    // as an invalid event: the whole snapshot is stored as one JSON document.
+    await send(11, { futureAuthColumn: 'kept' });
+    const stored = await listInspectorOptions(branch);
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].futureAuthColumn, 'kept', 'unknown Auth fields are preserved in the read model');
+    assert.equal((await prisma.fieldServiceUserSyncRevision.findUnique({ where: { userId: user.id } })).version, 11);
+
     console.log('PASS: Field Service user sync eligibility, idempotency, branch isolation and validation.');
   } finally {
     await prisma.fieldServiceUser.deleteMany({ where: { id: user.id } });

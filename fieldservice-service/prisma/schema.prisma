@@ -37,6 +37,9 @@ model WorkOrder {
   history WorkOrderHistory[]
   @@unique([officeBranchId, number])
   @@index([officeBranchId, revoked, createdAt, id])
+  // Inspector schedule lookup: non-revoked work orders of a branch filtered by
+  // status, then narrowed by the requested period.
+  @@index([officeBranchId, revoked, status])
   @@index([quotationId])
   @@map("work_order")
 }

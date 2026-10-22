@@ -112,6 +112,71 @@ async function assertQuotationNotInUse(tx: Prisma.TransactionClient, officeBranc
   });
   if (existing) throw new HttpError(`Quotation already has an active work order (${existing.number}); revoke it before creating another`, 409);
 }
+/** An inspector is identified by its Auth user ID when known, else by its name. */
+type InspectorIdentity = { userId: string | null; name: string };
+/**
+ * Advisory lock keys for the inspector schedule. Both the Auth user ID and the
+ * case-insensitive display name are used, so a name-only PATCH and an
+ * ID-carrying creation serialize against each other instead of booking the
+ * same person twice. The keys are acquired in a stable sorted order, so two
+ * requests that share inspectors in a different order cannot deadlock.
+ */
+const inspectorLockKeys = (officeBranchId: string, inspectors: InspectorIdentity[]): string[] => {
+  const keys = new Set<string>();
+  for (const { userId, name } of inspectors) {
+    if (userId) keys.add(`work-order-inspector:${officeBranchId}:${userId}`);
+    if (name) keys.add(`work-order-inspector-name:${officeBranchId}:${name.toLowerCase()}`);
+  }
+  return [...keys].sort();
+};
+/**
+ * Resolves display names to Auth user IDs through the branch-scoped
+ * FieldServiceUser read model, so a PATCH (which keeps the name-based
+ * contract) can still be compared with ID-carrying rows. A name that matches
+ * no user, or more than one user, stays unresolved and is compared by name.
+ */
+async function resolveInspectorIdentities(tx: Prisma.TransactionClient, officeBranchId: string, names: string[]): Promise<InspectorIdentity[]> {
+  if (!names.length) return [];
+  const users = await tx.fieldServiceUser.findMany({ where: { officeBranchId }, select: { id: true, user: true } });
+  const byName = new Map<string, string[]>();
+  for (const { id, user } of users) {
+    const snapshot = user as { firstName?: unknown; lastName?: unknown };
+    const name = typeof snapshot.firstName === 'string' && typeof snapshot.lastName === 'string' ? `${snapshot.firstName} ${snapshot.lastName}`.trim() : '';
+    if (!name) continue;
+    const key = name.toLowerCase();
+    byName.set(key, [...(byName.get(key) ?? []), id]);
+  }
+  return names.map(name => {
+    const matches = byName.get(name.toLowerCase()) ?? [];
+    return { userId: matches.length === 1 ? matches[0] : null, name };
+  });
+}
+/** Inclusive date ranges; a missing end date leaves the schedule open-ended. */
+async function assertInspectorsAvailable(tx: Prisma.TransactionClient, officeBranchId: string,
+  inspectors: InspectorIdentity[], startDate: Date, endDate?: Date | null, excludeId?: string) {
+  if (!inspectors.length) return;
+  for (const key of inspectorLockKeys(officeBranchId, inspectors)) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+  }
+  const ids = [...new Set(inspectors.map(inspector => inspector.userId).filter((id): id is string => Boolean(id)))];
+  const names = [...new Set(inspectors.map(inspector => inspector.name).filter(Boolean))];
+  if (!ids.length && !names.length) return;
+  const existing = await tx.workOrder.findFirst({
+    where: {
+      officeBranchId, revoked: false,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      ...(endDate ? { startDate: { lte: endDate } } : {}),
+      OR: [{ endDate: null }, { endDate: { gte: startDate } }],
+      inspectors: { some: { OR: [
+        ...(ids.length ? [{ userId: { in: ids } }] : []),
+        // Legacy/PATCH rows have no user ID; retain their name-based schedule.
+        ...names.map(name => ({ userId: null, name: { equals: name, mode: 'insensitive' as const } })),
+      ] } },
+    },
+    select: { number: true },
+  });
+  if (existing) throw new HttpError(`One or more inspectors have an overlapping work order (${existing.number})`, 409);
+}
 export const workOrderRepository = {
   async history(id: string, page: number, limit: number, actor: Actor) {
     await this.get(id, actor);
@@ -133,9 +198,11 @@ export const workOrderRepository = {
     // The Work Order is always created as DRAFT; the request never carries status.
     return prisma.$transaction(async tx => {
       // Serialize same-quotation requests before the duplicate read and numbering.
-      // Different quotations and contract-based creations remain independent.
+      // Inspectors are locked separately: two different quotations may still
+      // conflict when they share an inspector in an overlapping period.
       if (quotation.quotationId) await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId);
       const inspectorUsers = await resolveInspectorUsers(tx, inspectors, actor.officeBranchId);
+      await assertInspectorsAvailable(tx, actor.officeBranchId, inspectorUsers, input.startDate, input.endDate);
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
       const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
         createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectorUsers) } }, include });
@@ -194,6 +261,21 @@ export const workOrderRepository = {
         await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId, id);
       }
       checkDates(fields.startDate ?? current.startDate, fields.endDate !== undefined ? fields.endDate : current.endDate);
+      // The schedule guard runs before the inspector rows are replaced, so an
+      // overlapping PATCH is rejected with 409 and the previous state survives.
+      // It applies whenever the schedule can change: a new inspector list or a
+      // moved period. The Work Order itself is excluded so re-saving the same
+      // inspector list never conflicts with the row being edited.
+      const scheduleChanged = inspectors !== undefined || fields.startDate !== undefined || fields.endDate !== undefined;
+      if (scheduleChanged) {
+        const names = inspectors !== undefined
+          ? inspectors
+          : (before?.inspectors ?? []).map(row => row.name);
+        const identities = await resolveInspectorIdentities(tx, actor.officeBranchId, names);
+        await assertInspectorsAvailable(tx, actor.officeBranchId, identities,
+          fields.startDate ?? current.startDate,
+          fields.endDate !== undefined ? fields.endDate : current.endDate, id);
+      }
       if (inspectors !== undefined) {
         await tx.workOrderInspector.deleteMany({ where: { workOrderId: id } });
         // PATCH keeps the name-based contract; rows edited this way have no
@@ -266,6 +348,10 @@ export const workOrderRepository = {
       // transaction, so the Work Order stays live and both services agree.
       if (beforeCommit && row.quotationId) await beforeCommit(row);
       return history;
-    });
+    // The transaction timeout must outlive the Marketing callback timeout (10s)
+    // plus the local writes. With Prisma's default 5s timeout the transaction
+    // could roll back after Marketing had already cleared the quotation link,
+    // leaving the two services disagreeing about the Work Order state.
+    }, { maxWait: 10000, timeout: 20000 });
   },
 };

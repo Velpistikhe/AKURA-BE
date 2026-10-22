@@ -4,6 +4,10 @@ import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 
 const date = z.string().datetime();
+// Unknown keys are accepted on purpose: the whole Auth snapshot is stored as one
+// JSON document, so a future Auth column must reach the read model instead of
+// being rejected as an invalid event. The known fields stay strictly typed,
+// and the event identity (id/version/branch) is still verified below.
 const userSnapshotSchema = z.object({
   id: z.string().uuid(), username: z.string().min(1).max(255),
   firstName: z.string().max(255), lastName: z.string().max(255),
@@ -12,11 +16,11 @@ const userSnapshotSchema = z.object({
   section: z.enum(['ACCOUNTING', 'FINANCE', 'HRD_MANAGEMENT', 'MARKETING', 'FIELD_SERVICE']).nullable(),
   officeBranchId: z.string().uuid().nullable(), isActive: z.boolean(),
   version: z.number().int().positive(), createdAt: date, updatedAt: date,
-}).strict();
+}).passthrough();
 const eventSchema = z.object({
   eventId: z.string().uuid(), officeBranchId: z.string().uuid().nullable(),
   version: z.number().int().positive(), user: userSnapshotSchema,
-}).strict().superRefine((event, ctx) => {
+}).passthrough().superRefine((event, ctx) => {
   if (event.user.officeBranchId !== event.officeBranchId) ctx.addIssue({ code: 'custom', message: 'User branch does not match event branch' });
   if (event.user.version !== event.version) ctx.addIssue({ code: 'custom', message: 'User version does not match event version' });
 });

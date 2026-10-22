@@ -1,8 +1,11 @@
 import { PrismaClient } from '@prisma/client';
+import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
 export const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+  // The validated environment decides the log level, so an unset NODE_ENV
+  // cannot silently fall back to development logging in production.
+  log: env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
 });
 
 export const connectDb = async (): Promise<void> => {

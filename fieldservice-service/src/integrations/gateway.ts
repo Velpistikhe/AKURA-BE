@@ -20,8 +20,16 @@ export async function gatewayGet(path: string, req: Request): Promise<unknown> {
     });
   } catch { throw new HttpError('Referenced service is unavailable; retry later', 503); }
   if (!response.ok) {
-    const status = [401, 403, 404, 409].includes(response.status) ? response.status : 503;
-    throw new HttpError(status === 404 ? 'Referenced record not found' : 'Unable to validate reference with upstream service', status);
+    // A 400/422 means the upstream rejected the reference we sent, so the
+    // request itself is invalid; reporting it as 503 hid the real cause
+    // behind an "upstream unavailable" message.
+    const status = [400, 401, 403, 404, 409, 422].includes(response.status) ? response.status : 503;
+    const message = status === 404 ? 'Referenced record not found'
+      : status === 400 || status === 422 ? 'Referenced record was rejected by the upstream service'
+        : status === 409 ? 'Referenced record conflicts with the current state of the upstream service'
+          : status === 401 || status === 403 ? 'Unable to validate reference with upstream service'
+            : 'Referenced service is unavailable; retry later';
+    throw new HttpError(message, status);
   }
   try { return (await response.json() as { data: unknown }).data; }
   catch { throw new HttpError('Invalid response from referenced service', 502); }
