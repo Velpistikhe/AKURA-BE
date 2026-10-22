@@ -3,7 +3,8 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const localRequire = createRequire(path.resolve(__dirname, '../api-gateway/package.json'));
-localRequire('tsx/cjs');
+const built = process.argv.includes('--built');
+if (!built) localRequire('tsx/cjs');
 const express = localRequire('express');
 const listen = app => new Promise(resolve => { const server = app.listen(0, '127.0.0.1', () => resolve(server)); });
 
@@ -80,7 +81,7 @@ async function main() {
       FIELDSERVICE_SERVICE_GATEWAY_SECRET: 'field-secret', CORS_ORIGIN: 'http://localhost:4173',
       JWT_ISSUER: 'akura-auth', JWT_AUDIENCE: 'akura-api',
     });
-    const app = localRequire(path.resolve(__dirname, '../api-gateway/src/app.ts')).default;
+    const app = localRequire(path.resolve(__dirname, built ? '../api-gateway/dist/app.js' : '../api-gateway/src/app.ts')).default;
     gateway = await listen(app);
     const base = `http://127.0.0.1:${gateway.address().port}`;
     const profile = await fetch(`${base}/api/v1/auth/me`, {
