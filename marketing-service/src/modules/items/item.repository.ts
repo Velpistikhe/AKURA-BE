@@ -15,6 +15,7 @@ const priceSelect = {
   priceMaintenanceSisterCompany: true,
 } satisfies Prisma.ItemPriceSelect;
 
+const includeItemScopes = { scopes: { where: { revoked: false }, orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }] } } satisfies Prisma.ItemInclude;
 const flattenSizePrice = ({ price, ...itemSize }: any, now = new Date()) => {
   const available = price?.isActive && price.effectiveFrom <= now && (price.effectiveUntil == null || price.effectiveUntil > now);
   return { ...itemSize, priceId: price?.id ?? null, priceVersion: price?.version ?? null,
@@ -25,6 +26,12 @@ const flattenSizePrice = ({ price, ...itemSize }: any, now = new Date()) => {
     priceStatus: available ? 'AVAILABLE' : 'UNAVAILABLE',
   };
 };
+
+const flattenItemScopes = <T extends { scopes: Array<{ id: string; itemId: string | null; type: string; scope: string; revoked: boolean; createdAt: Date; updatedAt: Date }> }>({ scopes, ...item }: T) => ({
+  ...item,
+  inspectionScopes: scopes.filter(scope => scope.type === 'INSPECTION').map(scope => ({ id: scope.id, itemId: scope.itemId, inspectionScope: scope.scope, revoked: scope.revoked, createdAt: scope.createdAt, updatedAt: scope.updatedAt })),
+  maintenanceScopes: scopes.filter(scope => scope.type === 'MAINTENANCE').map(scope => ({ id: scope.id, itemId: scope.itemId, scope: scope.scope, revoked: scope.revoked, createdAt: scope.createdAt, updatedAt: scope.updatedAt })),
+});
 
 const flattenItemPrices = ({ sizes, ...item }: any) => ({
   ...item,
@@ -50,38 +57,21 @@ export const itemRepository = {
       (query) => tx.item.findMany({
         ...query,
         orderBy: [query.orderBy, { id: 'asc' }],
-        include: { service: { select: { id: true, name: true }, }, inspectionScopes: { where: { revoked: false } }, maintenanceScopes: { where: { revoked: false } } },
-      }),
+        include: { service: { select: { id: true, name: true } }, ...includeItemScopes },
+      }).then(rows => rows.map(flattenItemScopes)),
       (where) => tx.item.count({ where }),
     ), { isolationLevel: 'RepeatableRead' });
   },
   find: (id: string, officeBranchId: string) =>
     prisma.item.findFirst({
       where: { id, officeBranchId },
-      include: {
-        service: {
-          select: {
-            id: true,
-            name: true,
-            hasMaintenance: true,
-          },
-        },
-        sizes: { where: { isActive: true }, include: { price: { select: priceSelect } } },
-      },
-    }).then((item) => item ? flattenItemPrices(item) : null),
+      include: { service: { select: { id: true, name: true } }, ...includeItemScopes, sizes: { where: { isActive: true }, include: { price: { select: priceSelect } } } },
+    }).then(item => item ? flattenItemPrices(flattenItemScopes(item)) : null),
   findActive: (id: string, officeBranchId: string) =>
     prisma.item.findFirst({
       where: { id, officeBranchId, isActive: true },
-      include: {
-        service: {
-          select: {
-            id: true,
-            name: true,
-            hasMaintenance: true,
-          },
-        },
-      },
-    }),
+      include: { service: { select: { id: true, name: true, hasMaintenance: true } }, ...includeItemScopes },
+}).then(item => item ? flattenItemScopes(item) : null),
   async listSizes(input: ListItemSizesInput, officeBranchId: string, companyId?: string, resolvePrices = false) {
     return prisma.$transaction(async tx => {
     const now = new Date();
@@ -171,7 +161,7 @@ export const itemRepository = {
     }, { isolationLevel: 'RepeatableRead' });
   },
 
-  create: (data: import('./item.schemas.js').CreateItemInput, branch: string, actor: AuditActor) => itemWriteRepository.create(data, branch, actor).then(flattenItemPrices),
+  create: (data: import('./item.schemas.js').CreateItemInput, branch: string, actor: AuditActor) => itemWriteRepository.create(data, branch, actor).then(item => flattenItemPrices(flattenItemScopes(item))),
 
   addSize: (data: AddItemSizeInput, branch: string, actor: AuditActor) => itemWriteRepository.addSize(data, branch, actor).then(flattenSizePrice),
 

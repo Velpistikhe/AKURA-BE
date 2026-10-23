@@ -15,21 +15,27 @@ const inspectorUsers = z.array(z.object({
 const fields = {
   contractId: z.string().uuid().nullable().optional(),
   quotationId: z.string().uuid().nullable().optional(),
+  performaInvoiceId: z.string().uuid().nullable().optional(),
   startDate: date,
   endDate: date.optional(),
   inspectors: inspectorNames.optional(),
 };
 type Reference = {
-  quotationId?: string | null; contractId?: string | null;
+  quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null;
 };
 const validReference = (value: Reference) =>
-  Number(!!value.quotationId) + Number(!!value.contractId) === 1;
+  Number(!!value.quotationId) + Number(!!value.contractId) + Number(!!value.performaInvoiceId) >= 1;
 // Creation always starts at DRAFT; status transitions are edits, never part of create.
 // The quotation/contract content is snapshotted by the server, so clients only send IDs.
 // Every creation carries the inspector pairs; at least one is required for
 // both quotation and contract bases (PATCH keeps the name-based array and []).
-export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers }).strict()
-  .refine(validReference, 'Supply exactly one quotationId or contractId')
+export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers, items: z.array(z.object({
+  itemSizeId: z.string().uuid(),
+  snapshotItemSize: z.object({ itemSizeId: z.string().uuid(), snapShotItem: z.unknown(), size: z.unknown() }).passthrough(),
+  quantityInspection: z.number().finite().nonnegative(),
+  quantityMaintenance: z.number().finite().nonnegative(),
+}).strict()).min(1, 'At least one item is required') }).strict()
+  .refine(validReference, 'At least one of quotationId, contractId or performaInvoiceId is required')
   .refine(value => !value.quotationId || value.endDate !== undefined,
     'A quotation-based Work order requires quotationId, startDate and endDate');
 // The DRAFT -> IN_PROGRESS transition must go through POST /:id/start (which
@@ -37,7 +43,7 @@ export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspector
 // Other statuses remain simple CRUD labels as before.
 export const updateWorkOrderSchema = z.object({ ...fields, endDate: date.nullable().optional(),
   status: z.nativeEnum(WorkOrderStatus).refine(value => value !== 'IN_PROGRESS', 'Use POST /:id/start to move a Work order to IN_PROGRESS').optional() }).partial().extend({ version }).strict()
-  .refine(value => !['quotationId','contractId'].some(key => key in value) || validReference(value), 'Supply exactly one quotationId or contractId when replacing the document basis')
+  .refine(value => !['quotationId','contractId','performaInvoiceId'].some(key => key in value) || validReference(value), 'At least one of quotationId, contractId or performaInvoiceId is required when replacing the document basis')
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const deleteWorkOrderSchema = z.object({ version }).strict();
 // Moving DRAFT -> IN_PROGRESS requires live Marketing validation, so it only

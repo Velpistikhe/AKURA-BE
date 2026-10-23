@@ -1,13 +1,12 @@
 import { Prisma, QuotationItem } from '@prisma/client';
 
 export const serviceScopeInclude = {
-  inspectionScopes: { where: { revoked: false }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-  maintenanceScopes: { where: { revoked: false }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+  scopes: { where: { revoked: false }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
 } satisfies Prisma.ServiceInclude;
 
 export function serviceScopeSnapshot(service: Prisma.ServiceGetPayload<{ include: typeof serviceScopeInclude }>) {
-  const inspection = service.inspectionScopes.map(row => row.inspectionScope);
-  const maintenance = service.hasMaintenance ? service.maintenanceScopes.map(row => row.scope) : [];
+  const inspection = service.scopes.filter(row => row.type === 'INSPECTION').map(row => row.scope);
+  const maintenance = service.hasMaintenance ? service.scopes.filter(row => row.type === 'MAINTENANCE').map(row => row.scope) : [];
   const joined = (scopes: string[]) => [...new Set(scopes.map(scope => scope.trim()).filter(Boolean))].join(', ');
   return { serviceId: service.id, serviceScopes: joined([...inspection, ...maintenance]),
     inspectionScopes: joined(inspection), maintenanceScopes: joined(maintenance) };

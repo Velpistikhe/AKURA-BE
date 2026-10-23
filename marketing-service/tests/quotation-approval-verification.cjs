@@ -46,8 +46,11 @@ async function main() {
   }, include: { items: true, pdfDocument: true } });
   try {
     service = await prisma.service.create({ data: { officeBranchId: branch, name: 'PDF test', type: 'TUBULAR', hasMaintenance: true, ...audit,
-      inspectionScopes: { create: [{ inspectionScope: 'Visual Inspection' }, { inspectionScope: 'Old Scope', revoked: true }] },
-      maintenanceScopes: { create: { scope: 'Cleaning' } },
+            scopes: { create: [
+        { type: 'INSPECTION', scope: 'Visual Inspection' },
+        { type: 'INSPECTION', scope: 'Old Scope', revoked: true },
+        { type: 'MAINTENANCE', scope: 'Cleaning' },
+      ] },
       itemCatalog: { create: { officeBranchId: branch, name: 'Pipe', uom: 'JOINT', ...audit, sizes: { create: { size: '4 inch', ...audit } } } },
     }, include: { itemCatalog: { include: { sizes: true } } } });
     fixtureCompany = await prisma.company.create({ data: { officeBranchId: branch, name: 'Fixture Customer', normalizeName: randomUUID(), type: 'PT', npwp: '1', address: 'Jakarta', staffs: { create: { name: 'Fixture Contact', normalizeName: randomUUID(), title: 'mr' } } }, include: { staffs: true } });
@@ -72,7 +75,7 @@ async function main() {
     assert.equal(approvedSnapshot.items[0].priceSelection.serviceScopes, 'Visual Inspection, Cleaning');
     assert.equal(approvedSnapshot.items[0].priceSelection.inspectionScopes, 'Visual Inspection');
     assert.equal(approvedSnapshot.items[0].priceSelection.maintenanceScopes, 'Cleaning');
-    await prisma.inspectionScope.updateMany({ where: { serviceId: service.id, revoked: false }, data: { inspectionScope: 'Changed Scope' } });
+    await prisma.serviceScope.updateMany({ where: { serviceId: service.id, type: 'INSPECTION', revoked: false }, data: { scope: 'Changed Scope' } });
     assert.equal(approved.status, 'APPROVED'); assert.equal(approved.version, 1); assert.equal(approved.revision, 0);
     assert.equal(approved.pdfDocument.quotationId, quote.id);
     assert.equal(approved.no, 1); assert.match(approved.pdf.key, /^quotation\//);

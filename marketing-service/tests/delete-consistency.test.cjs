@@ -39,9 +39,8 @@ test('Repeated scope deletion and contract deletion reject without new history o
   const original = prisma.$transaction;
   const tx = {
     $executeRaw: async () => 1,
-    service: { findFirst: async () => ({ isActive: true, hasMaintenance: true }) },
-    maintenanceScope: { findFirst: async () => ({ id: 'scope', revoked: true }) },
-    inspectionScope: { findFirst: async () => ({ id: 'scope', revoked: true }) },
+    service: { findFirst: async () => ({ id: 'service', version: 0, isActive: true, hasMaintenance: true, scopes: [] }) },
+    serviceScope: { findFirst: async ({ where }) => ({ id: 'scope', type: where.type, scope: 'Visual inspection', revoked: true }) },
     companyContract: { findFirst: async () => ({ status: 'DRAFT', version: 1, isDeleted: true }) },
   };
   prisma.$transaction = async action => action(tx);

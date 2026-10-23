@@ -6,6 +6,8 @@ const routes = require('../dist/modules/quotations/quotation.routes.js').default
 const env = require('../dist/config/env.js').env;
 const { quotationRepository } = require('../dist/modules/quotations/quotation.repository.js');
 const { createWorkOrderFromQuotationSchema } = require('../dist/modules/quotations/quotation.schemas.js');
+const itemSizeId = randomUUID();
+const items = [{ itemSizeId, snapshotItemSize: { itemSizeId, snapShotItem: { name: 'Tank' }, size: 'L' }, quantityInspection: 1, quantityMaintenance: 0 }];
 
 test('Create work order from quotation validates locally and forwards through Field Service', async (t) => {
   const branch = randomUUID(), actor = { id: randomUUID(), name: 'WO Test' }, inspectorId = randomUUID();
@@ -37,7 +39,7 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(response.status, expected, JSON.stringify(payload));
     return payload;
   };
-  const validBody = () => ({ startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector] });
+  const validBody = () => ({ startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items });
   const bodyFor = (id) => ({ ...validBody(), quotationId: id });
   // Repository fixture: findActive is the only database read in this flow.
   quotationRepository.findActive = async (id, officeBranchId) => {
@@ -49,7 +51,7 @@ test('Create work order from quotation validates locally and forwards through Fi
   const fixtureQuotation = (changes = {}, id = randomUUID()) => {
     const row = {
       id, officeBranchId: branch, version: 0, status: 'APPROVED', isActive: true,
-      items: [], ...changes,
+      items: [{itemSizeId: randomUUID(), itemName:'Tank', serviceName:'Inspection', serviceType:'INSPECTION', size:'L', quantityInspection:'1', quantityMaintenance:'0'}], ...changes,
     };
     rows.set(id, row);
     return row;
@@ -125,12 +127,13 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/fieldservice/work-orders`);
     assert.equal(forwarded.options.method, 'POST');
     assert.equal(forwarded.options.headers.authorization, 'Bearer user-token');
-    assert.equal(forwarded.options.headers['x-service-name'], 'marketing-service');
-    assert.equal(forwarded.options.headers['x-service-secret'], process.env.GATEWAY_SECRET);
+    assert.equal(forwarded.options.headers['x-service-name'], undefined);
+    assert.equal(forwarded.options.headers['x-service-secret'], undefined);
     assert.deepEqual(JSON.parse(forwarded.options.body), {
       quotationId: approved.id,
       startDate: '2026-10-01', endDate: '2026-10-05',
       inspectors: [inspector],
+      items,
     });
     assert.equal(JSON.parse(forwarded.options.body).quotationVersion, undefined, 'quotation version is never forwarded; Field Service reads the synchronized snapshot');
     assert.equal(JSON.parse(forwarded.options.body).summary, undefined, 'summary no longer exists on the Work order');
@@ -155,3 +158,4 @@ test('Create work order from quotation validates locally and forwards through Fi
     await new Promise(resolve => server.close(resolve));
   }
 });
+

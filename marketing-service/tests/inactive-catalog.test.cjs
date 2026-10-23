@@ -14,7 +14,7 @@ test('inactive service detail remains readable within its branch', async t => {
   prisma.service.findFirst = async ({ where }) => {
     assert.equal(where.id, 'service');
     assert.equal(where.isActive, undefined);
-    return where.officeBranchId === 'branch' ? { id: 'service', isActive: false } : null;
+    return where.officeBranchId === 'branch' ? { id: 'service', officeBranchId: 'branch', name: 'Inactive service', type: 'TUBULAR', hasMaintenance: false, version: 0, isActive: false, createdById: 'actor', createdByName: 'Test', updatedById: null, updatedByName: null, createdAt: new Date(), updatedAt: new Date(), scopes: [] } : null;
   };
   assert.equal((await serviceService.get('service', 'branch')).isActive, false);
   await assert.rejects(serviceService.get('service', 'other'), error => error.statusCode === 404);

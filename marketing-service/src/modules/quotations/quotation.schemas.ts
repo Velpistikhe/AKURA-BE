@@ -73,6 +73,7 @@ export const createWorkOrderFromQuotationSchema = z.object({
   startDate: isoDate,
   endDate: isoDate,
   inspectors: inspectors,
+  items: z.array(z.object({ itemSizeId: z.string().uuid(), snapshotItemSize: z.object({ itemSizeId: z.string().uuid(), snapShotItem: z.unknown(), size: z.unknown() }).passthrough(), quantityInspection: z.number().nonnegative(), quantityMaintenance: z.number().nonnegative() }).strict()).min(1).optional(),
 }).strict()
   .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
 export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;

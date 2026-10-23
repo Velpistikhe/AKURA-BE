@@ -54,16 +54,16 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
       ...quotationSizeInclude,
       // Only the resolved active contract may price this line; never another company's contract rows.
       contractPrices: context.contract ? { where: { contractId: context.contract.id } } : false,
-      item: { include: { service: { include: serviceScopeInclude }, inspectionScopes: { where: { revoked: false } }, maintenanceScopes: { where: { revoked: false } } } },
+      item: { include: { service: { include: serviceScopeInclude }, scopes: { where: { revoked: false } } } },
     },
   });
   if (!size) throw new HttpError('Item size not found', 404);
   const service = size.item.service;
   const scopeSnapshot = service ? serviceScopeSnapshot(service) : {
     serviceId: null,
-    serviceScopes: size.item.inspectionScopes.map(scope => scope.inspectionScope).concat(size.item.maintenanceScopes.map(scope => scope.scope)).join(', '),
-    inspectionScopes: size.item.inspectionScopes.map(scope => scope.inspectionScope).join(', '),
-    maintenanceScopes: size.item.maintenanceScopes.map(scope => scope.scope).join(', '),
+    serviceScopes: size.item.scopes.map(row => row.scope).join(', '),
+    inspectionScopes: size.item.scopes.filter(row => row.type === 'INSPECTION').map(row => row.scope).join(', '),
+    maintenanceScopes: size.item.scopes.filter(row => row.type === 'MAINTENANCE').map(row => row.scope).join(', '),
   };
   const resolved = resolveQuotationPrice(size, context, now);
   const quantityInspection = new Prisma.Decimal(input.quantityInspection);
@@ -389,7 +389,7 @@ export const quotationRepository = {
       });
       if (legacyItems.length) {
         const sizes = await tx.itemSize.findMany({ where: { id: { in: legacyItems.map(item => item.itemSizeId) }, item: { officeBranchId } },
-          include: { item: { include: { service: { include: serviceScopeInclude } } } } });
+          include: { item: { include: { service: { include: serviceScopeInclude }, scopes: { where: { revoked: false } } } } } });
         const bySize = new Map(sizes.map(size => [size.id, size.item.service]));
         for (const item of legacyItems) {
           const service = bySize.get(item.itemSizeId);

@@ -6,13 +6,15 @@ import { HttpError } from '../../utils/httpError.js';
 import { loadContract, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderRevoked, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
-type BasisInput = { quotationId?: string | null; contractId?: string | null };
+type BasisInput = { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null };
 // The payload carries IDs only. Quotation and contract content is fetched live from
 // Marketing and validated (branch, APPROVED state, contract effective period) before
-// being reduced to the stored snapshot.
+// being reduced to the stored snapshot. A performa invoice basis carries only its ID,
+// so no upstream lookup is made for it.
 const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
   if (body.quotationId) return loadQuotationForBasis(req, body.quotationId, branch);
-  return loadContract(req, body.contractId!, branch);
+  if (body.contractId) return loadContract(req, body.contractId, branch);
+  return null;
 };
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
@@ -28,7 +30,7 @@ router.get('/:id/history', asyncHandler(async (req, res) => {
   send(req, res, await repository.history(workOrderIdSchema.parse(req.params.id), page, limit, actor(res)));
 }));
 router.get('/:id', asyncHandler(async (req, res) => { send(req, res, await repository.get(workOrderIdSchema.parse(req.params.id), actor(res))); }));
-router.post('/', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const input = createWorkOrderSchema.parse(req.body);
   const quotation = await resolveBasis(req, input, actor(res).officeBranchId);
   send(req, res, await repository.create(input, quotation, actor(res)), 201);
@@ -50,7 +52,7 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
 router.patch('/:id', requireWorkOrderSection('MARKETING', 'FIELD_SERVICE'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   await repository.get(id, actor(res));
-  const quotation = (input.quotationId !== undefined || input.contractId !== undefined)
+  const quotation = (input.quotationId !== undefined || input.contractId !== undefined || input.performaInvoiceId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;
   send(req, res, await repository.update(id, input, quotation, actor(res)));
 }));

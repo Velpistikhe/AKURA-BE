@@ -105,6 +105,13 @@ model CompanyStaffHistory {
   @@map("company_staff_histories")
 }
 
+enum ServiceScopeType {
+  INSPECTION
+  MAINTENANCE
+
+  @@map("service_scope_type")
+}
+
 enum ServiceType {
   TUBULAR
   OCTG
@@ -128,8 +135,7 @@ model Service {
   updatedByName     String?            @map("updated_by_name")
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
-  inspectionScopes  InspectionScope[]  @relation("ServiceInspectionScopes")
-  maintenanceScopes MaintenanceScope[] @relation("ServiceMaintenanceScopes")
+  scopes            ServiceScope[]     @relation("ServiceScopes")
   itemCatalog       Item[]
 
   @@unique([officeBranchId, activeKey])
@@ -137,40 +143,24 @@ model Service {
   @@map("services")
 }
 
-model InspectionScope {
-  id              String   @id @default(uuid()) @db.Uuid
-  serviceId       String?  @map("service_id") @db.Uuid
-  itemId          String?  @map("item_id") @db.Uuid
-  service         Service? @relation("ServiceInspectionScopes", fields: [serviceId], references: [id], onDelete: Cascade)
-  item            Item?    @relation("ItemInspectionScopes", fields: [itemId], references: [id], onDelete: Cascade)
-  inspectionScope String   @map("inspection_scope")
-  revoked         Boolean  @default(false)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  @@unique([serviceId, inspectionScope])
-  @@unique([itemId, inspectionScope])
-  @@index([serviceId])
-  @@index([revoked])
-  @@map("inspection_scopes")
-}
-
-model MaintenanceScope {
-  id        String   @id @default(uuid()) @db.Uuid
-  serviceId String?  @map("service_id") @db.Uuid
-  itemId    String?  @map("item_id") @db.Uuid
-  service   Service? @relation("ServiceMaintenanceScopes", fields: [serviceId], references: [id], onDelete: Cascade)
-  item      Item?    @relation("ItemMaintenanceScopes", fields: [itemId], references: [id], onDelete: Cascade)
+model ServiceScope {
+  id        String          @id @default(uuid()) @db.Uuid
+  serviceId String?         @map("service_id") @db.Uuid
+  itemId    String?         @map("item_id") @db.Uuid
+  service   Service?        @relation("ServiceScopes", fields: [serviceId], references: [id], onDelete: Cascade)
+  item      Item?           @relation("ItemScopes", fields: [itemId], references: [id], onDelete: Cascade)
+  type      ServiceScopeType
   scope     String
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  revoked   Boolean         @default(false)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
 
-  @@unique([serviceId, scope])
-  @@unique([itemId, scope])
+  @@unique([serviceId, type, scope])
+  @@unique([itemId, type, scope])
   @@index([serviceId])
+  @@index([itemId])
   @@index([revoked])
-  @@map("maintenance_scopes")
+  @@map("service_scopes")
 }
 
 model Item {
@@ -185,8 +175,7 @@ model Item {
   uom               String
   serviceId         String?            @map("service_id") @db.Uuid
   service           Service?           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  inspectionScopes  InspectionScope[]  @relation("ItemInspectionScopes")
-  maintenanceScopes MaintenanceScope[] @relation("ItemMaintenanceScopes")
+  scopes            ServiceScope[]     @relation("ItemScopes")
   isActive          Boolean            @default(true) @map("is_active")
   createdById       String             @map("created_by_id") @db.Uuid
   createdByName     String             @map("created_by_name")

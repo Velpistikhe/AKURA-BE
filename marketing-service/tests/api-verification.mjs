@@ -242,7 +242,7 @@ try {
   check('DELETE inspection scope performs soft delete', await request(`/api/v1/marketing/services/${serviceId}/inspection/scopes/${inspectionScope.body.data.id}`, {
     method: 'DELETE', cookies: login.cookies,
   }), [200], (body) => body?.data?.revoked === true);
-  const revokedInspectionScope = await marketingPrisma.inspectionScope.findUnique({ where: { id: inspectionScope.body.data.id } });
+  const revokedInspectionScope = await marketingPrisma.serviceScope.findUnique({ where: { id: inspectionScope.body.data.id } });
   if (!revokedInspectionScope?.revoked) throw new Error('DELETE inspection scope did not persist revoked=true');
   check('GET service excludes revoked scope', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200],
     (body) => !body?.data?.inspectionScopes?.some((scope) => scope.id === inspectionScope.body.data.id));
@@ -256,7 +256,7 @@ try {
   check('DELETE maintenance scope performs soft delete', await request(`/api/v1/marketing/services/${serviceId}/maintenance/scopes/${maintenanceScope.body.data.id}`, {
     method: 'DELETE', cookies: login.cookies,
   }), [200], (body) => body?.data?.revoked === true);
-  const revokedMaintenanceScope = await marketingPrisma.maintenanceScope.findUnique({ where: { id: maintenanceScope.body.data.id } });
+  const revokedMaintenanceScope = await marketingPrisma.serviceScope.findUnique({ where: { id: maintenanceScope.body.data.id } });
   if (!revokedMaintenanceScope?.revoked) throw new Error('DELETE maintenance scope did not persist revoked=true');
   check('GET service excludes revoked maintenance scope', await request(`/api/v1/marketing/services/${serviceId}`, { cookies: login.cookies }), [200],
     (body) => !body?.data?.maintenanceScopes?.some((scope) => scope.id === maintenanceScope.body.data.id));
@@ -265,7 +265,7 @@ try {
   const scopeRace = await Promise.all(Array.from({ length: 8 }, () => request(`/api/v1/marketing/services/${serviceId}/inspection/scopes`, {
     method: 'POST', cookies: login.cookies, json: { inspectionScope: racingScopeName },
   })));
-  const racingScopeRows = await marketingPrisma.inspectionScope.count({ where: { serviceId, inspectionScope: racingScopeName, revoked: false } });
+  const racingScopeRows = await marketingPrisma.serviceScope.count({ where: { serviceId, type: 'INSPECTION', scope: racingScopeName, revoked: false } });
   check('Concurrent inspection scope requests preserve one active row', {
     status: scopeRace.every((result) => [201, 409].includes(result.status)) && racingScopeRows === 1 ? 200 : 500,
     body: { statuses: summarizeStatuses(scopeRace), activeRows: racingScopeRows },

@@ -8,34 +8,19 @@ import { recordCatalogAudit } from '../../utils/catalogAudit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { referenceKey } from '../items/item.schemas.js';
 
-const inspectionScopeSelect = {
-  id: true, serviceId: true, inspectionScope: true, revoked: true, createdAt: true, updatedAt: true,
-} satisfies Prisma.InspectionScopeSelect;
-
-const maintenanceScopeSelect = {
-  id: true, serviceId: true, scope: true, revoked: true, createdAt: true, updatedAt: true,
-} satisfies Prisma.MaintenanceScopeSelect;
-
+const serviceScopeSelect = {
+  id: true, serviceId: true, itemId: true, type: true, scope: true, revoked: true, createdAt: true, updatedAt: true,
+} satisfies Prisma.ServiceScopeSelect;
 const detailSelect = {
   id: true, officeBranchId: true, name: true, type: true, hasMaintenance: true, version: true,
   isActive: true, createdById: true, createdByName: true, updatedById: true, updatedByName: true, createdAt: true, updatedAt: true,
-  inspectionScopes: { where: { revoked: false }, select: inspectionScopeSelect },
-  maintenanceScopes: { where: { revoked: false }, select: maintenanceScopeSelect },
+  scopes: { where: { revoked: false }, select: serviceScopeSelect },
 } satisfies Prisma.ServiceSelect;
 
 const listSelect = {
   id: true, officeBranchId: true, name: true, type: true, hasMaintenance: true, version: true,
   isActive: true, createdById: true, createdByName: true, updatedById: true, updatedByName: true, createdAt: true, updatedAt: true,
-  inspectionScopes: {
-    where: { revoked: false },
-    orderBy: { createdAt: 'asc' as const },
-    select: { inspectionScope: true },
-  },
-  maintenanceScopes: {
-    where: { revoked: false },
-    orderBy: { createdAt: 'asc' as const },
-    select: { scope: true },
-  },
+  scopes: { where: { revoked: false }, orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }], select: { type: true, scope: true } },
 } satisfies Prisma.ServiceSelect;
 
 type ServiceListRow = Prisma.ServiceGetPayload<{ select: typeof listSelect }>;
@@ -45,8 +30,14 @@ const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.s
 const displayScopes = (value: unknown) => Array.isArray(value)
   ? value.map((entry) => (snapshot(entry)?.inspectionScope ?? snapshot(entry)?.scope)).filter((scope): scope is string => typeof scope === 'string').join(', ')
   : value;
+const detailScopes = <T extends { id: string; officeBranchId: string; name: string; type: string; hasMaintenance: boolean; version: number; isActive: boolean; createdById: string; createdByName: string; updatedById: string | null; updatedByName: string | null; createdAt: Date; updatedAt: Date; scopes: Array<{ id: string; serviceId: string | null; itemId: string | null; type: string; scope: string; revoked: boolean; createdAt: Date; updatedAt: Date }> }>({ scopes, ...row }: T) => ({
+  ...row,
+  inspectionScopes: scopes.filter(item => item.type === 'INSPECTION').map(item => ({ id: item.id, serviceId: item.serviceId, inspectionScope: item.scope, revoked: item.revoked, createdAt: item.createdAt, updatedAt: item.updatedAt })),
+  maintenanceScopes: scopes.filter(item => item.type === 'MAINTENANCE').map(item => ({ id: item.id, serviceId: item.serviceId, scope: item.scope, revoked: item.revoked, createdAt: item.createdAt, updatedAt: item.updatedAt })),
+});
+
+
 const historyFields = [
-  ['name', 'Service name'], ['type', 'Service type'], ['hasMaintenance', 'Provides maintenance'], ['isActive', 'Active status'],
   ['inspectionScopes', 'Inspection scopes'], ['maintenanceScopes', 'Maintenance scopes'],
 ] as const;
 // Audit snapshots written before the rename still use scopes/scope.
@@ -83,21 +74,25 @@ export const serviceRepository = {
       (where) => prisma.service.count({ where }),
     );
     return {
-      services: result.items.map(({ inspectionScopes, maintenanceScopes, ...service }) => ({
-        ...service,
-        inspectionScopes: inspectionScopes.map(({ inspectionScope }) => inspectionScope).join(', '),
-        maintenanceScopes: maintenanceScopes.map(({ scope }) => scope).join(', '),
-      })),
+      services: result.items.map(row => {
+        const { scopes, ...service } = row;
+        return { ...service,
+          inspectionScopes: scopes.filter(scope => scope.type === 'INSPECTION').map(scope => scope.scope).join(', '),
+          maintenanceScopes: scopes.filter(scope => scope.type === 'MAINTENANCE').map(scope => scope.scope).join(', '),
+        };
+      }),
       pagination: result.pagination,
     };
   },
   async findById(id: string, officeBranchId: string) {
     const service = await prisma.service.findFirst({ where: { id, officeBranchId }, select: detailSelect });
     if (!service) return null;
-    return service;
+    return detailScopes(service);
   },
   async findActiveById(id: string, officeBranchId: string) {
-    return prisma.service.findFirst({ where: { id, officeBranchId, isActive: true }, select: detailSelect });
+    const service = await prisma.service.findFirst({ where: { id, officeBranchId, isActive: true }, select: detailSelect });
+    if (!service) return null;
+    return detailScopes(service);
   },
   async history(id: string, officeBranchId: string, input: { page: number; limit: number }) {
     const service = await prisma.service.findFirst({ where: { id, officeBranchId }, select: { id: true } });
@@ -128,15 +123,16 @@ export const serviceRepository = {
       hasMaintenance: data.hasMaintenance,
       isActive: true,
       createdById: actor.id, createdByName: actor.name,
-      inspectionScopes: { create: data.inspectionScopes.map((inspectionScope) => ({ inspectionScope, revoked: false })) },
-      maintenanceScopes: data.hasMaintenance
-        ? { create: data.maintenanceScopes.map((scope) => ({ scope, revoked: false })) }
-        : undefined,
+      scopes: { create: [
+        ...data.inspectionScopes.map(scope => ({ type: 'INSPECTION' as const, scope, revoked: false })),
+        ...(data.hasMaintenance ? data.maintenanceScopes.map(scope => ({ type: 'MAINTENANCE' as const, scope, revoked: false })) : []),
+      ] },
     },
     select: detailSelect,
     });
-    await recordCatalogAudit(tx, officeBranchId, 'SERVICE', null, row, actor, 'CREATE');
-    return row;
+
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', null, { id: row.id, version: row.version }, actor, 'CREATE');
+      return detailScopes(row);
   }),
   update: (id: string, officeBranchId: string, data: UpdateServiceInput, actor: AuditActor) => prisma.$transaction(async (tx) => {
     await lockCompanyBranch(tx, officeBranchId);
@@ -152,12 +148,12 @@ export const serviceRepository = {
     await tx.service.update({ where: { id, version }, data: { ...serviceData, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
 
     if (data.hasMaintenance === false) {
-      await tx.maintenanceScope.updateMany({ where: { serviceId: id, revoked: false }, data: { revoked: true } });
+      await tx.serviceScope.updateMany({ where: { serviceId: id, type: 'MAINTENANCE', revoked: false }, data: { revoked: true } });
     }
 
     const after = await tx.service.findFirstOrThrow({ where: { id, officeBranchId }, select: detailSelect });
-    await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'UPDATE');
-    return after;
+    await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'UPDATE');
+    return detailScopes(after);
   }),
   async deactivate(id: string, version: number, officeBranchId: string, actor: AuditActor) {
     return prisma.$transaction(async tx => {
@@ -177,89 +173,71 @@ export const serviceRepository = {
       }
       await tx.service.update({ where: { id, version }, data: { isActive: false, activeKey: null, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       const after = await tx.service.findUniqueOrThrow({ where: { id }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'DEACTIVATE');
-      return after;
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'DEACTIVATE');
+      return detailScopes(after);
     });
   },
-  findInspectionScopeByName: (serviceId: string, inspectionScope: string, officeBranchId: string) => prisma.inspectionScope.findFirst({
-    where: { serviceId, inspectionScope, service: { officeBranchId } },
-    select: inspectionScopeSelect,
-  }),
-  findMaintenanceScopeByName: (serviceId: string, scope: string, officeBranchId: string) => prisma.maintenanceScope.findFirst({
-    where: { serviceId, scope, service: { officeBranchId } },
-    select: maintenanceScopeSelect,
-  }),
+  findInspectionScopeByName: (serviceId: string, inspectionScope: string, officeBranchId: string) => prisma.serviceScope.findFirst({ where: { serviceId, scope: inspectionScope, type: 'INSPECTION', service: { officeBranchId } } }),
+  findMaintenanceScopeByName: (serviceId: string, scope: string, officeBranchId: string) => prisma.serviceScope.findFirst({ where: { serviceId, scope, type: 'MAINTENANCE', service: { officeBranchId } } }),
   async createMaintenanceScope(serviceId: string, scope: string, officeBranchId: string, actor: AuditActor) {
     return prisma.$transaction(async tx => {
-    await lockCompanyBranch(tx, officeBranchId);
-    const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
-    if (!before?.isActive || !before.hasMaintenance) return null;
-    if (before.maintenanceScopes.some((item) => item.scope === scope)) {
-      throw new HttpError(`Maintenance scope '${scope}' already exists`, 409);
-    }
-    const row = await tx.maintenanceScope.upsert({
-      where: { serviceId_scope: { serviceId, scope } },
-      create: { serviceId, scope, revoked: false }, update: { revoked: false },
-      select: maintenanceScopeSelect,
-    });
-    const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-    await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'MAINTENANCE_SCOPE_ADD');
-    return row;
+      await lockCompanyBranch(tx, officeBranchId);
+      const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
+      if (!before?.isActive || !before.hasMaintenance) return null;
+      if (before.scopes.some(item => item.type === 'MAINTENANCE' && item.scope === scope)) throw new HttpError(`Maintenance scope '${scope}' already exists`, 409);
+      const type = 'MAINTENANCE' as const;
+      const existing = await tx.serviceScope.findFirst({ where: { serviceId, type, scope } });
+      const row = existing
+        ? await tx.serviceScope.update({ where: { id: existing.id }, data: { revoked: false }, select: serviceScopeSelect })
+        : await tx.serviceScope.create({ data: { serviceId, type, scope }, select: serviceScopeSelect });
+      const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'MAINTENANCE_SCOPE_ADD');
+      return row;
     });
   },
   async revokeMaintenanceScope(serviceId: string, scopeId: string, officeBranchId: string, actor: AuditActor) {
     return prisma.$transaction(async tx => {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
-      if (!before) throw new HttpError('Service not found', 404);
-      if (!before.isActive || !before.hasMaintenance) throw new HttpError('Service is inactive or does not provide maintenance', 409);
-      const current = await tx.maintenanceScope.findFirst({ where: { id: scopeId, serviceId } });
+      if (!before?.isActive || !before.hasMaintenance) return null;
+      const current = await tx.serviceScope.findFirst({ where: { id: scopeId, serviceId, type: 'MAINTENANCE' } });
       if (!current) throw new HttpError('Maintenance scope not found', 404);
       if (current.revoked) throw new HttpError('Maintenance scope is already deleted', 409);
-      const row = await tx.maintenanceScope.update({ where: { id: scopeId }, data: { revoked: true }, select: maintenanceScopeSelect });
+      const row = await tx.serviceScope.update({ where: { id: scopeId }, data: { revoked: true }, select: serviceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'MAINTENANCE_SCOPE_REMOVE');
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'MAINTENANCE_SCOPE_REMOVE');
       return row;
     });
   },
   async createInspectionScope(serviceId: string, inspectionScope: string, officeBranchId: string, actor: AuditActor) {
     return prisma.$transaction(async tx => {
-    await lockCompanyBranch(tx, officeBranchId);
-    const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
-    if (!before?.isActive) return null;
-    if (before.inspectionScopes.some((item) => item.inspectionScope === inspectionScope)) {
-      throw new HttpError(`Inspection scope '${inspectionScope}' already exists`, 409);
-    }
-    const row = await tx.inspectionScope.upsert({
-      where: { serviceId_inspectionScope: { serviceId, inspectionScope } },
-      create: { serviceId, inspectionScope, revoked: false }, update: { revoked: false },
-      select: inspectionScopeSelect,
-    });
-    const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-    await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'INSPECTION_SCOPE_ADD');
-    return row;
+      await lockCompanyBranch(tx, officeBranchId);
+      const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
+      if (!before?.isActive) return null;
+      if (before.scopes.some(item => item.type === 'INSPECTION' && item.scope === inspectionScope)) throw new HttpError(`Inspection scope '${inspectionScope}' already exists`, 409);
+      const type = 'INSPECTION' as const;
+      const existing = await tx.serviceScope.findFirst({ where: { serviceId, type, scope: inspectionScope } });
+      const row = existing
+        ? await tx.serviceScope.update({ where: { id: existing.id }, data: { revoked: false }, select: serviceScopeSelect })
+        : await tx.serviceScope.create({ data: { serviceId, type, scope: inspectionScope }, select: serviceScopeSelect });
+      const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'INSPECTION_SCOPE_ADD');
+      return { ...row, inspectionScope: row.scope };
     });
   },
   async revokeInspectionScope(serviceId: string, inspectionScopeId: string, officeBranchId: string, actor: AuditActor) {
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async tx => {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
       if (!before) throw new HttpError('Service not found', 404);
-      if (!before.isActive) throw new HttpError('Service is inactive', 409);
-      const current = await tx.inspectionScope.findFirst({
-        where: { id: inspectionScopeId, serviceId },
-        select: { id: true, revoked: true },
-      });
+      if (!before.isActive) return null;
+      const current = await tx.serviceScope.findFirst({ where: { id: inspectionScopeId, serviceId, type: 'INSPECTION' } });
       if (!current) throw new HttpError('Inspection scope not found', 404);
       if (current.revoked) throw new HttpError('Inspection scope is already deleted', 409);
-      const row = await tx.inspectionScope.update({
-        where: { id: current.id },
-        data: { revoked: true },
-        select: inspectionScopeSelect,
-      });
+      const row = await tx.serviceScope.update({ where: { id: current.id }, data: { revoked: true }, select: serviceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'INSPECTION_SCOPE_REMOVE');
-      return row;
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'INSPECTION_SCOPE_REMOVE');
+      return { ...row, inspectionScope: row.scope };
     });
   },
 };

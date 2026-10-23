@@ -22,6 +22,7 @@ model WorkOrder {
   contractSnapshot Json? @map("contract_snapshot") @db.JsonB
   quotationId String? @map("quotation_id") @db.Uuid
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
+  performaInvoiceId String? @map("performa_invoice_id") @db.Uuid
   startDate DateTime @map("start_date") @db.Date
   endDate DateTime? @map("end_date") @db.Date
   status WorkOrderStatus @default(DRAFT)
@@ -33,6 +34,7 @@ model WorkOrder {
   updatedByName String? @map("updated_by_name")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  items WorkOrderItem[]
   inspectors WorkOrderInspector[]
   history WorkOrderHistory[]
   @@unique([officeBranchId, number])
@@ -43,6 +45,18 @@ model WorkOrder {
   @@index([quotationId])
   @@map("work_order")
 }
+model WorkOrderItem {
+  id String @id @default(uuid()) @db.Uuid
+  workOrderId String @map("work_order_id") @db.Uuid
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  itemSizeId String @map("item_size_id") @db.Uuid
+  snapshotItemSize Json @map("snapshot_item_size") @db.JsonB
+  quantityInspection Decimal @map("quantity_inspection") @db.Decimal(15, 3)
+  quantityMaintenance Decimal @map("quantity_maintenance") @db.Decimal(15, 3)
+  @@map("work_order_items")
+}
+
+
 
 model WorkOrderInspector {
   id String @id @default(uuid()) @db.Uuid

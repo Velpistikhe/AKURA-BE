@@ -13,6 +13,7 @@ const {errorHandler}=require('../dist/middlewares/error.middleware.js');
 const {workOrderRepository:repo}=require('../dist/modules/work-orders/work-order.repository.js');
 const {nextWorkOrderIdentity,workOrderDate}=require('../dist/modules/work-orders/work-order-number.js');
 const {createWorkOrderSchema,updateWorkOrderSchema}=require('../dist/modules/work-orders/work-order.schemas.js');
+const items=[{itemSizeId:randomUUID(),snapshotItemSize:{itemSizeId:randomUUID(),snapShotItem:{name:'Test'},size:'L'},quantityInspection:1,quantityMaintenance:0}];
 require('../dist/utils/logger.js').logger.silent=true;
 
 test('Creation rejects inspector date overlaps in every non-revoked status and serializes concurrent requests',async()=>{
@@ -24,13 +25,13 @@ test('Creation rejects inspector date overlaps in every non-revoked status and s
   company:{id:companyId,name:'Schedule Company',officeBranchId:branch,revoked:false}};
  const inspectors=[{userId:inspectorA,name:'Schedule A'},{userId:inspectorB,name:'Schedule B'}];
  const input=(startDate='2026-09-15',endDate='2026-09-20',pairs=inspectors)=>
-  createWorkOrderSchema.parse({contractId,startDate,endDate:endDate??undefined,inspectors:pairs});
+  createWorkOrderSchema.parse({contractId,startDate,endDate:endDate??undefined,inspectors:pairs,items});
  const create=(...args)=>repo.create(input(...args),contract,actor);
  const conflict=promise=>assert.rejects(promise,error=>error.statusCode===409&&/overlapping work order/.test(error.message));
  const where={officeBranchId:{in:[branch,otherBranch]}};
  const clearOrders=async()=>{
   await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
-  await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});
+  await prisma.workOrderItem.deleteMany({where:{workOrder:where}});await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});
   await prisma.workOrder.deleteMany({where});
  };
  try{
@@ -98,11 +99,11 @@ test('PATCH rejects inspector schedule overlaps and keeps the stored state on re
   company:{id:companyId,name:'Patch Guard Company',officeBranchId:branch,revoked:false}};
  const guards=[{userId:inspectorA,name:'Guard A'},{userId:inspectorB,name:'Guard B'}];
  const create=(startDate,endDate,pairs=guards)=>
-  repo.create(createWorkOrderSchema.parse({contractId,startDate,endDate,inspectors:pairs}),contract,actor);
+  repo.create(createWorkOrderSchema.parse({contractId,startDate,endDate,inspectors:pairs,items}),contract,actor);
  const where={officeBranchId:branch};
  const clearOrders=async()=>{
   await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
-  await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});
+  await prisma.workOrderItem.deleteMany({where:{workOrder:where}});await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});
   await prisma.workOrder.deleteMany({where});
  };
  try{
@@ -225,7 +226,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
  };
  const inspectorNames=['Budi Tester','Agus Helper'];
  const inspectorPairs=[{userId:inspectorA,name:inspectorNames[0]},{userId:inspectorB,name:inspectorNames[1]}];
- const raw={contractId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs};
+ const raw={contractId,startDate:'2026-09-15',endDate:'2026-09-20',inspectors:inspectorPairs,items};
  const year=workOrderDate().getUTCFullYear();
  // Quotation basis is resolved live from Marketing; the mock serves the current quotation state for every registered ID.
  const quotationIds=new Set([quoteId]);
@@ -240,17 +241,21 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   for(const invalid of [{number:'CUSTOM'},{date:'2026-01-01'},{officeBranchId:otherBranch},{createdByName:'Fake'},{revoked:true},{status:'INVALID'},{status:'DRAFT'},{inspectors:[]},{inspectors:[inspectorPairs[0],inspectorPairs[0]]},{inspectors:[{userId:'not-a-uuid',name:'X'}]},{inspectors:[{userId:randomUUID(),name:'Ghost Inspector'}]},{inspectors:[{userId:foreignInspector,name:'Foreign Inspector'}]},{inspectors:[{userId:inspectorA,name:'Wrong Name'}]},{inspectors:[{inspectorId:inspectorA}]},{inspectors:[{userId:inspectorA}]},{endDate:'2026-01-01'},{contractVersion:1},{summary:'Inspection'},{quotationVersion:0}])await request('POST','/work-orders',{...raw,...invalid},400);
   // The document basis is IDs only: companyId is no longer accepted at all.
   for(const invalid of [{companyId},{companyId:randomUUID()},{companyId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
-  // Both basis fields empty, or both supplied, is not exactly one basis.
-  for(const invalid of [{contractId:null},{contractId:null,quotationId:null},{contractId,quotationId:quoteId}])await request('POST','/work-orders',{...raw,...invalid},400);
+  // An empty basis is rejected; supplying more than one basis is allowed and quotation takes precedence in resolveBasis.
+  for(const invalid of [{contractId:null},{contractId:null,quotationId:null},{contractId:null,quotationId:null,performaInvoiceId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
   // A quotation basis still requires endDate and inspectors of its own.
-  const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-10-15',endDate:'2026-10-20',inspectors:inspectorPairs};
+  const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-10-15',endDate:'2026-10-20',inspectors:inspectorPairs,items};
   await request('POST','/work-orders',{...quotationBasis,endDate:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:[]},400);
   const row=await request('POST','/work-orders',raw,201);
   assert.equal(row.status,'DRAFT');
   for(const token of ['field','wrong','no-section','admin','manager']){
-   await request('POST','/work-orders',raw,403,token);
+   // POST /work-orders is now general: every authenticated profile that passes
+   // requireActor may create one, regardless of the originating service.
+   if(['wrong','no-section'].includes(token)) await request('POST','/work-orders',raw,403,token);
+   else if(token==='field') await request('POST','/work-orders',{...raw,startDate:'2026-11-15',endDate:'2026-11-20'},201,token);
+   else await request('POST','/work-orders',raw,409,token);
    await request('DELETE','/work-orders/'+row.id,{version:0},403,token);
    await request('POST','/work-orders/'+row.id+'/start',{version:0},403,token);
    if(token!=='field')await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-10-01'},403,token);
@@ -384,17 +389,19 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // Explicit contract basis: contractId is validated through the contract reference endpoint; no version is submitted.
   contract.version=3;
   Object.assign(raw,{startDate:'2026-11-15',endDate:'2026-11-20'});
-  const byContract=await request('POST','/work-orders',raw,201);
+  const byContract=await request('POST','/work-orders',{...raw,startDate:'2026-11-25',endDate:'2026-11-30'},201);
   assert.equal(byContract.status,'DRAFT');assert.equal(byContract.contractId,contractId);
   assert.equal(byContract.contractSnapshot.id,contractId);assert.equal(byContract.quotationId,null);
   assert(contractReferenceCalls>=1);
   await request('POST','/work-orders',{...raw,contractId:randomUUID()},404);
   await request('POST','/work-orders',{...raw,contractId:null},400);
-  await request('POST','/work-orders',{...raw,quotationId:quoteId},400);
+  // Supplying quotationId alongside contractId is now allowed (at least one basis);
+  // quotation wins in resolveBasis and the active linked order rejects the reuse.
+  await request('POST','/work-orders',{...raw,quotationId:quoteId},409);
   const contractDetail=await request('GET','/work-orders/'+byContract.id);
   assert.equal(contractDetail.contractId,contractId);
   assert.deepEqual(contractDetail.contractSnapshot,byContract.contractSnapshot,'detail response retains stored contract snapshot');
-  assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
+  assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,3);
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
   // linked still holds quoteId, so the startable Work Order uses a second quotation.
   await seedQuotationSnapshotFor(startableQuoteId);
@@ -508,19 +515,19 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.equal((await repo.history(row.id,1,20,actor)).pagination.total,4);
   assert.equal((await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}})).lastNumber,sequenceBefore.lastNumber);
   const created=await Promise.all(Array.from({length:6},(_,i)=>repo.create(createWorkOrderSchema.parse({...raw,startDate:`2027-02-${String(i+1).padStart(2,'0')}`,endDate:`2027-02-${String(i+1).padStart(2,'0')}`}),contract,actor)));
-  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+6).padStart(6,'0')}`));
+  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+7).padStart(6,'0')}`));
   // Child insertion failure must roll back both Work order and number allocation.
   let fail=true;
   prisma.$use(async(params,next)=>{if(fail&&params.model==='WorkOrder'&&params.action==='create')params.args.data.inspectors.create.push({name:'x'.repeat(256),position:999});return next(params);});
   await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor));fail=false;
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000012`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000013`);
   const allocate=clock=>prisma.$transaction(tx=>nextWorkOrderIdentity(tx,clockBranch,clock));
   const end=()=>new Date('2026-12-31T16:59:59Z'),start=()=>new Date('2026-12-31T17:00:00Z');
   assert.equal((await allocate(end)).number,'WO/2026/000001');assert.equal((await allocate(end)).number,'WO/2026/000002');assert.equal((await allocate(start)).number,'WO/2027/000001');
   let reads=0;const crossed=await allocate(()=>++reads===1?end():start());assert.equal(crossed.number,'WO/2027/000002');assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
   Object.assign(raw,{startDate:'2027-03-15',endDate:'2027-03-20'});
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000013`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000014`);
   const inProgress=await request('GET','/work-orders/'+byContract.id);
   assert.equal(inProgress.status,'IN_PROGRESS');
   const callbacksBeforeContractRevoke=marketingCallbackCalls;
@@ -534,7 +541,9 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
   const where={officeBranchId:{in:branches}};
   await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
-  await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});await prisma.workOrder.deleteMany({where});await prisma.workOrderSequence.deleteMany({where});
+  await prisma.workOrderItem.deleteMany({where:{workOrder:where}});await prisma.workOrderInspector.deleteMany({where:{workOrder:where}});await prisma.workOrder.deleteMany({where});await prisma.workOrderSequence.deleteMany({where});
   await prisma.fieldServiceUser.deleteMany({where:{id:{in:[inspectorA,inspectorB,foreignInspector]}}});await prisma.$disconnect();
  }
 });
+
+

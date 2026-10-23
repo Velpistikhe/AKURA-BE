@@ -138,12 +138,18 @@ export const quotationController = {
     try {
       response = await fetch(serviceUrl(path), {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...serviceHeaders(path),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`,
           ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
         body: JSON.stringify({
           quotationId: quote.id,
           startDate: input.startDate, endDate: input.endDate,
           inspectors: input.inspectors,
+          items: input.items ?? quote.items.map(item => ({
+            itemSizeId: item.itemSizeId,
+            snapshotItemSize: { itemSizeId: item.itemSizeId, snapShotItem: { itemName: item.itemName, serviceName: item.serviceName, serviceType: item.serviceType }, size: item.size },
+            quantityInspection: Number(item.quantityInspection),
+            quantityMaintenance: Number(item.quantityMaintenance),
+          })),
         }),
       });
     } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }

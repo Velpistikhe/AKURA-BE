@@ -895,18 +895,16 @@ export const openApiDocument = groupByModule({
           },
         },
       },
-      InspectionScope: {
-        type: 'object', required: ['id', 'serviceId', 'inspectionScope', 'revoked', 'createdAt', 'updatedAt'],
+      ServiceScopeType: { type: 'string', enum: ['INSPECTION', 'MAINTENANCE'] },
+      ServiceScope: {
+        type: 'object', required: ['id', 'type', 'scope', 'revoked', 'createdAt', 'updatedAt'],
         properties: {
-          id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid' },
-          inspectionScope: { type: 'string' }, revoked: { type: 'boolean', example: false },
+          id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid', nullable: true }, itemId: { type: 'string', format: 'uuid', nullable: true },
+          type: { $ref: '#/components/schemas/ServiceScopeType' }, scope: { type: 'string' }, revoked: { type: 'boolean', example: false },
           createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
         },
       },
-      ServiceType: {
-        type: 'string', enum: ['TUBULAR', 'OCTG', 'OTHER'], example: 'TUBULAR',
-        description: 'Service type. Only uppercase TUBULAR, OCTG, and OTHER are accepted.',
-      },
+      ServiceType: { type: 'string', enum: ['TUBULAR', 'OCTG', 'OTHER'], example: 'TUBULAR', description: 'Service type.' },
       Service: {
         type: 'object',
         required: ['id', 'officeBranchId', 'name', 'type', 'hasMaintenance', 'version', 'isActive', 'createdById', 'createdByName', 'createdAt', 'updatedAt', 'inspectionScopes', 'maintenanceScopes'],
@@ -924,8 +922,8 @@ export const openApiDocument = groupByModule({
           updatedByName: { type: 'string', nullable: true, readOnly: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
-          inspectionScopes: { type: 'array', items: schemaRef('InspectionScope') },
-          maintenanceScopes: { type: 'array', items: schemaRef('MaintenanceScope') },
+          inspectionScopes: { type: 'array', items: schemaRef('ServiceScope') },
+          maintenanceScopes: { type: 'array', items: schemaRef('ServiceScope') },
         },
       },
       ServiceListItem: {
@@ -958,8 +956,8 @@ export const openApiDocument = groupByModule({
           serviceId: { type: 'string', format: 'uuid', nullable: true, description: 'Optional service owner. Null means this item is standalone.' },
           name: { type: 'string' },
           uom: { type: 'string', maxLength: 50, example: 'JOINT', description: 'Unit of measure. Existing items were initialized to JOINT.' },
-          inspectionScopes: { type: 'array', items: schemaRef('InspectionScope'), description: 'Scopes owned directly by this standalone item. Empty when serviceId is set.' },
-          maintenanceScopes: { type: 'array', items: schemaRef('MaintenanceScope'), description: 'Scopes owned directly by this standalone item. Empty when serviceId is set.' },
+          inspectionScopes: { type: 'array', items: schemaRef('ServiceScope'), description: 'Inspection scope rows owned directly by this standalone item. Empty when serviceId is set.' },
+          maintenanceScopes: { type: 'array', items: schemaRef('ServiceScope'), description: 'Maintenance scope rows owned directly by this standalone item. Empty when serviceId is set.' },
           createdById: { type: 'string', format: 'uuid', readOnly: true },
           createdByName: { type: 'string', readOnly: true, description: 'Snapshot of the current user name when the item was created.' },
           updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
@@ -1060,14 +1058,7 @@ export const openApiDocument = groupByModule({
           },
         },
       },
-      MaintenanceScope: {
-        type: 'object', required: ['id', 'serviceId', 'scope', 'revoked', 'createdAt', 'updatedAt'],
-        properties: {
-          id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid' },
-          scope: { type: 'string' }, revoked: { type: 'boolean', example: false },
-          createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
-        },
-      },
+
       Pagination: {
         type: 'object',
         required: ['page', 'limit', 'total', 'totalPages'],
@@ -1192,7 +1183,7 @@ export const openApiDocument = groupByModule({
         type: 'object', required: ['status', 'success', 'message', 'data'],
         properties: {
           status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] },
-          message: { type: 'string' }, data: schemaRef('InspectionScope'),
+          message: { type: 'string' }, data: schemaRef('ServiceScope'),
           requestId: { type: 'string', format: 'uuid' },
         },
       },
@@ -1200,7 +1191,7 @@ export const openApiDocument = groupByModule({
         type: 'object', required: ['status', 'success', 'message', 'data'],
         properties: {
           status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] },
-          message: { type: 'string' }, data: schemaRef('MaintenanceScope'),
+          message: { type: 'string' }, data: schemaRef('ServiceScope'),
           requestId: { type: 'string', format: 'uuid' },
         },
       },

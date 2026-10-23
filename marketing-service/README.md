@@ -228,7 +228,7 @@ Dengan Auth Service, Marketing Service, dan API Gateway aktif, jalankan harness 
 
 ### Inspection scope
 
-Service menggunakan relasi dan field request/response `inspectionScopes` (sebelumnya `scopes`).
+Service and standalone Item scope rows now share the `service_scopes` table and the `ServiceScopeType` enum (`INSPECTION` / `MAINTENANCE`). The API still exposes the compatible `inspectionScopes` and `maintenanceScopes` fields, while each stored row uses `type` and `scope`.
 POST `/services/:serviceId/inspection/scopes` menerima `{ "inspectionScope": "Visual inspection" }`.
 Response detail memuat `inspectionScopes: [{ id, serviceId, inspectionScope, ... }]`, sedangkan response daftar memuat `inspectionScopes` sebagai teks dipisahkan koma.
 DELETE `/services/:serviceId/inspection/scopes/:inspectionScopeId` menonaktifkan inspection scope.

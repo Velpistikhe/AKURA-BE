@@ -6,13 +6,13 @@ import { QuotationSnapshot, ContractSnapshot, validateContract, toQuotationSnaps
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
-const include = { inspectors: { orderBy: { position: 'asc' as const } } };
+const include = { inspectors: { orderBy: { position: 'asc' as const } }, items: true };
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 type WorkOrderSnapshot = Prisma.WorkOrderGetPayload<{ include: typeof include }>;
 const historyLabels: Record<string, string> = {
   number: 'Work order number', date: 'Document date', quotationId: 'Quotation',
   quotationSnapshot: 'Quotation snapshot', contractId: 'Contract',
-  contractSnapshot: 'Contract snapshot', startDate: 'Start date', endDate: 'End date',
+  contractSnapshot: 'Contract snapshot', performaInvoiceId: 'Performa invoice', items: 'Items', startDate: 'Start date', endDate: 'End date',
   status: 'Status', revoked: 'Revoked', inspectors: 'Inspectors',
 };
 const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', START: 'Work order started', REVOKE: 'Work order deleted' };
@@ -83,9 +83,14 @@ async function resolveInspectorUsers(tx: Prisma.TransactionClient, inspectors: {
  * only a reduced snapshot is stored: a contract keeps its number, dates and company
  * identity, a quotation keeps its identity and descriptive content without any price.
  */
-function reference(input: { quotationId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-  const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };
-  if (Number(!!input.quotationId) + Number(!!input.contractId) !== 1) throw new HttpError('Exactly one quotation or contract is required', 400);
+function reference(input: { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+  const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull, performaInvoiceId: null };
+  if (Number(!!input.quotationId) + Number(!!input.contractId) + Number(!!input.performaInvoiceId) < 1) throw new HttpError('At least one quotationId, contractId or performaInvoiceId is required', 400);
+  if (input.quotationId) {
+    const quote = source as QuotationSnapshot | null;
+    if (!quote || quote.id !== input.quotationId || quote.officeBranchId !== actor.officeBranchId || !quote.isActive || quote.status !== 'APPROVED') throw new HttpError('An APPROVED quotation in this branch is required', 409);
+    return { ...cleared, quotationId: quote.id, quotationSnapshot: json(toQuotationSnapshot(quote)) };
+  }
   if (input.contractId) {
     const contract = source as ContractSnapshot | null;
     if (!contract || contract.id !== input.contractId
@@ -93,9 +98,8 @@ function reference(input: { quotationId?: string | null; contractId?: string | n
     validateContract(contract);
     return { ...cleared, contractId: contract.id, contractSnapshot: json(toContractSnapshot(contract)) };
   }
-  const quote = source as QuotationSnapshot | null;
-  if (!quote || quote.id !== input.quotationId || quote.officeBranchId !== actor.officeBranchId || !quote.isActive || quote.status !== 'APPROVED') throw new HttpError('An APPROVED quotation in this branch is required', 409);
-  return { ...cleared, quotationId: quote.id, quotationSnapshot: json(toQuotationSnapshot(quote)) };
+  // Performa invoice basis carries only the ID; no Marketing snapshot is resolved for it.
+  return { ...cleared, performaInvoiceId: input.performaInvoiceId ?? null };
 }
 function checkDates(startDate: Date, endDate?: Date | null) {
   if (endDate && endDate < startDate) throw new HttpError('End date cannot precede start date', 400);
@@ -199,7 +203,7 @@ export const workOrderRepository = {
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-    const { inspectors = [], quotationId: _quotationId, contractId: _contractId, ...fields } = input;
+    const { inspectors = [], items, quotationId: _quotationId, contractId: _contractId, performaInvoiceId: _performaInvoiceId, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
     // The Work Order is always created as DRAFT; the request never carries status.
@@ -212,7 +216,9 @@ export const workOrderRepository = {
       await assertInspectorsAvailable(tx, actor.officeBranchId, inspectorUsers, input.startDate, input.endDate);
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
       const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
-        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectorUsers) } }, include });
+        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectorUsers) },
+        items: { create: items.map(item => ({ itemSizeId: item.itemSizeId, snapshotItemSize: json(item.snapshotItemSize),
+          quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       return saveHistory(tx, row, null, actor, 'CREATE');
     }, { maxWait: 10000, timeout: 20000 });
   },
@@ -262,8 +268,9 @@ export const workOrderRepository = {
     return workOrder;
   },
   async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-    const { version, inspectors, quotationId, contractId, ...fields } = input;
-    const quotation = (quotationId !== undefined || contractId !== undefined) ? reference({ quotationId, contractId }, quote, actor) : {};
+    const { version, inspectors, quotationId, contractId, performaInvoiceId, ...fields } = input;
+    const quotation = (quotationId !== undefined || contractId !== undefined || performaInvoiceId !== undefined)
+      ? reference({ quotationId, contractId, performaInvoiceId }, quote, actor) : {};
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
       const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },

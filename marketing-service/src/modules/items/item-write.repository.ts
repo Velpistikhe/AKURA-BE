@@ -181,10 +181,12 @@ export const itemWriteRepository = {
     if (await tx.item.findFirst({ where: { officeBranchId: branch, serviceId: data.serviceId ?? null, isActive: true, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists', 409);
     const item = await tx.item.create({ data: {
       officeBranchId: branch, serviceId: data.serviceId, name: data.name, uom: data.uom, activeKey, ...createdBy(actor),
-      inspectionScopes: { create: data.inspectionScopes.map(inspectionScope => ({ inspectionScope, revoked: false })) },
-      maintenanceScopes: { create: data.maintenanceScopes.map(scope => ({ scope, revoked: false })) },
-    } });
-    await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
+      scopes: { create: [
+        ...data.inspectionScopes.map(scope => ({ type: 'INSPECTION' as const, scope, revoked: false })),
+        ...data.maintenanceScopes.map(scope => ({ type: 'MAINTENANCE' as const, scope, revoked: false })),
+      ] },
+    } , include: { scopes: true } });
+    await recordCatalogAudit(tx, branch, 'ITEM', null, { id: item.id, version: item.version }, actor, 'CREATE');
     const sizes = [];
     for (const size of data.sizes.length ? data.sizes : [{ size: null }]) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
     return { ...item, sizes };
