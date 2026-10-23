@@ -196,11 +196,16 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
         const repeatGroup = () => { lineHeader(); row([groupLabel], [width], false, false, lineHeader, groupStyle); };
         for (const { item, qty, price } of charges) {
           if (price === null) throw new Error('Missing quotation price');
+          // The printed unit price is net of the discount percentage so the printed lines add up to subTotal.
+          const discount = item.discount ?? 0;
+          const reduction = price.mul(discount).div(100).toDecimalPlaces(2);
+          const net = price.sub(reduction);
+          const unitPrice = net.lessThan(0) ? new Prisma.Decimal(0) : net;
           // The item note always starts on a new line beneath the part description.
           const description = descriptionOf(item);
           const note = item.note?.trim();
           row([`${++lineNo}.`, note ? `${description}\n${note}` : description,
-            qty.toString(), money(price), money(qty.mul(price).toDecimalPlaces(2))], columns, false, false, repeatGroup, { alignments: ['center', 'left', 'center', 'right', 'right'], fontSize: fontSizes.table });
+            qty.toString(), money(unitPrice), money(qty.mul(unitPrice).toDecimalPlaces(2))], columns, false, false, repeatGroup, { alignments: ['center', 'left', 'center', 'right', 'right'], fontSize: fontSizes.table });
         }
       }
     }

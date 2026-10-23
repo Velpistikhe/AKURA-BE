@@ -163,7 +163,8 @@ export const serviceRepository = {
     return prisma.$transaction(async tx => {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id, officeBranchId }, select: detailSelect });
-      if (!before || before.version !== version) throw new HttpError('Data has changed; reload before retrying', 409);
+      if (!before) throw new HttpError('Service not found', 404);
+      if (before.version !== version) throw new HttpError('Data has changed; reload before retrying', 409);
       if (!before.isActive) throw new HttpError('Service is inactive', 409);
       // Standard prices leave the catalog; contract prices and contracts remain untouched.
       const standardPrices = await tx.itemPrice.findMany({ where: { isActive: true, itemSize: { item: { serviceId: id, officeBranchId } } } });
@@ -210,9 +211,11 @@ export const serviceRepository = {
     return prisma.$transaction(async tx => {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
-      if (!before?.isActive || !before.hasMaintenance) return null;
-      const current = await tx.maintenanceScope.findFirst({ where: { id: scopeId, serviceId, revoked: false } });
-      if (!current) return null;
+      if (!before) throw new HttpError('Service not found', 404);
+      if (!before.isActive || !before.hasMaintenance) throw new HttpError('Service is inactive or does not provide maintenance', 409);
+      const current = await tx.maintenanceScope.findFirst({ where: { id: scopeId, serviceId } });
+      if (!current) throw new HttpError('Maintenance scope not found', 404);
+      if (current.revoked) throw new HttpError('Maintenance scope is already deleted', 409);
       const row = await tx.maintenanceScope.update({ where: { id: scopeId }, data: { revoked: true }, select: maintenanceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
       await recordCatalogAudit(tx, officeBranchId, 'SERVICE', before, after, actor, 'MAINTENANCE_SCOPE_REMOVE');
@@ -241,12 +244,14 @@ export const serviceRepository = {
     return prisma.$transaction(async (tx) => {
       await lockCompanyBranch(tx, officeBranchId);
       const before = await tx.service.findFirst({ where: { id: serviceId, officeBranchId }, select: detailSelect });
-      if (!before?.isActive) return null;
+      if (!before) throw new HttpError('Service not found', 404);
+      if (!before.isActive) throw new HttpError('Service is inactive', 409);
       const current = await tx.inspectionScope.findFirst({
-        where: { id: inspectionScopeId, serviceId, revoked: false },
-        select: { id: true },
+        where: { id: inspectionScopeId, serviceId },
+        select: { id: true, revoked: true },
       });
-      if (!current) return null;
+      if (!current) throw new HttpError('Inspection scope not found', 404);
+      if (current.revoked) throw new HttpError('Inspection scope is already deleted', 409);
       const row = await tx.inspectionScope.update({
         where: { id: current.id },
         data: { revoked: true },

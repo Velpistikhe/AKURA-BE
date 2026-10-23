@@ -12,6 +12,7 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
   const originalAttach = quotationRepository.attachWorkOrder;
   const originalClear = quotationRepository.clearWorkOrder;
   const originalRevise = quotationRepository.revise;
+  const originalDeactivate = quotationRepository.deactivate;
   const originalFetch = global.fetch;
   t.after(() => {
     global.fetch = originalFetch;
@@ -19,6 +20,7 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     quotationRepository.attachWorkOrder = originalAttach;
     quotationRepository.clearWorkOrder = originalClear;
     quotationRepository.revise = originalRevise;
+    quotationRepository.deactivate = originalDeactivate;
   });
 
   const app = express();
@@ -69,6 +71,14 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     };
     let reviseCalled = false;
     quotationRepository.revise = async () => { reviseCalled = true; return quotation; };
+    let deleteCalls = 0;
+    quotationRepository.deactivate = async (id, body, officeBranchId) => {
+      assert.equal(id, quotationId);
+      assert.equal(body.version, 0);
+      assert.equal(officeBranchId, branch);
+      deleteCalls += 1;
+      return { ...quotation, isActive: false };
+    };
 
     // Field Service is mocked: the quotation link lookup used before a revision.
     let byQuotationCalls = 0;
@@ -83,6 +93,10 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     const blocked = await request('POST', `/${quotationId}/revise`, { version: 0 }, 409);
     assert.equal(blocked.message, 'A quotation with an active Work Order cannot be revised until the Work Order is revoked');
     assert.equal(reviseCalled, false, 'the repository must not be reached for a linked quotation');
+    const blockedDelete = await request('DELETE', `/${quotationId}`, { version: 0 }, 409);
+    assert.match(blockedDelete.message, /cannot be deleted/);
+    assert.equal(deleteCalls, 0);
+    assert.equal(byQuotationCalls, 0, 'a local link rejects deletion without an upstream call');
 
     // Without a local link the live Field Service lookup is authoritative.
     quotation.hasWorkOrder = false;
@@ -91,12 +105,16 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     assert.equal(blockedRemote.message, 'A quotation with an active Work Order cannot be revised until the Work Order is revoked');
     assert.equal(byQuotationCalls, 1, 'the Work Order lookup must be performed');
     assert.equal(reviseCalled, false);
+    await request('DELETE', `/${quotationId}`, { version: 0 }, 409);
+    assert.equal(deleteCalls, 0, 'a remote Work Order also blocks deletion');
 
     // Field Service unreachable fails closed: no revision is performed.
     global.fetch = async () => { throw new Error('offline'); };
     const unavailable = await request('POST', `/${quotationId}/revise`, { version: 0 }, 503);
     assert.equal(unavailable.message, 'Field Service is unavailable; retry later');
     assert.equal(reviseCalled, false, 'an unavailable upstream must never allow a revision');
+    await request('DELETE', `/${quotationId}`, { version: 0 }, 503);
+    assert.equal(deleteCalls, 0, 'an unavailable upstream must never allow deletion');
 
     // No live Work Order: the revision proceeds.
     global.fetch = async (url) => String(url).includes('/by-quotation/')
@@ -105,6 +123,8 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     const revised = await request('POST', `/${quotationId}/revise`, { version: 0 }, 201);
     assert.equal(revised.message, 'Quotation revised successfully');
     assert.equal(reviseCalled, true);
+    await request('DELETE', `/${quotationId}`, { version: 0 });
+    assert.equal(deleteCalls, 1, 'a quotation without a Work Order can be deleted');
 
     // The create path stores the reference, and the internal revoke event clears it.
     quotation.hasWorkOrder = false;
@@ -130,6 +150,7 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     quotationRepository.attachWorkOrder = originalAttach;
     quotationRepository.clearWorkOrder = originalClear;
     quotationRepository.revise = originalRevise;
+    quotationRepository.deactivate = originalDeactivate;
     await new Promise(resolve => server.close(resolve));
   }
 });

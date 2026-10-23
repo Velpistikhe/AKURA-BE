@@ -1,6 +1,6 @@
 import { Menu } from '@prisma/client';
 
-export type ManagedMenu = Pick<Menu, 'id' | 'key' | 'label' | 'hasItem' | 'order' | 'isActive' | 'createdAt' | 'updatedAt'>;
+export type ManagedMenu = Pick<Menu, 'id' | 'key' | 'label' | 'hasItem' | 'order' | 'isActive' | 'isDeleted' | 'createdAt' | 'updatedAt'>;
 
 export interface PaginatedMenus {
   menus: ManagedMenu[];

@@ -623,8 +623,9 @@ export const openApiDocument = groupByModule({
       ManagedMenu: {
         type: 'object',
         description: 'A menu record managed by an app manager.',
-        required: ['id', 'key', 'label', 'hasItem', 'order', 'isActive', 'createdAt', 'updatedAt'],
+        required: ['isDeleted', 'id', 'key', 'label', 'hasItem', 'order', 'isActive', 'createdAt', 'updatedAt'],
         properties: {
+          isDeleted: { type: 'boolean', readOnly: true, description: 'Soft deletion marker; deleted records are excluded from active reads.' },
           id: { type: 'string', format: 'uuid' },
           key: { type: 'string', example: 'app_manager' },
           label: { type: 'string', example: 'App Manager' },
@@ -637,8 +638,9 @@ export const openApiDocument = groupByModule({
       },
       ManagedMenuAccess: {
         type: 'object',
-        required: ['id', 'menuItemId', 'role', 'section', 'createdAt', 'updatedAt', 'menuItem'],
+        required: ['isDeleted', 'id', 'menuItemId', 'role', 'section', 'createdAt', 'updatedAt', 'menuItem'],
         properties: {
+          isDeleted: { type: 'boolean', readOnly: true, description: 'Soft deletion marker; deleted records are excluded from active reads.' },
           id: { type: 'string', format: 'uuid' },
           menuItemId: { type: 'string', format: 'uuid' },
           role: schemaRef('NullableMenuAccessRole'),
@@ -776,8 +778,9 @@ export const openApiDocument = groupByModule({
       ManagedMenuItem: {
         type: 'object',
         description: 'A menu item record managed by an app manager.',
-        required: ['id', 'menuId', 'key', 'label', 'order', 'isActive', 'createdAt', 'updatedAt'],
+        required: ['isDeleted', 'id', 'menuId', 'key', 'label', 'order', 'isActive', 'createdAt', 'updatedAt'],
         properties: {
+          isDeleted: { type: 'boolean', readOnly: true, description: 'Soft deletion marker; deleted records are excluded from active reads.' },
           id: { type: 'string', format: 'uuid' },
           menuId: { type: 'string', format: 'uuid' },
           key: { type: 'string', example: 'users_list' },
@@ -1827,12 +1830,13 @@ export const openApiDocument = groupByModule({
       },
       delete: {
         tags: ['App Manager'],
-        summary: 'Delete a menu',
-        description: 'Deletes the menu and all its items (cascade).',
+        summary: 'Soft delete a menu',
+        description: 'Retains the row and sets isDeleted=true and isActive=false. Returns 409 while undeleted items exist; delete their access rules and items first. Deleted menus cannot be updated or restored through PATCH. Menu keys remain reserved. Menu configuration is global and restricted to APP_MANAGER.',
         security: protectedSecurity,
         parameters: [{ in: 'path', name: 'menuId', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: {
           200: response('Menu deleted', schemaRef('MenuResponse')),
+          409: errorResponse('Menu is already deleted or still has items'),
           400: errorResponse('Invalid menu ID'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
@@ -1896,10 +1900,12 @@ export const openApiDocument = groupByModule({
         },
       },
       delete: {
-        tags: ['App Manager'], summary: 'Delete a menu access', security: protectedSecurity,
+        tags: ['App Manager'], summary: 'Soft delete a menu access', security: protectedSecurity,
+        description: 'Retains the rule with isDeleted=true and immediately excludes it from user permissions and active reads. Returns 409 if already deleted. The rule identity remains reserved. Global APP_MANAGER configuration.',
         parameters: [{ in: 'path', name: 'menuAccessId', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: {
           200: response('Menu access deleted', schemaRef('MenuAccessResponse')),
+          409: errorResponse('Menu access is already deleted'),
           400: errorResponse('Invalid menu access ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'), 404: errorResponse('Menu access not found'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
@@ -1980,11 +1986,13 @@ export const openApiDocument = groupByModule({
       },
       delete: {
         tags: ['App Manager'],
-        summary: 'Delete a menu item',
+        summary: 'Soft delete a menu item',
+        description: 'Retains the row and sets isDeleted=true and isActive=false. Returns 409 while undeleted access rules exist; delete those rules first. Deleted items cannot be updated or restored through PATCH. Item keys remain reserved. Global APP_MANAGER configuration.',
         security: protectedSecurity,
         parameters: [{ in: 'path', name: 'menuItemId', required: true, schema: { type: 'string', format: 'uuid' } }],
         responses: {
           200: response('Menu item deleted', schemaRef('MenuItemResponse')),
+          409: errorResponse('Menu item is already deleted or still has access rules'),
           400: errorResponse('Invalid menu item ID'),
           401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Active app manager role is required'),
@@ -2286,7 +2294,7 @@ export const openApiDocument = groupByModule({
           200: { description: 'Inspection scope soft deleted', ...jsonContent(schemaRef('InspectionScopeResponse')) },
           400: errorResponse('Invalid ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service or inspection scope not found'),
-          409: errorResponse('Service is inactive'),
+          409: errorResponse('Service is inactive or scope is already deleted'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },
@@ -2316,7 +2324,7 @@ export const openApiDocument = groupByModule({
           200: { description: 'Maintenance scope soft deleted', ...jsonContent(schemaRef('MaintenanceScopeResponse')) },
           400: errorResponse('Invalid ID'), 401: errorResponse('Missing or invalid access token'),
           403: errorResponse('Marketing access is required'), 404: errorResponse('Service or maintenance scope not found'),
-          409: errorResponse('Service is inactive or does not provide maintenance'),
+          409: errorResponse('Service is inactive, does not provide maintenance, or scope is already deleted'),
           429: errorResponse('Rate limit exceeded'), 500: errorResponse('Internal server error'),
         },
       },

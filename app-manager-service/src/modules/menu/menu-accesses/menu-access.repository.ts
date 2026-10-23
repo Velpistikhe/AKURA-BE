@@ -1,3 +1,4 @@
+import { menuWrite } from '../menu-write.js';
 import { Prisma, UserRole, UserSection } from '@prisma/client';
 import { prisma } from '../../../config/db.js';
 import { HttpError } from '../../../utils/httpError.js';
@@ -6,6 +7,7 @@ import { ListMenuAccessesInput } from './menu-access.schemas.js';
 import { ManagedMenuAccess, MenuAccessCreate, MenuAccessUpdate, PaginatedMenuAccesses } from './menu-access.types.js';
 
 const menuAccessSelect = {
+  isDeleted: true,
   id: true,
   menuItemId: true,
   role: true,
@@ -40,8 +42,9 @@ class MenuAccessRepository {
     });
     const where = {
       AND: [
-        { menuItem: { isActive: true } },
-        { menuItem: { menu: { isActive: true } } },
+        { isDeleted: false },
+        { menuItem: { isDeleted: false, isActive: true } },
+        { menuItem: { menu: { isActive: true, isDeleted: false } } },
         query.where,
       ],
     } satisfies Prisma.MenuAccessWhereInput;
@@ -58,7 +61,7 @@ class MenuAccessRepository {
 
   findActiveById(id: string): Promise<ManagedMenuAccess | null> {
     return prisma.menuAccess.findFirst({
-      where: { id, menuItem: { isActive: true, menu: { isActive: true } } },
+      where: { id, isDeleted: false, menuItem: { isDeleted: false, isActive: true, menu: { isActive: true, isDeleted: false } } },
       select: menuAccessSelect,
     });
   }
@@ -72,7 +75,15 @@ class MenuAccessRepository {
 
   async create(data: MenuAccessCreate): Promise<ManagedMenuAccess> {
     try {
-      return await prisma.menuAccess.create({ data, select: menuAccessSelect });
+      return await menuWrite(async tx => {
+        if (!await tx.menuItem.findFirst({ where: { id: data.menuItemId, isDeleted: false, isActive: true, menu: { isDeleted: false, isActive: true } } })) throw new HttpError('Menu item not found', 404);
+        // PostgreSQL unique constraints permit duplicate NULL values. Check
+        // nullable role/section identities under the shared write lock as well.
+        if (await tx.menuAccess.findFirst({ where: { menuItemId: data.menuItemId, role: data.role, section: data.section } })) {
+          throw new HttpError('Menu access rule already exists', 409);
+        }
+        return tx.menuAccess.create({ data, select: menuAccessSelect });
+      });
     } catch (error) {
       return throwConflict(error);
     }
@@ -80,14 +91,30 @@ class MenuAccessRepository {
 
   async update(id: string, data: MenuAccessUpdate): Promise<ManagedMenuAccess> {
     try {
-      return await prisma.menuAccess.update({ where: { id }, data, select: menuAccessSelect });
+      return await menuWrite(async tx => {
+        const current = await tx.menuAccess.findUnique({ where: { id } });
+        if (!current) throw new HttpError('Menu access not found', 404);
+        if (current.isDeleted) throw new HttpError('Menu access is already deleted', 409);
+        if (!await tx.menuItem.findFirst({ where: { id: data.menuItemId ?? current.menuItemId, isDeleted: false, isActive: true, menu: { isDeleted: false, isActive: true } } })) throw new HttpError('Menu item not found', 404);
+        if (await tx.menuAccess.findFirst({ where: {
+          id: { not: id }, menuItemId: data.menuItemId ?? current.menuItemId,
+          role: data.role === undefined ? current.role : data.role,
+          section: data.section === undefined ? current.section : data.section,
+        } })) throw new HttpError('Menu access rule already exists', 409);
+        return tx.menuAccess.update({ where: { id }, data, select: menuAccessSelect });
+      });
     } catch (error) {
       return throwConflict(error);
     }
   }
 
   delete(id: string): Promise<ManagedMenuAccess> {
-    return prisma.menuAccess.delete({ where: { id }, select: menuAccessSelect });
+    return menuWrite(async tx => {
+      const current = await tx.menuAccess.findUnique({ where: { id } });
+      if (!current) throw new HttpError('Menu access not found', 404);
+      if (current.isDeleted) throw new HttpError('Menu access is already deleted', 409);
+      return tx.menuAccess.update({ where: { id }, data: { isDeleted: true }, select: menuAccessSelect });
+    });
   }
 }
 

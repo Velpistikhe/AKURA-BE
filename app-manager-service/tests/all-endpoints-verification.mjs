@@ -326,7 +326,6 @@ try {
   check('DELETE /api/v1/app-manager/menus/{menuId} (without items)', await request(`/api/v1/app-manager/menus/${noItemMenuId}`, {
     method: 'DELETE', cookies: managerCookies,
   }), [200]);
-  noItemMenuId = undefined;
 
   const officeName = `Kantor Endpoint ${slug}`;
   const officeBranch = check('POST /api/v1/app-manager/office-branches', await request('/api/v1/app-manager/office-branches', {
@@ -362,22 +361,32 @@ try {
     method: 'DELETE', cookies: managerCookies,
   }), [404]);
 
+  check('DELETE menu with undeleted items is rejected', await request(`/api/v1/app-manager/menus/${menuId}`, {
+    method: 'DELETE', cookies: managerCookies,
+  }), [409]);
+  check('DELETE item with undeleted access rules is rejected', await request(`/api/v1/app-manager/menu-items/${menuItemId}`, {
+    method: 'DELETE', cookies: managerCookies,
+  }), [409]);
   check('DELETE /api/v1/app-manager/menu-accesses/{menuAccessId}', await request(`/api/v1/app-manager/menu-accesses/${menuAccessId}`, {
     method: 'DELETE', cookies: managerCookies,
   }), [200]);
-  menuAccessId = undefined;
   check('DELETE /api/v1/app-manager/menu-items/{menuItemId}', await request(`/api/v1/app-manager/menu-items/${menuItemId}`, {
     method: 'DELETE', cookies: managerCookies,
   }), [200]);
-  menuItemId = undefined;
   check('DELETE /api/v1/app-manager/menu-items/{inaccessibleMenuItemId}', await request(`/api/v1/app-manager/menu-items/${inaccessibleMenuItemId}`, {
     method: 'DELETE', cookies: managerCookies,
   }), [200]);
-  inaccessibleMenuItemId = undefined;
   check('DELETE /api/v1/app-manager/menus/{menuId}', await request(`/api/v1/app-manager/menus/${menuId}`, {
     method: 'DELETE', cookies: managerCookies,
   }), [200]);
-  menuId = undefined;
+  for (const [delegate, id] of [[managerPrisma.menu, menuId], [managerPrisma.menuItem, menuItemId], [managerPrisma.menuAccess, menuAccessId]]) {
+    const retained = await delegate.findUnique({ where: { id } });
+    if (!retained?.isDeleted) throw new Error('DELETE must retain the row with isDeleted=true');
+  }
+  for (const [resource, id] of [['menus', menuId], ['menu-items', menuItemId], ['menu-accesses', menuAccessId]]) {
+    check(`GET soft-deleted ${resource} returns 404`, await request(`/api/v1/app-manager/${resource}/${id}`, { cookies: managerCookies }), [404]);
+    check(`Repeated DELETE ${resource} returns 409`, await request(`/api/v1/app-manager/${resource}/${id}`, { method: 'DELETE', cookies: managerCookies }), [409]);
+  }
 
   console.log(JSON.stringify({ runId, passed: checks.length, failed: 0, checks }, null, 2));
 } catch (error) {

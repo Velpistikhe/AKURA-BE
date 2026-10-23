@@ -2,7 +2,7 @@ import { MenuItem } from '@prisma/client';
 
 export type ManagedMenuItem = Pick<
   MenuItem,
-  'id' | 'menuId' | 'key' | 'label' | 'order' | 'isActive' | 'createdAt' | 'updatedAt'
+  'id' | 'menuId' | 'key' | 'label' | 'order' | 'isActive' | 'isDeleted' | 'createdAt' | 'updatedAt'
 >;
 
 export interface PaginatedMenuItems {

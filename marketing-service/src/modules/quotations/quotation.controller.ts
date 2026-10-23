@@ -173,7 +173,13 @@ export const quotationController = {
     }
   },
   async delete(req: Request, res: Response) {
-    send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
+    const branch = getOfficeBranchId(res);
+    const quotationId = res.locals.params.quotationId;
+    const quote = await quotationRepository.findActive(quotationId, branch);
+    if (quote.hasWorkOrder || quote.workOrderId || await hasActiveWorkOrder(req, quotationId, branch)) {
+      throw new HttpError('A quotation with an active Work Order cannot be deleted until the Work Order is revoked', 409);
+    }
+    send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(quotationId, res.locals.body, branch, getAuditActor(res)));
   },
   async update(req: Request, res: Response) {
     send(req, res, 200, 'Quotation updated successfully', await quotationRepository.update(res.locals.params.quotationId, res.locals.body, getOfficeBranchId(res), getAuditActor(res)));

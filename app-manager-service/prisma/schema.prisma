@@ -26,6 +26,7 @@ enum UserRole {
 }
 
 model Menu {
+  isDeleted Boolean @default(false) @map("is_deleted")
   id        String     @id @default(uuid()) @db.Uuid
   key       String     @unique
   label     String
@@ -40,6 +41,7 @@ model Menu {
 }
 
 model MenuItem {
+  isDeleted Boolean @default(false) @map("is_deleted")
   id        String       @id @default(uuid()) @db.Uuid
   menuId    String       @map("menu_id") @db.Uuid
   menu      Menu         @relation(fields: [menuId], references: [id], onDelete: Cascade)
@@ -56,6 +58,7 @@ model MenuItem {
 }
 
 model MenuAccess {
+  isDeleted Boolean @default(false) @map("is_deleted")
   id         String       @id @default(uuid()) @db.Uuid
   menuItemId String       @map("menu_item_id") @db.Uuid
   menuItem   MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)

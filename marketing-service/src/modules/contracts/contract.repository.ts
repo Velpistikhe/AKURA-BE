@@ -194,6 +194,7 @@ export const contractRepository = {
     if (!before) throw new HttpError('Company contract not found', 404);
     requireCatalogVersion(before, version);
     if (before.status !== 'DRAFT' && before.status !== 'REJECTED') throw new HttpError('Only DRAFT or REJECTED contracts can be deleted', 409);
+    if (before.isDeleted) throw new HttpError('Company contract is already deleted', 409);
     const after = await tx.companyContract.update({ where: { id, version }, data: { isDeleted: true, version: { increment: 1 }, updatedById: actor.id } });
     await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DELETE');
     await saveHistory(tx, before, after, actor, 'DELETE');

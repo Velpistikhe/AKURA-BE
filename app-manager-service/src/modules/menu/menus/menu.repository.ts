@@ -1,3 +1,4 @@
+import { menuWrite } from '../menu-write.js';
 import { Prisma, UserRole, UserSection } from '@prisma/client';
 import { prisma } from '../../../config/db.js';
 import { HttpError } from '../../../utils/httpError.js';
@@ -6,6 +7,7 @@ import { ListMenusInput } from './menu.schemas.js';
 import { ManagedMenu, MenuUpdate, MenusForUserResult, PaginatedMenus } from './menu.types.js';
 
 const menuSelect = {
+  isDeleted: true,
   id: true, key: true, label: true,
   hasItem: true, order: true, isActive: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.MenuSelect;
@@ -29,7 +31,7 @@ class MenuRepository {
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
-    const where = { AND: [{ isActive: true }, query.where] } satisfies Prisma.MenuWhereInput;
+    const where = { AND: [{ isDeleted: false }, { isActive: true }, query.where] } satisfies Prisma.MenuWhereInput;
     const [menus, total] = await Promise.all([
       prisma.menu.findMany({ ...query, where, select: menuSelect }),
       prisma.menu.count({ where }),
@@ -42,7 +44,7 @@ class MenuRepository {
   }
 
   findActiveById(id: string): Promise<ManagedMenu | null> {
-    return prisma.menu.findFirst({ where: { id, isActive: true }, select: menuSelect });
+    return prisma.menu.findFirst({ where: { id, isDeleted: false, isActive: true }, select: menuSelect });
   }
 
   findByKey(key: string): Promise<ManagedMenu | null> {
@@ -50,7 +52,7 @@ class MenuRepository {
   }
 
   create(data: { key: string; label: string; hasItem: boolean; order: number; items?: { key: string; label: string; order: number }[] }): Promise<ManagedMenu> {
-    return prisma.menu.create({
+    return menuWrite(tx => tx.menu.create({
       data: {
         key: data.key,
         label: data.label,
@@ -59,15 +61,20 @@ class MenuRepository {
         items: data.items ? { create: data.items } : undefined,
       },
       select: menuSelect,
-    });
+    }));
   }
 
   async update(id: string, data: MenuUpdate): Promise<ManagedMenu> {
-    return prisma.$transaction(async (tx) => {
+    return menuWrite(async (tx) => {
       const rows = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM "menus" WHERE id = ${id}::uuid FOR UPDATE
       `;
       if (rows.length === 0) throw new HttpError('Menu not found', 404);
+      const current = await tx.menu.findUniqueOrThrow({ where: { id } });
+      if (current.isDeleted) throw new HttpError('Menu is already deleted', 409);
+      if (data.hasItem === false && await tx.menuItem.count({ where: { menuId: id, isDeleted: false } })) {
+        throw new HttpError('Menu with items cannot set hasItem to false', 409);
+      }
       return tx.menu.update({
         where: { id },
         data,
@@ -77,16 +84,26 @@ class MenuRepository {
   }
 
   delete(id: string): Promise<ManagedMenu> {
-    return prisma.menu.delete({ where: { id }, select: menuSelect });
+    return menuWrite(async tx => {
+      const current = await tx.menu.findUnique({ where: { id } });
+      if (!current) throw new HttpError('Menu not found', 404);
+      if (current.isDeleted) throw new HttpError('Menu is already deleted', 409);
+      if (await tx.menuItem.count({ where: { menuId: id, isDeleted: false } })) {
+        throw new HttpError('Menu with items cannot be deleted; delete its items first', 409);
+      }
+      return tx.menu.update({ where: { id }, data: { isDeleted: true, isActive: false }, select: menuSelect });
+    });
   }
 
   async findMenusForUser(role: UserRole, section: UserSection | null): Promise<MenusForUserResult> {
     const items = await prisma.menuItem.findMany({
       where: {
         isActive: true,
-        menu: { isActive: true },
+        isDeleted: false,
+        menu: { isActive: true, isDeleted: false },
         accesses: {
           some: {
+            isDeleted: false,
             AND: [
               { OR: [{ role: null }, { role }] },
               section ? { OR: [{ section: null }, { section }] } : { section: null },

@@ -2,7 +2,7 @@ import { MenuAccess, UserRole, UserSection } from '@prisma/client';
 
 export type ManagedMenuAccess = Pick<
   MenuAccess,
-  'id' | 'menuItemId' | 'role' | 'section' | 'createdAt' | 'updatedAt'
+  'id' | 'menuItemId' | 'role' | 'section' | 'isDeleted' | 'createdAt' | 'updatedAt'
 > & {
   menuItem: { id: string; key: string; label: string; menuId: string };
 };

@@ -17,7 +17,7 @@ class MenuItemService {
 
   async create(data: CreateMenuItemInput): Promise<ManagedMenuItem> {
     // Cek menu exists
-    const menu = await prisma.menu.findUnique({ where: { id: data.menuId }, select: { hasItem: true } });
+    const menu = await prisma.menu.findUnique({ where: { id: data.menuId, isDeleted: false, isActive: true }, select: { hasItem: true } });
     if (!menu) throw new HttpError('Menu not found', 404);
     if (!menu.hasItem) throw new HttpError('Menu does not allow items', 409);
 
@@ -45,7 +45,7 @@ class MenuItemService {
 
     // Cek menu baru exists jika menuId diubah
     if (data.menuId && data.menuId !== existing.menuId) {
-      const menu = await prisma.menu.findUnique({ where: { id: data.menuId }, select: { hasItem: true } });
+      const menu = await prisma.menu.findUnique({ where: { id: data.menuId, isDeleted: false, isActive: true }, select: { hasItem: true } });
       if (!menu) throw new HttpError('Menu not found', 404);
       if (!menu.hasItem) throw new HttpError('Menu does not allow items', 409);
     }

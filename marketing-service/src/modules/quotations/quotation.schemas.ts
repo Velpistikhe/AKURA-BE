@@ -24,6 +24,12 @@ const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.
 // Accept decimal strings without passing through floating-point arithmetic.
 const decimal = (scale: number) => z.string().regex(new RegExp(`^\\d{1,12}(\\.\\d{1,${scale}})?$`));
 const quantity = z.union([decimal(3), z.number().finite().nonnegative().transform(String).pipe(decimal(3))]);
+// Discount is a percentage between 0 and 100 with at most two decimals; the range
+// check compares the numeric value of the already validated string, so no float is stored.
+const discountText = z.string()
+  .regex(new RegExp('^\\d{1,3}(\\.\\d{1,2})?$'))
+  .refine(value => Number(value) <= 100, 'Discount must be between 0 and 100');
+const discountValue = z.union([discountText, z.number().finite().nonnegative().transform(String).pipe(discountText)]);
 const note = z.string().trim().max(5000).nullable().optional();
 // Forwarded verbatim to Field Service, which re-validates every pair against
 // its FieldServiceUser snapshot and stores the confirmed idUser + name.
@@ -37,6 +43,8 @@ const itemFields = {
   note,
   quantityInspection: quantity,
   quantityMaintenance: quantity.default('0'),
+  // Discount percentage (0-100) applied to both resolved unit prices before subTotal.
+  discount: discountValue.default('0'),
 };
 const item = z.object(itemFields).strict().refine(value => /[1-9]/.test(value.quantityInspection) || /[1-9]/.test(value.quantityMaintenance), 'At least one quantity must be positive');
 const items = z.array(item).min(1).max(100).refine((rows) => {
@@ -93,7 +101,7 @@ export const updateQuotationSchema = z.object({
 }).strict().refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const addQuotationItemSchema = z.object({
   version: z.number().int().nonnegative().max(2147483646), itemSizeId: itemFields.itemSizeId, note: itemFields.note,
-  quantityInspection: itemFields.quantityInspection, quantityMaintenance: itemFields.quantityMaintenance,
+  quantityInspection: itemFields.quantityInspection, quantityMaintenance: itemFields.quantityMaintenance, discount: itemFields.discount,
 }).strict();
 export const deleteQuotationItemSchema = z.object({
   quotationVersion: z.number().int().nonnegative().max(2147483646),

@@ -254,7 +254,7 @@ export const catalogPaths = {
   [`${root}/company-contracts/{contractId}`]: {
     get: operation('Get company contract', 'CompanyContractResponse', [path('contractId')]),
     patch: operation('Update company contract', 'CompanyContractResponse', [path('contractId')], 'UpdateCompanyContractRequest', 200, 'DRAFT may be updated by all MARKETING roles in the same branch. APPROVED may be updated only by ADMIN in MARKETING. Approved and terminated intervals may not overlap.'),
-    delete: operation('Cancel draft company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Soft-cancels only a DRAFT contract and records history.'),
+    delete: operation('Soft delete a draft or rejected company contract', 'CompanyContractResponse', [path('contractId')], 'CatalogVersionRequest', 200, 'Sets isDeleted=true only for DRAFT or REJECTED contracts in the current branch and records history. Returns 409 for an already deleted contract or stale version. Approved contracts must use termination instead.'),
   },
   [`${root}/company-contracts/{contractId}/history`]: {
     get: operation('Read company contract history', 'CompanyContractHistoryResponse', [path('contractId'), ...pagination], undefined, 200, 'Returns append-only contract snapshots ordered by newest version. Access is restricted to the authenticated user branch and history remains available for soft-deleted contracts.'),

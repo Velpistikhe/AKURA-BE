@@ -71,7 +71,13 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
   if (resolved.priceStatus !== 'AVAILABLE' || resolved.priceService === null) throw new HttpError('Inspection price is unavailable for this company', 409);
   if (quantityMaintenance.greaterThan(0) && (!resolved.catalogSnapshot.hasMaintenance || resolved.priceMaintenance === null)) throw new HttpError('Maintenance is unavailable for this size and company', 409);
   const priceInspection = resolved.priceService;
+  const discount = new Prisma.Decimal(input.discount ?? '0');
+  // Discount is a percentage (0-100) of each unit price: net = price - price * discount / 100.
+  // Both steps are rounded to two decimals and the effective price never falls below zero.
+  const netUnit = (price: Prisma.Decimal) => { const net = amount(price.sub(amount(price.mul(discount).div(100)))); return net.lessThan(0) ? new Prisma.Decimal(0) : net; };
+  const netInspection = netUnit(priceInspection);
   const priceMaintenance = resolved.catalogSnapshot.hasMaintenance ? resolved.priceMaintenance : null;
+  const netMaintenance = priceMaintenance === null ? null : netUnit(priceMaintenance);
   return {
     itemSizeId: size.id, position, serviceName: resolved.catalogSnapshot.serviceName,
     serviceType: resolved.catalogSnapshot.serviceType as ServiceType, itemName: resolved.catalogSnapshot.itemName, size: resolved.catalogSnapshot.size,
@@ -79,8 +85,8 @@ async function newItem(tx: Prisma.TransactionClient, input: QuotationItemInput, 
     priceSelection: json({ ...scopeSnapshot, quantityModel: 'DUAL', priceSource: resolved.priceSource, priceId: resolved.priceId,
       priceVersion: resolved.priceVersion, contractId: resolved.contractId, contractVersion: resolved.contractVersion,
       sizeVersion: resolved.sizeVersion, itemVersion: resolved.itemVersion, serviceVersion: resolved.serviceVersion }),
-    quantityInspection, quantityMaintenance, priceInspection, priceMaintenance,
-    subTotal: amount(amount(quantityInspection.mul(priceInspection)).add(amount(quantityMaintenance.mul(priceMaintenance ?? 0)))),
+    quantityInspection, quantityMaintenance, priceInspection, priceMaintenance, discount,
+    subTotal: amount(amount(quantityInspection.mul(netInspection)).add(amount(quantityMaintenance.mul(netMaintenance ?? 0)))),
     createdById: actor.id, createdByName: actor.name,
   };
 }
@@ -306,7 +312,7 @@ export const quotationRepository = {
 
   async addItem(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
     const data = addQuotationItemSchema.parse(input);
-    const itemInput: QuotationItemInput = { itemSizeId: data.itemSizeId, note: data.note, quantityInspection: data.quantityInspection, quantityMaintenance: data.quantityMaintenance };
+    const itemInput: QuotationItemInput = { itemSizeId: data.itemSizeId, note: data.note, quantityInspection: data.quantityInspection, quantityMaintenance: data.quantityMaintenance, discount: data.discount };
     return prisma.$transaction(async (tx) => {
       // Serialize with catalog/contract price writers before resolving the price context.
       await lockCompanyBranch(tx, officeBranchId);
@@ -335,7 +341,8 @@ export const quotationRepository = {
       if (!current.isActive || !canEditQuotation(current.status, actor) || current.version !== quotationVersion) throw new HttpError('Quotation has changed, is inactive, or cannot be edited by this user; reload before retrying', 409);
       await tx.$queryRaw`SELECT id FROM "quotation_items" WHERE id = ${itemId}::uuid AND quotation_id = ${id}::uuid FOR UPDATE`;
       const item = await tx.quotationItem.findFirst({ where: { id: itemId, quotationId: id } });
-      if (!item || !item.isActive || item.version !== itemVersion) throw new HttpError('Quotation item has changed or is inactive; reload before retrying', 409);
+      if (!item) throw new HttpError('Quotation item not found', 404);
+      if (!item.isActive || item.version !== itemVersion) throw new HttpError('Quotation item has changed or is inactive; reload before retrying', 409);
       await tx.quotationItem.update({ where: { id: itemId }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       await tx.quotation.update({ where: { id }, data: { ...await totals(tx, id, current.tax), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       return saveRevision(tx, id, actor, 'DELETE_ITEM', current as unknown as Record<string, unknown>);
@@ -439,7 +446,7 @@ export const quotationRepository = {
           itemSizeId: item.itemSizeId, position: item.position, serviceName: item.serviceName, serviceType: item.serviceType,
           itemName: item.itemName, size: item.size, note: item.note, quantityInspection: item.quantityInspection,
           quantityMaintenance: item.quantityMaintenance, priceInspection: item.priceInspection, priceMaintenance: item.priceMaintenance,
-           subTotal: item.subTotal, priceSelection: item.priceSelection ? json(item.priceSelection) : undefined,
+           discount: item.discount, subTotal: item.subTotal, priceSelection: item.priceSelection ? json(item.priceSelection) : undefined,
            isActive: true, version: 0, createdById: actor.id, createdByName: actor.name,
         })) },
       }, include });
@@ -450,9 +457,13 @@ export const quotationRepository = {
   async deactivate(id: string, input: unknown, officeBranchId: string, actor: AuditActor) {
     const { version } = deactivateQuotationSchema.parse(input);
     return prisma.$transaction(async (tx) => {
-      const claimed = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      // Keep the link check in the atomic claim so a concurrent attachment
+      // cannot be bypassed between the controller validation and this write.
+      const claimed = await tx.quotation.updateMany({ where: { id, officeBranchId, version, isActive: true, hasWorkOrder: false, workOrderId: null }, data: { isActive: false, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       if (!claimed.count) {
-        if (!await tx.quotation.findFirst({ where: { id, officeBranchId } })) throw new HttpError('Quotation not found', 404);
+        const current = await tx.quotation.findFirst({ where: { id, officeBranchId } });
+        if (!current) throw new HttpError('Quotation not found', 404);
+        if (current.hasWorkOrder || current.workOrderId) throw new HttpError('A quotation with an active Work Order cannot be deleted until the Work Order is revoked', 409);
         throw new HttpError('Quotation has changed or is inactive; reload before retrying', 409);
       }
       await tx.quotationItem.updateMany({ where: { quotationId: id, isActive: true }, data: { isActive: false, updatedById: actor.id, updatedByName: actor.name } });

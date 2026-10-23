@@ -41,7 +41,7 @@ class MenuService {
       if (conflict) throw new HttpError(`Menu with key '${data.key}' already exists`, 409);
     }
     if (data.hasItem === false) {
-      const itemCount = await prisma.menuItem.count({ where: { menuId: id } });
+      const itemCount = await prisma.menuItem.count({ where: { menuId: id, isDeleted: false } });
       if (itemCount > 0) throw new HttpError('Menu with items cannot set hasItem to false', 409);
     }
     return menuRepository.update(id, data);

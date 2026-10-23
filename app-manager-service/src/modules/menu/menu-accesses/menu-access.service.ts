@@ -16,7 +16,7 @@ class MenuAccessService {
   }
 
   async create(data: CreateMenuAccessInput): Promise<ManagedMenuAccess> {
-    const menuItem = await prisma.menuItem.findUnique({ where: { id: data.menuItemId }, select: { id: true } });
+    const menuItem = await prisma.menuItem.findUnique({ where: { id: data.menuItemId, isDeleted: false, isActive: true, menu: { isDeleted: false, isActive: true } }, select: { id: true } });
     if (!menuItem) throw new HttpError('Menu item not found', 404);
     const conflict = await menuAccessRepository.findByRule(data.menuItemId, data.role, data.section);
     if (conflict) throw new HttpError('Menu access rule already exists', 409);
@@ -30,7 +30,7 @@ class MenuAccessService {
     const role = data.role !== undefined ? data.role : existing.role;
     const section = data.section !== undefined ? data.section : existing.section;
     if (menuItemId !== existing.menuItemId) {
-      const menuItem = await prisma.menuItem.findUnique({ where: { id: menuItemId }, select: { id: true } });
+      const menuItem = await prisma.menuItem.findUnique({ where: { id: menuItemId, isDeleted: false, isActive: true, menu: { isDeleted: false, isActive: true } }, select: { id: true } });
       if (!menuItem) throw new HttpError('Menu item not found', 404);
     }
     const conflict = await menuAccessRepository.findByRule(menuItemId, role, section, id);

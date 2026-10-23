@@ -499,6 +499,8 @@ model QuotationItem {
   quantityMaintenance Decimal     @default(0) @map("quantity_maintenance") @db.Decimal(18, 3)
   priceInspection     Decimal     @map("unit_price") @db.Decimal(18, 2)
   priceMaintenance    Decimal?    @map("price_maintenance") @db.Decimal(18, 2)
+  /// Discount percentage (0-100) applied to both unit prices before the line total is calculated.
+  discount            Decimal     @default(0) @db.Decimal(18, 2)
   subTotal            Decimal     @map("sub_total") @db.Decimal(18, 2)
   isActive            Boolean     @default(true) @map("is_active")
   /// Optimistic concurrency token for item mutations.
