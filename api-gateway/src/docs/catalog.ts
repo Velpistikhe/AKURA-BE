@@ -199,7 +199,7 @@ export const catalogPaths = {
   },
   [`${root}/items`]: {
     get: operation('List active items', 'ItemListResponse', [...['name', 'serviceName'].map(name => parameter(name, { type: 'string', minLength: 1, maxLength: 200 })), parameter('sortBy', { type: 'string', enum: ['name', 'serviceName'] }), parameter('sortOrder', { type: 'string', enum: ['asc', 'desc'], default: 'desc' }), ...pagination]),
-    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. Omitted or empty sizes creates one direct-price variant with size=null; additional sizes are prohibited and mixed null/named sizes return 409; use its returned ID for normal, sister-company and contract prices. No prices are accepted here. Every reference receives version 0 and an audit entry. Create standard or contract prices separately using the existing itemSizeId. Duplicate active names return 409.'),
+    post: operation('Create item references with optional sizes atomically', 'ItemResponse', [], 'CreateItemRequest', 201, 'Unit of measure (uom) is required. Omitted or empty sizes creates one direct-price variant with size=null; additional sizes are prohibited and mixed null/named sizes return 409. Each sizes entry may provide standard primary/sister service prices and, when applicable, both maintenance prices, following CatalogPriceRequest validation. Size and price records are created atomically with audit entries. Entries without prices remain valid and can be priced later using the returned itemSizeId. Duplicate active names return 409.'),
   },
   [`${root}/items/{itemId}`]: {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),

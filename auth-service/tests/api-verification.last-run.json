@@ -1,0 +1,350 @@
+{
+  "runId": "1792823900180-5g2csr",
+  "checks": [
+    {
+      "name": "Gateway health",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Auth service rejects direct health access",
+      "passed": true,
+      "evidence": {
+        "status": 403
+      }
+    },
+    {
+      "name": "Auth service health is available through Gateway",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Auth service rejects direct JWKS access without its gateway secret",
+      "passed": true,
+      "evidence": {
+        "status": 403
+      }
+    },
+    {
+      "name": "Gateway publishes Auth RS256 JWKS without private key material",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "keyCount": 1
+      }
+    },
+    {
+      "name": "OpenAPI document exposes all auth endpoints",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Register validation rejects invalid payload",
+      "passed": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Register rejects a different password confirmation",
+      "passed": true,
+      "evidence": {
+        "status": 400,
+        "message": "Password dan konfirmasi password berbeda"
+      }
+    },
+    {
+      "name": "Register creates a user without starting a token session",
+      "passed": true,
+      "evidence": {
+        "status": 201,
+        "cookies": "",
+        "registrationRefreshTokens": 0
+      }
+    },
+    {
+      "name": "Registration records CREATE history with a full snapshot and no password fields",
+      "passed": true,
+      "evidence": {
+        "action": "CREATE",
+        "beforeSnapshot": null
+      }
+    },
+    {
+      "name": "Login starts a token session after registration",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Login returns the access token in the response body alongside the HttpOnly cookie",
+      "passed": true,
+      "evidence": {
+        "dataType": "string",
+        "matchesCookie": true
+      }
+    },
+    {
+      "name": "Login never returns the refresh token in the response body",
+      "passed": true,
+      "evidence": {
+        "keys": [
+          "user",
+          "accessToken"
+        ]
+      }
+    },
+    {
+      "name": "Access token uses RS256, kid, issuer, audience, subject, and access type",
+      "passed": true,
+      "evidence": {
+        "alg": "RS256",
+        "kid": "akura-access-key-1",
+        "sub": "7beb0524-bfb0-48ef-bf53-dcda20eab0b4"
+      }
+    },
+    {
+      "name": "Protected route rejects missing credentials",
+      "passed": true,
+      "evidence": {
+        "status": 401
+      }
+    },
+    {
+      "name": "Get profile with access cookie",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Profile exposes branch name alongside officeBranchId",
+      "passed": true,
+      "evidence": {
+        "branch": null,
+        "officeBranchId": null
+      }
+    },
+    {
+      "name": "Protected route rejects refresh token as access token",
+      "passed": true,
+      "evidence": {
+        "status": 401
+      }
+    },
+    {
+      "name": "Gateway must reject spoofed x-user-id without credentials",
+      "passed": true,
+      "evidence": {
+        "status": 401
+      }
+    },
+    {
+      "name": "Login rejects incorrect password",
+      "passed": true,
+      "evidence": {
+        "status": 401
+      }
+    },
+    {
+      "name": "Login accepts correct password",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Refresh token body transport is rejected",
+      "passed": true,
+      "evidence": {
+        "status": 400,
+        "message": "Refresh token is required in cookie or x-refresh-token header"
+      }
+    },
+    {
+      "name": "Logout ignores refresh token in request body",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "isRevoked": false
+      }
+    },
+    {
+      "name": "Refresh token idle beyond the configured limit is rejected",
+      "passed": true,
+      "evidence": {
+        "status": 401,
+        "message": "Refresh token session expired after 60 minutes of inactivity",
+        "idleMinutes": 60,
+        "cookiesCleared": true
+      }
+    },
+    {
+      "name": "Expired refresh token is revoked and clears both token cookies",
+      "passed": true,
+      "evidence": {
+        "status": 401,
+        "isRevoked": true,
+        "cookiesCleared": true
+      }
+    },
+    {
+      "name": "JWT-expired refresh token is revoked and clears both token cookies",
+      "passed": true,
+      "evidence": {
+        "status": 401,
+        "isRevoked": true,
+        "cookiesCleared": true
+      }
+    },
+    {
+      "name": "Concurrent duplicate registration creates exactly one user",
+      "passed": true,
+      "evidence": {
+        "201": 1,
+        "409": 11
+      }
+    },
+    {
+      "name": "Login starts the race-test token session",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Successful refresh returns the rotated access token without exposing refresh token",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "hasAccessToken": true,
+        "hasRefreshToken": false
+      }
+    },
+    {
+      "name": "Concurrent refresh allows the old token only once and clears rejected cookies",
+      "passed": true,
+      "evidence": {
+        "200": 1,
+        "401": 2,
+        "rejectedCookiesCleared": true
+      }
+    },
+    {
+      "name": "Successful refresh records last activity on old and rotated tokens",
+      "passed": true,
+      "evidence": {
+        "usedLastActivityAt": "2026-10-24T06:38:27.317Z",
+        "newLastActivityAt": "2026-10-24T06:38:27.317Z"
+      }
+    },
+    {
+      "name": "Refresh-token reuse revokes the entire token family and clears cookies",
+      "passed": true,
+      "evidence": {
+        "statusAfterReuseDetection": 401,
+        "cookiesCleared": true
+      }
+    },
+    {
+      "name": "Concurrent profile updates avoid lost versions",
+      "passed": true,
+      "evidence": {
+        "successes": 10,
+        "startingVersion": 1,
+        "finalVersion": 11
+      }
+    },
+    {
+      "name": "Concurrent valid logins all succeed",
+      "passed": true,
+      "evidence": {
+        "200": 12
+      }
+    },
+    {
+      "name": "Password change rejects a different new-password confirmation",
+      "passed": true,
+      "evidence": {
+        "status": 400,
+        "message": "Password baru dan konfirmasi password baru berbeda"
+      }
+    },
+    {
+      "name": "Concurrent password changes permit exactly one winner",
+      "passed": true,
+      "evidence": {
+        "200": 1,
+        "400": 1
+      }
+    },
+    {
+      "name": "Gateway rate limiter returns 429 under excess load",
+      "passed": true,
+      "evidence": {
+        "429": 150
+      }
+    }
+  ],
+  "loadResults": [
+    {
+      "name": "auth health through Gateway",
+      "total": 1000,
+      "concurrency": 50,
+      "elapsedMs": 6561.2,
+      "requestsPerSecond": 152.4,
+      "latencyMs": {
+        "min": 182.9,
+        "p50": 293.7,
+        "p95": 498.6,
+        "p99": 663,
+        "max": 714.3
+      },
+      "statuses": {
+        "200": 11,
+        "429": 989
+      }
+    },
+    {
+      "name": "authenticated profile read",
+      "total": 300,
+      "concurrency": 30,
+      "elapsedMs": 3010.9,
+      "requestsPerSecond": 99.6,
+      "latencyMs": {
+        "min": 112.3,
+        "p50": 291.8,
+        "p95": 498.8,
+        "p99": 513.7,
+        "max": 570.8
+      },
+      "statuses": {
+        "200": 300
+      }
+    },
+    {
+      "name": "gateway health with global rate limiter",
+      "total": 150,
+      "concurrency": 25,
+      "elapsedMs": 1059.2,
+      "requestsPerSecond": 141.6,
+      "latencyMs": {
+        "min": 57.4,
+        "p50": 122,
+        "p95": 386.2,
+        "p99": 396.3,
+        "max": 397
+      },
+      "statuses": {
+        "429": 150
+      }
+    }
+  ]
+}

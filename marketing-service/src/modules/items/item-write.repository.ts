@@ -87,7 +87,7 @@ const bumpSize = async (tx: Tx, branch: string, size: any, item: any, actor: Aud
   await bumpItem(tx, branch, item, actor);
 };
 const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemInput['sizes'][number], actor: AuditActor) => {
-  const { size } = input;
+  const { size, priceServicePrimary, priceServiceSisterCompany, priceMaintenancePrimary, priceMaintenanceSisterCompany } = input;
   // Keep direct-price items separate from items with named sizes. Retain this
   // distinction after soft deletion so removing a variant cannot bypass it.
   if (await tx.itemSize.findFirst({ where: { itemId: item.id, size: null, isActive: true } })) {
@@ -104,7 +104,22 @@ const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemIn
   const effectiveFrom = new Date(Math.max(Date.now(), latest ? latest.effectiveFrom.getTime() + 1 : 0));
   const row = await tx.itemSize.create({ data: { itemId: item.id, size, activeKey, effectiveFrom, ...createdBy(actor) } });
   await recordCatalogAudit(tx, branch, 'ITEM_SIZE', null, row, actor, 'CREATE');
-  return { ...row, price: null };
+  const hasPrice = priceServicePrimary !== undefined
+    || priceServiceSisterCompany !== undefined
+    || priceMaintenancePrimary !== undefined
+    || priceMaintenanceSisterCompany !== undefined;
+  let price = null;
+  if (hasPrice) {
+    const prices = standardPrices({
+      priceServicePrimary,
+      priceServiceSisterCompany,
+      priceMaintenancePrimary,
+      priceMaintenanceSisterCompany,
+    } as PriceInput, item.service?.hasMaintenance ?? false);
+    price = await tx.itemPrice.create({ data: { itemSizeId: row.id, ...prices, ...createdBy(actor) } });
+    await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, price, actor, 'CREATE');
+  }
+  return { ...row, price };
 };
 // The branch transaction lock also covers contract/Excel writers. Read once, mutate in
 // batches, and append one immutable snapshot per changed row in the same transaction.
@@ -188,7 +203,8 @@ export const itemWriteRepository = {
     } , include: { scopes: true } });
     await recordCatalogAudit(tx, branch, 'ITEM', null, { id: item.id, version: item.version }, actor, 'CREATE');
     const sizes = [];
-    for (const size of data.sizes.length ? data.sizes : [{ size: null }]) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
+    const sizeInputs = data.sizes.length ? data.sizes : [{ size: null }];
+    for (const size of sizeInputs) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
     return { ...item, sizes };
   }),
   addSize: (data: AddItemSizeInput, branch: string, actor: AuditActor) => write(branch, async tx => {

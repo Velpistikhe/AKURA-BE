@@ -238,9 +238,12 @@ Jalankan API Gateway dan Auth Service terlebih dahulu, lalu:
 
 ```powershell
 npm run test:api
+npm run test:contract
 ```
 
 Harness tersebut menguji validasi, autentikasi, spoofed identity header, refresh-token reuse, idle timeout dan pencatatan aktivitas refresh token, registrasi concurrent, login concurrent, update profil, perubahan password, rate limiting, serta load test lokal. Akun yang dibuat oleh harness dibersihkan setelah pengujian.
+
+`test:contract` memeriksa seluruh operasi endpoint Auth terhadap schema response Swagger dari `/api-docs.json`, termasuk authorization, validasi input, kontak nullable, optimistic concurrency, dan isolasi branch. Inventaris route dibaca dari source agar endpoint baru yang belum diuji menyebabkan kegagalan. Fixture dan outbox terkait dibersihkan setelah pengujian. Gunakan database development/test dan jalankan test kontrak sebelum load test agar tidak terkena rate limit dari load test sebelumnya. Kedua harness menghasilkan exit code gagal jika pemeriksaan gagal. URL dapat disesuaikan melalui `TEST_GATEWAY_URL` dan, untuk `test:api`, `TEST_AUTH_URL`.
 
 ## Struktur source
 

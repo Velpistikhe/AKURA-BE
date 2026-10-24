@@ -11,7 +11,8 @@
         "test": "node --test --test-concurrency=1 tests/*.test.cjs",
         "test:concurrency": "node tests/marketing-concurrency-verification.cjs",
         "test:inspection": "node tests/inspection-scope-verification.cjs",
-        "test:all": "npm run typecheck && npm test && npm run test:concurrency && npm run test:inspection",
+        "test:item-price-payload": "node tests/item-price-payload-verification.cjs",
+        "test:all": "npm run typecheck && npm test && npm run test:concurrency && npm run test:inspection && npm run test:item-price-payload",
         "db:generate": "prisma generate",
         "db:push": "prisma db push"
     },

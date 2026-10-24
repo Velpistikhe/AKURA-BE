@@ -58,7 +58,14 @@ export const updateContractPriceSchema = versionSchema.extend({ priceService: pr
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export type PriceInput = z.infer<typeof createItemPriceSchema>;
 export type ContractPriceInput = z.infer<typeof createContractPriceSchema>;
-const size = z.object({ size: referenceLabel(100).nullable() }).strict();
+const size = z.object({
+  size: referenceLabel(100).nullable(),
+  // Optional normal and sister prices, validated like POST /items/sizes/:itemSizeId/price.
+  priceServicePrimary: price.optional(),
+  priceServiceSisterCompany: price.nullable().optional(),
+  priceMaintenancePrimary: price.nullable().optional(),
+  priceMaintenanceSisterCompany: price.nullable().optional(),
+}).strict();
 
 export const itemIdSchema = z.object({ itemId: z.string().uuid() }).strict();
 export const itemSizeIdSchema = z.object({ itemSizeId: z.string().uuid() }).strict();

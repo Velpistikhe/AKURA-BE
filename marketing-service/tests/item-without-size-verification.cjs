@@ -110,6 +110,23 @@ async function main() {
       named.sizes.map((row) => row.size),
       ["Large", "Small"],
     );
+    const pricedItem = await request(
+      "POST",
+      "",
+      {
+        ...input,
+        name: "Priced",
+        sizes: [{ size: "Large", priceServicePrimary: 120, priceServiceSisterCompany: 90, priceMaintenancePrimary: 50, priceMaintenanceSisterCompany: 40 }],
+      },
+      201,
+    );
+    assert.equal(pricedItem.sizes[0].priceStatus, "AVAILABLE");
+    assert.equal(Number(pricedItem.sizes[0].priceServicePrimary), 120);
+    assert.equal(Number(pricedItem.sizes[0].priceServiceSisterCompany), 90);
+    assert.equal(Number(pricedItem.sizes[0].priceMaintenancePrimary), 50);
+    assert.equal(Number(pricedItem.sizes[0].priceMaintenanceSisterCompany), 40);
+
+
     const directError = await request(
       "POST",
       "/sizes",
@@ -429,24 +446,26 @@ async function main() {
       version: original.version,
     });
     const latestItem = await request("GET", `/${legacy.id}`);
-    await request(
+    const namedReplacement = await request(
       "POST",
       "/sizes",
       { itemId: legacy.id, itemVersion: latestItem.version, size: "Large" },
-      409,
+      201,
     );
+    assert.equal(namedReplacement.size, "Large");
+    const refreshedItem = await request("GET", `/${legacy.id}`);
     const replacement = await request(
       "POST",
       "/sizes",
-      { itemId: legacy.id, itemVersion: latestItem.version, size: null },
-      201,
+      { itemId: legacy.id, itemVersion: refreshedItem.version, size: null },
+      409,
     );
-    assert.notEqual(replacement.id, original.id);
+    assert.equal(replacement.message, "An item with named sizes cannot use direct pricing");
     assert.equal(
       await prisma.itemSize.count({
         where: { itemId: legacy.id, isActive: true, size: null },
       }),
-      1,
+      0,
     );
     console.log(
       "PASS: unsized creation, validation, concurrency, soft deletion, prices, history, primary/sister quotations, PDF, contract and Excel round trip.",

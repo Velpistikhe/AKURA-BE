@@ -559,6 +559,7 @@ try {
   const rateResult = loadResults.at(-1);
   check('Gateway rate limiter returns 429 under excess load', Boolean(rateResult.statuses[429]), rateResult.statuses);
 
+  if (checks.some((result) => !result.passed)) process.exitCode = 1;
   console.log(JSON.stringify({ runId, checks, loadResults }, null, 2));
 } finally {
   if (createdUsernames.length) {

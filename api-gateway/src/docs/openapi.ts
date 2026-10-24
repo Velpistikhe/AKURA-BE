@@ -483,7 +483,7 @@ export const openApiDocument = groupByModule({
           firstName: { type: 'string', minLength: 1, example: 'John' },
           lastName: { type: 'string', minLength: 1, example: 'Doe' },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 255, example: 'john@example.com', description: 'Optional; normalized to lowercase. Send null to clear.' },
-          telp: { type: 'string', nullable: true, maxLength: 50, example: '+62 811 1234 5678', description: 'Optional. Send null to clear.' },
+          telp: { type: 'string', nullable: true, minLength: 1, maxLength: 50, example: '+62 811 1234 5678', description: 'Optional. Send null to clear.' },
         },
       },
       LoginRequest: {
@@ -501,7 +501,7 @@ export const openApiDocument = groupByModule({
           firstName: { type: 'string', minLength: 1, example: 'John' },
           lastName: { type: 'string', minLength: 1, example: 'Doe' },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 255, description: 'Optional; normalized to lowercase. Send null to clear. Omit to keep the current value.' },
-          telp: { type: 'string', nullable: true, maxLength: 50, description: 'Optional. Send null to clear. Omit to keep the current value.' },
+          telp: { type: 'string', nullable: true, minLength: 1, maxLength: 50, description: 'Optional. Send null to clear. Omit to keep the current value.' },
         },
       },
       ChangePasswordRequest: {
@@ -522,7 +522,7 @@ export const openApiDocument = groupByModule({
           officeBranchId: { type: 'string', format: 'uuid', nullable: true, description: 'Sets or clears the user office branch assignment. Must be sent together with branch so the stored branch id and name stay consistent.' },
           branch: { type: 'string', maxLength: 200, nullable: true, description: 'Display name paired with officeBranchId. Required whenever officeBranchId is sent; use null only when clearing the assignment.' },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 255, description: 'Sets or clears the user email. Normalized to lowercase.' },
-          telp: { type: 'string', nullable: true, maxLength: 50, description: 'Sets or clears the user telephone.' },
+          telp: { type: 'string', nullable: true, minLength: 1, maxLength: 50, description: 'Sets or clears the user telephone.' },
           isActive: { type: 'boolean' },
           version: { type: 'integer', minimum: 1 },
         },
@@ -1328,7 +1328,7 @@ export const openApiDocument = groupByModule({
       },
       CreateItemRequest: {
         type: 'object', additionalProperties: false, required: ['name', 'uom'],
-        description: 'Creates an item with an optional service. Standalone items may define inspectionScopes and maintenanceScopes; an item with serviceId cannot define scopes. Active item names are unique within the authenticated branch. Prices are created separately using itemSizeId.',
+        description: 'Creates an item with an optional service. Standalone items may define inspectionScopes and maintenanceScopes; an item with serviceId cannot define scopes. Active item names are unique within the authenticated branch. Each sizes entry may include standard service/inspection and sister-company prices, plus both maintenance prices when the service has maintenance. Prices are created atomically with the sizes.',
         properties: {
           serviceId: { type: 'string', format: 'uuid', nullable: true },
           name: { type: 'string', minLength: 1, maxLength: 200 },
@@ -1348,8 +1348,14 @@ export const openApiDocument = groupByModule({
       },
       ItemSizeInput: {
         type: 'object', additionalProperties: false, required: ['size'],
-        description: 'Reusable size reference. Active size labels are unique per item after normalization. Prices are created separately using itemSizeId.',
-        properties: { size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for direct pricing. Direct-price items cannot accept additional sizes; named-size items cannot accept size=null. Blank strings are rejected.' } },
+        description: 'Reusable size reference. Active size labels are unique per item after normalization. Optionally provide priceServicePrimary, priceServiceSisterCompany, priceMaintenancePrimary, and priceMaintenanceSisterCompany, using the same validation as POST /items/sizes/{itemSizeId}/price. Primary service price is required if any price is supplied; maintenance-enabled services require both maintenance prices.',
+        properties: {
+          size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for direct pricing. Direct-price items cannot accept additional sizes; named-size items cannot accept size=null. Blank strings are rejected.' },
+          priceServicePrimary: { type: 'number', minimum: 0, description: 'Required when any price is provided. Same rules as CatalogPriceRequest.' },
+          priceServiceSisterCompany: { type: 'number', minimum: 0, nullable: true, description: 'Optional sister-company price.' },
+          priceMaintenancePrimary: { type: 'number', minimum: 0, nullable: true },
+          priceMaintenanceSisterCompany: { type: 'number', minimum: 0, nullable: true },
+        },
       },
     },
   },
@@ -1573,7 +1579,7 @@ export const openApiDocument = groupByModule({
       put: {
         tags: ['Authentication'],
         summary: 'Update the authenticated user profile',
-        description: 'Authentication is read from the accessToken cookie or Authorization header. The request body contains only firstName and lastName.',
+        description: 'Authentication is read from the accessToken cookie or Authorization header. Requires firstName and lastName; email and telp are optional. Omitted contact fields retain their values, explicit null clears them, and email is trimmed and normalized to lowercase.',
         security: protectedSecurity,
         requestBody: { required: true, ...jsonContent(schemaRef('UpdateProfileRequest')) },
         responses: {
@@ -1716,7 +1722,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['User Management'],
         summary: 'Get active Marketing admin contacts for the current branch',
-        description: 'Read-only directory used by downstream services (Marketing quotation PDF footer). Branch always derives from the authenticated access token; no branch parameter is accepted. App manager role is not required. Returns name, email and telp of active ADMIN users in the MARKETING section, ordered by creation.',
+        description: 'Read-only directory used by downstream services (Marketing quotation PDF footer). Branch derives from the authenticated user current database assignment. Query parameters do not override it. App manager role is not required. Returns at most 20 active ADMIN users in the MARKETING section of that branch, ordered by creation then ID. Users without a branch receive an empty contacts array.',
         security: protectedSecurity,
         responses: {
           200: response('Marketing contacts retrieved', { type: 'object', required: ['status', 'success', 'message', 'data'], properties: {

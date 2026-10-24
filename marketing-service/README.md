@@ -60,7 +60,7 @@ Model `MarketingService` dan tabel `marketing_services` sudah dihapus. Struktur 
 
 Relasi induk-anak dan tabel penghubung menggunakan `onDelete: Cascade`, sehingga scope, size, dan relasi item ikut terhapus ketika induknya dihapus.
 
-POST item dan size hanya menerima referensi, tanpa harga. POST item menerima `serviceId`, `name`, dan `sizes: [{ size }]` opsional; POST size menerima `itemId`, `itemVersion`, dan `size`. Harga dibuat terpisah melalui POST `/items/sizes/:itemSizeId/price`, menggunakan referensi size yang sama. Response daftar size tetap menyertakan harga untuk memudahkan pemilihan; sebelum harga dibuat nilainya null dan `priceStatus=UNAVAILABLE`. Harga kontrak company disimpan terpisah pada `company_contract_prices`; PATCH company mempertahankan seluruh ID kontrak dan harga yang terhubung tanpa menyalin atau mengubahnya.
+POST item dan size menerima referensi dan opsional harga standar pada setiap entry `sizes`. POST item menerima `serviceId`, `name`, dan `sizes: [{ size, priceServicePrimary, priceServiceSisterCompany, priceMaintenancePrimary, priceMaintenanceSisterCompany }]`; bila harga dikirim, aturan validasi sama dengan POST `/items/sizes/:itemSizeId/price` (harga utama service wajib, dan service dengan maintenance mewajibkan kedua harga maintenance). Size serta harga dibuat atomik dan harga diaudit. Payload lama `{ size }` tetap berlaku dan tidak membuat harga. POST size tetap menerima `itemId`, `itemVersion`, dan `size`; harga untuk size tambahan masih dibuat terpisah. Response daftar size tetap menyertakan harga; sebelum harga dibuat nilainya null dan `priceStatus=UNAVAILABLE`. Harga kontrak company disimpan terpisah pada `company_contract_prices`; PATCH company mempertahankan seluruh ID kontrak dan harga yang terhubung tanpa menyalin atau mengubahnya.
 
 Kedua tabel harga memiliki `effectiveFrom`, `effectiveUntil`, dan `isActive` untuk periode berlaku. Tabel `items`, `item_sizes`, `item_prices`, dan `company_contract_prices` menyimpan `createdById` serta `createdByName`, sedangkan `updatedById` dan `updatedByName` nullable sampai record diubah. Field tersebut merupakan snapshot user audit; ID user tidak memakai foreign key lintas database dan nama diambil dari profil terkini hasil validasi Auth Service. Data historis yang tidak mempunyai informasi pembuat ditandai dengan ID nol dan nama `System Migration`.
 
@@ -105,7 +105,7 @@ Endpoint katalog yang tersedia:
 | `/items` | GET | Daftar item aktif beserta service, tanpa memuat size |
 | `/items/:itemId` | GET | Detail item aktif beserta service tanpa memuat array size |
 | `/items/sizes` | GET | Daftar size aktif lintas item dalam branch pengguna; `itemId` opsional, filter `size`, `itemName`, `serviceName`, sort `size`, default `createdAt desc`, dengan pagination dan data `item.service` pada setiap row |
-| `/items` | POST | Membuat referensi item dan size opsional secara atomik, tanpa harga |
+| `/items` | POST | Membuat referensi item dan size opsional secara atomik; tiap entry `sizes` dapat sekaligus menyertakan harga standar (inspection/service, sister company, dan maintenance) yang divalidasi seperti POST `/items/sizes/:itemSizeId/price` |
 | `/items/sizes` | POST | Menambahkan referensi size; body wajib berisi `itemId`, `itemVersion`, dan `size` |
 | `/items/sizes/:itemSizeId` | DELETE | Menonaktifkan satu item size dan menutup periode harga standar tanpa menonaktifkan item induk atau harga kontrak |
 | `/items/:itemId` | DELETE | Menonaktifkan item, seluruh size aktif, dan harga standar; harga kontrak dipertahankan |

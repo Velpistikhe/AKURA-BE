@@ -16,6 +16,10 @@ async function main() {
   assert.equal(updateItemSchema.safeParse({ version: 0 }).success, false);
   assert.equal(updateItemSchema.safeParse({ uom: 'JOINT' }).success, false);
   assert.equal(createItemSchema.parse({ ...input, uom: '  JOINT  ' }).uom, 'JOINT');
+  assert.equal(createItemSchema.safeParse({ ...input, uom: 'JOINT', sizes: [{ size: 'Large', priceServicePrimary: 100, priceServiceSisterCompany: 80, priceMaintenancePrimary: 40, priceMaintenanceSisterCompany: 30 }] }).success, true);
+  assert.equal(createItemSchema.safeParse({ ...input, uom: 'JOINT', sizes: [{ size: 'Large', priceServicePrimary: -1 }] }).success, false);
+  assert.equal(createItemSchema.safeParse({ ...input, uom: 'JOINT', sizes: [{ size: 'Large', priceServicePrimary: 100, unexpected: 5 }] }).success, false);
+
   let service;
   try {
     const [column] = await prisma.$queryRaw`SELECT is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'items' AND column_name = 'uom'`;
