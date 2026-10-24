@@ -1,16 +1,16 @@
 {
-  "checkedAt": "2026-10-24T10:02:10.242Z",
+  "checkedAt": "2026-10-24T13:18:59.352Z",
   "environment": "Local PostgreSQL, Express router, injected auth; gateway excluded",
   "concurrency": 12,
   "stressItems": 30,
   "stressRequests": 210,
   "totalRequests": 330,
   "unexpectedServerErrors": 0,
-  "auditRows": 651,
-  "durationMs": 65621,
+  "auditRows": 649,
+  "durationMs": 128345,
   "stressLatencyMs": {
-    "p50": 2673,
-    "p95": 4028,
-    "max": 4597
+    "p50": 4797,
+    "p95": 8239,
+    "max": 10122
   }
 }

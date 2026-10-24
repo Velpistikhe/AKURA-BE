@@ -71,6 +71,49 @@ async function main() {
     assert.equal(Number(multi.sizes[1].priceServiceSisterCompany), 15);
     assert.equal(multi.sizes[1].priceMaintenancePrimary, null);
 
+    // Adding a single size to an existing item accepts the same price fields.
+    const parent = await request('POST', '', {
+      serviceId: maintenanceService.id, name: 'Parent item', uom: 'JOINT',
+      sizes: [{ size: 'Base', priceServicePrimary: 100, priceMaintenancePrimary: 20, priceMaintenanceSisterCompany: 10 }],
+    }, 201);
+    const added = await request('POST', '/sizes', {
+      itemId: parent.id,
+      itemVersion: parent.version,
+      size: 'Extra',
+      priceServicePrimary: 120, priceServiceSisterCompany: 90,
+      priceMaintenancePrimary: 50, priceMaintenanceSisterCompany: 40,
+    }, 201);
+    assert.equal(added.size, 'Extra');
+    assert.equal(added.priceStatus, 'AVAILABLE');
+    assert.deepEqual(
+      [added.priceServicePrimary, added.priceServiceSisterCompany, added.priceMaintenancePrimary, added.priceMaintenanceSisterCompany].map(Number),
+      [120, 90, 50, 40],
+    );
+    const addedStored = await prisma.itemPrice.findFirst({ where: { itemSizeId: added.id } });
+    assert.equal(Number(addedStored.priceServicePrimary), 120);
+    assert.equal(Number(addedStored.priceMaintenanceSisterCompany), 40);
+    assert.equal(addedStored.createdById, actor.id);
+    // A size added without prices keeps the previous behaviour and creates no price.
+    const plainParent = await request('POST', '', {
+      serviceId: plainService.id, name: 'Plain parent', uom: 'PCS',
+      sizes: [{ size: 'Base' }],
+    }, 201);
+    const plainAdded = await request('POST', '/sizes', {
+      itemId: plainParent.id, itemVersion: plainParent.version, size: 'Extra',
+    }, 201);
+    assert.equal(plainAdded.priceStatus, 'UNAVAILABLE');
+    assert.equal(await prisma.itemPrice.count({ where: { itemSizeId: plainAdded.id } }), 0);
+    // Prices follow the same validation as the size price endpoint.
+    const invalidPrimary = await request('POST', '/sizes', {
+      itemId: plainParent.id, itemVersion: plainAdded.itemVersion,
+      size: 'Bad', priceServiceSisterCompany: 10,
+    }, 400);
+    assert.match(invalidPrimary.message, /Primary service price is required/);
+    const invalidMaintenance = await request('POST', '/sizes', {
+      itemId: parent.id, itemVersion: added.itemVersion,
+      size: 'Bad', priceServicePrimary: 100,
+    }, 400);
+    assert.match(invalidMaintenance.message, /maintenance prices are required/);
     const legacy = await request('POST', '', {
       serviceId: plainService.id, name: 'Legacy item', uom: 'PCS', sizes: [{ size: 'Large' }],
     }, 201);

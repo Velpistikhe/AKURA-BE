@@ -1349,10 +1349,15 @@ export const openApiDocument = groupByModule({
       },
       AddItemSizeRequest: {
         type: 'object', additionalProperties: false, required: ['itemId', 'itemVersion', 'size'],
+        description: 'Adds one size variant to an existing item. Optionally provide priceServicePrimary, priceServiceSisterCompany, priceMaintenancePrimary, and priceMaintenanceSisterCompany, using the same validation as POST /items/sizes/{itemSizeId}/price. Primary service price is required if any price is supplied; maintenance-enabled services require both maintenance prices. The size and its price are created atomically.',
         properties: {
           itemVersion: { type: 'integer', minimum: 0 },
           itemId: { type: 'string', format: 'uuid' },
           size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for direct pricing. Direct-price items cannot accept additional sizes; named-size items cannot accept size=null. Blank strings are rejected.' },
+          priceServicePrimary: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceServicePrimary' },
+          priceServiceSisterCompany: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceServiceSisterCompany' },
+          priceMaintenancePrimary: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceMaintenancePrimary' },
+          priceMaintenanceSisterCompany: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceMaintenanceSisterCompany' },
         },
       },
       ItemSizeInput: {

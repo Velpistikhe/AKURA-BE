@@ -58,13 +58,18 @@ export const updateContractPriceSchema = versionSchema.extend({ priceService: pr
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export type PriceInput = z.infer<typeof createItemPriceSchema>;
 export type ContractPriceInput = z.infer<typeof createContractPriceSchema>;
-const size = z.object({
-  size: referenceLabel(100).nullable(),
-  // Optional normal and sister prices, validated like POST /items/sizes/:itemSizeId/price.
+// Standard prices travel with a size. The same fields are accepted when creating an
+// item with sizes and when adding a single size to an existing item.
+const sizePriceFields = {
   priceServicePrimary: price.optional(),
   priceServiceSisterCompany: price.nullable().optional(),
   priceMaintenancePrimary: price.nullable().optional(),
   priceMaintenanceSisterCompany: price.nullable().optional(),
+};
+const size = z.object({
+  size: referenceLabel(100).nullable(),
+  // Optional normal and sister prices, validated like POST /items/sizes/:itemSizeId/price.
+  ...sizePriceFields,
 }).strict();
 
 export const itemIdSchema = z.object({ itemId: z.string().uuid() }).strict();
@@ -91,6 +96,8 @@ export const addItemSizeSchema = z.object({
   itemId: z.string().uuid(),
   itemVersion: versionSchema.shape.version,
   size: referenceLabel(100).nullable(),
+  // Optional normal and sister prices, validated like POST /items/sizes/:itemSizeId/price.
+  ...sizePriceFields,
 }).strict();
 
 export const createItemScopeSchema = z.object({
