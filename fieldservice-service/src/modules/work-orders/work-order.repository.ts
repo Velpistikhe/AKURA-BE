@@ -325,6 +325,9 @@ export const workOrderRepository = {
   async start(id: string, version: number, quote: QuotationSnapshot | null, actor: Actor) {
     const stored = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
     if (!stored) throw new HttpError('Work order not found', 404);
+    if (stored.version !== version || stored.status !== 'DRAFT' || stored.revoked) {
+      throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
+    }
     if (stored.quotationId) {
       if (!quote) throw new HttpError('Quotation validation with Marketing service is required before starting', 409);
       const snapshot = stored.quotationSnapshot as Record<string, unknown> | null;

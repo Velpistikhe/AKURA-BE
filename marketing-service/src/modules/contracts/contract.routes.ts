@@ -8,8 +8,13 @@ import { contractRepository as repository } from './contract.repository.js';
 import { contractExcelController, uploadContractWorkbook } from './contract-excel.controller.js';
 import { importContractExcelSchema } from './contract-excel.schemas.js';
 import { HttpError } from '../../utils/httpError.js';
+import { formatContractDates } from '../../utils/dateOnly.js';
 const router = Router();
-const send = (req: Request, res: Response, data: unknown, status = 200) => { res.status(status).json({ status, success: true, data, requestId: req.headers['x-request-id'] }); };
+const send = (req: Request, res: Response, data: unknown, status = 200) => {
+  const payload = data && typeof data === 'object' && 'contractDate' in data
+    ? formatContractDates(data as { contractDate: Date | string }) : data;
+  res.status(status).json({ status, success: true, data: payload, requestId: req.headers['x-request-id'] });
+};
 const assertMarketingSection = (res: Response): void => {
   if (res.locals.authUser?.section !== 'MARKETING') throw new HttpError('Marketing section is required', 403);
 };

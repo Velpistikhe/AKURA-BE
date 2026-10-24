@@ -201,7 +201,7 @@ export const itemWriteRepository = {
         ...data.maintenanceScopes.map(scope => ({ type: 'MAINTENANCE' as const, scope, revoked: false })),
       ] },
     } , include: { scopes: true } });
-    await recordCatalogAudit(tx, branch, 'ITEM', null, { id: item.id, version: item.version }, actor, 'CREATE');
+    await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];
     const sizeInputs = data.sizes.length ? data.sizes : [{ size: null }];
     for (const size of sizeInputs) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));

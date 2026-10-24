@@ -10,7 +10,7 @@ Development direct access: set `DIRECT_MFE_ACCESS=true` and `DIRECT_MFE_ORIGIN` 
 
 ## Work Orders
 
-Endpoint: `/api/v1/fieldservice/work-orders` through the gateway. GET/POST collection, GET/PATCH/DELETE `/:id`, and POST `/:id/start` (DRAFT to IN_PROGRESS). Access requires an active profile and matching authenticated branch. POST, DELETE and start require section MARKETING; PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass these write restrictions. GET permits MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. Section is loaded from Auth, never from client-submitted fields or headers.
+Endpoint: `/api/v1/fieldservice/work-orders` through the gateway. GET/POST collection, GET/PATCH/DELETE `/:id`, and POST `/:id/start` (DRAFT to IN_PROGRESS). Access requires an active profile and matching authenticated branch. GET and creation permit MARKETING/FIELD_SERVICE sections and ADMIN/APP_MANAGER roles. DELETE and start require section MARKETING; PATCH permits sections MARKETING and FIELD_SERVICE. ADMIN/APP_MANAGER roles do not bypass the PATCH/DELETE/start section restrictions. Section is loaded from Auth, never from client-submitted fields or headers.
 
 Four tables: `work_order` (work order and document snapshots), `work_order_inspectors` (ordered inspector names linked to the work order), `work_order_sequences` (last allocated integer keyed by branch and year), and `work_order_histories` (append-only changes). For a fresh database use `npm run db:push`.
 
@@ -23,7 +23,13 @@ Create example:
   "inspectors": [
     { "userId": "00000000-0000-4000-8000-0000000000a1", "name": "Budi Tester" },
     { "userId": "00000000-0000-4000-8000-0000000000a2", "name": "Agus Helper" }
-  ]
+  ],
+  "items": [{
+    "itemSizeId": "00000000-0000-4000-8000-000000000001",
+    "snapshotItemSize": { "itemSizeId": "00000000-0000-4000-8000-000000000001", "snapShotItem": { "name": "Pipe" }, "size": null },
+    "quantityInspection": 1,
+    "quantityMaintenance": 0
+  }]
 }
 ```
 
@@ -52,7 +58,7 @@ Application names use WorkOrder and `/work-orders`. Existing numbers and history
 
 ### Document basis
 
-Every new work order requires exactly one basis: `quotationId` (APPROVED quotation in this branch resolved live from `/api/v1/marketing/quotation-references/:quotationId`, with no version submitted) or `contractId` (exact APPROVED contract validated through `/api/v1/marketing/contract-references/:contractId`, branch-scoped). `companyId` is not part of the Work Order payload; resolve the contract through Marketing first and submit its ID as `contractId`. The quotation basis is resolved live through Marketing on every create and PATCH: 404 when Marketing does not expose the quotation (inactive, revised or never approved), 409 when it is not APPROVED or is contract priced, and 503 when Marketing is unreachable. Contract data is fetched through `/api/v1/marketing/contract-references/:contractId`; its ID and contractSnapshot are saved and included in history. Upstream unavailability returns 503 without creating a work order. Work orders without a basis are rejected. PATCH may replace the basis by supplying `contractId` or `quotationId`, which clears the opposite references. A quotation may back only one live (non-revoked) work order per branch: creating another work order, or re-pointing an existing one on PATCH, while a non-revoked work order already references the same quotation returns 409 with the blocking work order number. Only revoking that work order (DELETE, soft delete `revoked=true`) frees the quotation again, regardless of its status (`DRAFT`, `IN_PROGRESS`, `COMPLETED`, `CANCELED`). The check runs inside the creation/update transaction under a per-branch, per-quotation advisory lock, so concurrent creations for the same quotation cannot both pass it. Omitting all basis fields preserves it; clearing without replacement is rejected. Existing independent work orders remain readable. New work orders are always created with status `DRAFT`.
+Every new work order requires at least one basis: `quotationId` (APPROVED quotation in this branch resolved live from `/api/v1/marketing/quotation-references/:quotationId`, with no version submitted) or `contractId` (exact APPROVED contract validated through `/api/v1/marketing/contract-references/:contractId`, branch-scoped). `companyId` is not part of the Work Order payload; resolve the contract through Marketing first and submit its ID as `contractId`. The quotation basis is resolved live through Marketing on every create and PATCH: 404 when Marketing does not expose the quotation (inactive, revised or never approved), 409 when it is not APPROVED, and 503 when Marketing is unreachable. Contract data is fetched through `/api/v1/marketing/contract-references/:contractId`; its ID and contractSnapshot are saved and included in history. Upstream unavailability returns 503 without creating a work order. A performaInvoiceId basis stores its ID without an upstream lookup. If multiple basis IDs are supplied, quotation takes precedence over contract, then performa invoice. Work orders without a basis are rejected. PATCH may replace the basis by supplying `contractId` or `quotationId`, which clears the opposite references. A quotation may back only one live (non-revoked) work order per branch: creating another work order, or re-pointing an existing one on PATCH, while a non-revoked work order already references the same quotation returns 409 with the blocking work order number. Only revoking that work order (DELETE, soft delete `revoked=true`) frees the quotation again, regardless of its status (`DRAFT`, `IN_PROGRESS`, `COMPLETED`, `CANCELED`). The check runs inside the creation/update transaction under a per-branch, per-quotation advisory lock, so concurrent creations for the same quotation cannot both pass it. Omitting all basis fields preserves it; clearing without replacement is rejected. Existing independent work orders remain readable. New work orders are always created with status `DRAFT`.
 
 Physical tables are now `work_order`, `work_order_inspectors`, `work_order_sequences`, `work_order_histories`, with `work_order_id` foreign keys and `WorkOrderStatus` enum. Existing databases have been migrated; fresh databases use `npm run db:push`. Restart running consumers after applying schema changes.
 
@@ -69,7 +75,7 @@ For a quotation-based work order the stored `quotationSnapshot` is also re-valid
 - A quotation that no longer matches Marketing (version changed, revised, deactivated, not APPROVED, contract-priced, or removed so Marketing answers 404) returns 409 `Work order quotation snapshot does not match Marketing data; reload the quotation`.
 - When the snapshot matches, the transition commits atomically: status, version increment, updated-by actor and history.
 
-Every Marketing content mutation bumps the quotation version, so version equality is authoritative; the comparison additionally checks id, branch, status, isActive, subject and totals against the stored snapshot. Contract/company-based work orders start without any Marketing quotation call.
+Start compares the saved descriptive quotation content and item snapshot with Marketing. Header version/updatedAt changes caused only by link bookkeeping are ignored; monetary fields are excluded from the stored snapshot. Contract/performa-invoice-based work orders start without a Marketing quotation call. A stale or future Work Order version is rejected before live inspector/quotation validation and checked again before the transaction claims the row.
 
 
 
@@ -83,3 +89,11 @@ Two option endpoints read these local tables, both requiring an active profile w
 
 - `GET /api/v1/fieldservice/options/inspectors` returns `{ inspectors: [<user snapshot JSON apa adanya>] }`: setiap elemen adalah isi kolom JSON `user` milik `field_service_users` (snapshot Auth lengkap, termasuk `id`, `username`, `firstName`, `lastName`, `email`, `telp`, `role`, `section`, `officeBranchId`, `isActive`, `version`, `createdAt`, `updatedAt`), ordered by user creation time then ID, limited to 500 rows.
 - `GET /api/v1/fieldservice/options/quotations` resolves the branch-scoped list live from `GET /api/v1/marketing/quotation-references` in a single upstream request; Marketing already returns active APPROVED quotations of the authenticated branch with any price source, including contract pricing, ordered by approval time descending and capped at 1000 rows. Marketing unavailable returns 503.
+
+## Endpoint and Swagger verification
+
+Build Field Service and API Gateway before running `npm run test:contract`. The harness compares the route inventory with Swagger in both directions, checks all referenced schemas, and exercises every operation with real HTTP, RS256 verification and PostgreSQL fixtures. Auth JWKS/profile/inspector responses and Marketing references/callbacks use local HTTP test doubles; deployed Gateway/Auth/Marketing integration is outside this harness. Fixtures are restricted to generated branches and cleaned up with their relation rows.
+
+`npm test` covers service boundaries, Work Order concurrency and scheduling, user synchronization, options and validation regressions. `npm run test:all` also runs the endpoint contract harness. Coverage is saved to `tests/endpoint-contract.last-run.json`; failed checks return a nonzero exit code.
+
+Contract references accept Marketing's `isDeleted` lifecycle field and date-only or ISO timestamps. Legacy `isActive` remains supported; an explicit deleted or inactive state always rejects the reference. Stored contract snapshots normalize dates to ISO timestamps. Quantities are nonnegative numbers with at most 12 integer and 3 fractional digits, matching PostgreSQL Decimal(15,3); unsupported precision or range returns 400 before a database write. Each item snapshot requires explicit `snapShotItem` and `size` keys; size may be null.

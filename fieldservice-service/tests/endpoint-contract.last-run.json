@@ -1,0 +1,113 @@
+{
+  "operations": 12,
+  "checks": 65,
+  "externalDependencies": "Auth JWKS/profile/inspectors and Marketing references/callbacks are local HTTP test doubles; real Field Service HTTP, JWT verification and PostgreSQL",
+  "coverage": [
+    {
+      "operation": "GET /health",
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "operation": "GET /work-orders",
+      "statuses": [
+        401,
+        200,
+        403,
+        400
+      ]
+    },
+    {
+      "operation": "GET /work-orders/by-quotation/{quotationId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /work-orders/{id}/history",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "GET /work-orders/{id}",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "POST /work-orders",
+      "statuses": [
+        401,
+        400,
+        201,
+        409
+      ]
+    },
+    {
+      "operation": "POST /work-orders/{id}/start",
+      "statuses": [
+        401,
+        400,
+        403,
+        409,
+        503,
+        200
+      ]
+    },
+    {
+      "operation": "PATCH /work-orders/{id}",
+      "statuses": [
+        401,
+        400,
+        200,
+        409
+      ]
+    },
+    {
+      "operation": "DELETE /work-orders/{id}",
+      "statuses": [
+        401,
+        400,
+        403,
+        200,
+        409,
+        503
+      ]
+    },
+    {
+      "operation": "GET /options/inspectors",
+      "statuses": [
+        401,
+        200,
+        503
+      ]
+    },
+    {
+      "operation": "GET /options/quotations",
+      "statuses": [
+        401,
+        200,
+        503,
+        502
+      ]
+    },
+    {
+      "operation": "POST /internal/users/events",
+      "statuses": [
+        403,
+        400,
+        200
+      ]
+    }
+  ]
+}

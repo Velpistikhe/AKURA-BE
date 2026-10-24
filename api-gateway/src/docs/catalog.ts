@@ -16,11 +16,11 @@ const input = (properties: object, required: string[]) => ({ ...object(propertie
 const envelope = (data: object) => object({ status: { type: 'integer' }, success: { type: 'boolean' }, data, requestId: uuid }, ['status', 'success', 'data']);
 const paginated = (name: string, row: object) => envelope(object({ [name]: { type: 'array', items: row }, pagination: ref('Pagination') }, [name, 'pagination']));
 const price = object({ id: uuid, itemSizeId: uuid, ...audit, ...periods, isActive: { type: 'boolean' },
-  priceServicePrimary: decimal, priceServiceSisterCompany: decimal,
+  priceServicePrimary: decimal, priceServiceSisterCompany: { ...decimal, nullable: true },
   priceMaintenancePrimary: { ...decimal, nullable: true }, priceMaintenanceSisterCompany: { ...decimal, nullable: true },
 }, ['id', 'itemSizeId', 'version', 'priceServicePrimary', 'priceServiceSisterCompany', 'isActive']);
 const contractPrice = object({ catalogSnapshot: ref('ContractCatalogSnapshot'), id: uuid, contractId: uuid, itemSizeId: uuid, ...audit, ...periods, isActive: { type: 'boolean' }, priceService: decimal, priceMaintenance: { ...decimal, nullable: true }, contract: ref('CompanyContract') }, ['id', 'contractId', 'itemSizeId', 'version', 'priceService', 'priceMaintenance', 'isActive', 'catalogSnapshot']);
-const contract = object({ id: uuid, companyId: uuid, companySnapshot: { type: 'object', nullable: true, additionalProperties: true, readOnly: true }, revisionOfId: { ...uuid, nullable: true, readOnly: true }, contractNumber: { type: 'string' }, contractDate: date, status: contractStatus, ...contractPeriods, hasList: { type: 'boolean', description: 'True when the contract has at least one contract price list.' }, version, createdById: uuid, updatedById: { ...uuid, nullable: true }, createdAt: timestamp, updatedAt: timestamp }, ['id', 'companyId', 'contractNumber', 'contractDate', 'status', 'hasList', 'version', 'effectiveFrom', 'effectiveUntil']);
+const contract = object({ id: uuid, companyId: uuid, companySnapshot: { type: 'object', nullable: true, additionalProperties: true, readOnly: true }, revisionOfId: { ...uuid, nullable: true, readOnly: true }, contractNumber: { type: 'string' }, contractDate: date, status: contractStatus, ...contractPeriods, hasList: { type: 'boolean', description: 'Included on list and detail responses. True when the contract has at least one contract price list.' }, version, createdById: uuid, updatedById: { ...uuid, nullable: true }, createdAt: timestamp, updatedAt: timestamp }, ['id', 'companyId', 'contractNumber', 'contractDate', 'status', 'version', 'effectiveFrom', 'effectiveUntil']);
 const sizeRow = { allOf: [ref('ItemSizeListRow'), object({ contractPrice: ref('CompanyContractPrice') }, ['contractPrice'])] };
 const profileFields = {
   id: uuid, name: { type: 'string' }, normalizeName: { type: 'string' },
@@ -59,6 +59,10 @@ const historyResponse = (idField: string, entry: string, message: string) => obj
   data: object({ [idField]: uuid, history: { type: 'array', items: ref(entry) }, pagination: ref('Pagination') }, [idField, 'history', 'pagination']),
 }, ['status', 'success', 'message', 'data']);
 export const catalogSchemas = {
+  CompanyContractPriceHistoryResponse: envelope(object({ contractPriceId: uuid, history: { type: 'array', items: object({
+    id: uuid, action: { type: 'string' }, version, changedBy: object({ id: uuid, name: { type: 'string' } }, ['id', 'name']), changedAt: timestamp,
+    changes: { type: 'array', items: object({ field: { type: 'string' }, label: { type: 'string' }, before: {}, after: {} }, ['field', 'label', 'before', 'after']) },
+  }, ['id', 'action', 'version', 'changedBy', 'changedAt', 'changes']) }, pagination: ref('Pagination') }, ['contractPriceId', 'history', 'pagination'])),
   ContractCatalogSnapshot: { ...object({ serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for an item variant without a size.' }, hasMaintenance: { type: 'boolean' } }, ['serviceName', 'serviceType', 'itemName', 'size', 'hasMaintenance']), readOnly: true, description: 'Frozen catalog identity at contract-price creation/import. Catalog edits and soft deletion never refresh this snapshot.' },
   CompanyHistorySnapshot: {
     ...object(companySnapshotFields, Object.keys(companySnapshotFields)),
@@ -81,7 +85,7 @@ export const catalogSchemas = {
   UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name or uom. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected.' },
   CatalogPriceRequest: { ...input({ ...standard }, ['priceServicePrimary']), description: 'Primary service price is required; sister-company price is optional. A size must retain at least one active primary price.' },
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
-  UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'An active price may be deactivated. Inactive prices cannot be modified or reactivated.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. Inactive service, item, size, price, or stale versions return 409.' },
+  UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'An active standard price may be deactivated. An inactive standard price may be explicitly reactivated with true only while its size, item and optional service remain active.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. An inactive standard price requires isActive=true; reactivation starts a new effective period. Inactive parent records or stale versions return 409.' },
   CreateContractPriceRequest: input({ contractId: uuid, priceService: money, priceMaintenance: optionalMoney }, ['contractId', 'priceService']),
   CreateCompanyContractRequest: { ...input({ companyId: uuid, contractNumber: { type: 'string', minLength: 1, maxLength: 255 }, contractDate: { ...date, description: 'Contract date must be on or before effectiveFrom.' }, ...contractPeriods }, ['companyId', 'contractNumber', 'contractDate', 'effectiveFrom', 'effectiveUntil']), description: 'New contracts are always created with DRAFT status. Creation is rejected when the company has a DRAFT or currently/future APPROVED contract.' },
   UpdateCompanyContractRequest: { ...input({ version, contractNumber: { type: 'string', minLength: 1, maxLength: 255 }, contractDate: { ...date, description: 'Contract date must be on or before effectiveFrom.' }, ...contractPeriods }, ['version', 'contractNumber', 'contractDate', 'effectiveFrom', 'effectiveUntil']), description: 'DRAFT updates are allowed for MARKETING roles; APPROVED updates require ADMIN/MARKETING. Effective intervals are checked for overlap.' },
@@ -138,7 +142,7 @@ const filters = [parameter('itemId', uuid), ...['size', 'itemName', 'serviceName
 const content = (schema: object) => ({ content: { 'application/json': { schema } } });
 const operation = (summary: string, response: string, parameters: object[] = [], body?: string, status = 200, description = '') => ({
   tags: ['Marketing'], summary, description: body && ['UpdateItemRequest', 'CreateItemRequest', 'AddItemSizeRequest', 'CatalogPriceRequest', 'UpdateCatalogPriceRequest', 'CreateContractPriceRequest', 'UpdateContractPriceRequest', 'CatalogVersionRequest'].includes(body)
-    ? `${description} Catalog mutations require an active existing item, size, and price where applicable. A service is optional for items; standalone items may own scopes but an item linked to a service cannot own scopes. Inactive catalog records cannot be modified or reactivated; attempts return 409.`.trim()
+    ? `${description} Catalog mutations require active parent catalog records. A service is optional for items; standalone items may own scopes but an item linked to a service cannot own scopes. Inactive items, sizes and contract prices cannot be modified or reactivated. Standard prices support explicit isActive=true reactivation with their current version while all parents remain active.`.trim()
     : description, security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters,
   ...(body ? { requestBody: { required: true, ...content(ref(body)) } } : {}),
   responses: { [status]: { description: 'Success', ...content(ref(response)) }, ...Object.fromEntries([
@@ -175,6 +179,8 @@ export const catalogPaths = {
       responses: {
         200: { description: 'Excel contract-price template', content: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { schema: { type: 'string', format: 'binary' } } } },
         400: { description: 'Invalid filters or export exceeds 2000 rows' },
+        401: { description: 'Missing or invalid access token', ...content(ref('ErrorResponse')) },
+        403: { description: 'Marketing access and branch assignment required', ...content(ref('ErrorResponse')) },
         404: { description: 'Item not found in the current branch' },
       },
     },
@@ -190,6 +196,7 @@ export const catalogPaths = {
       responses: {
         201: { description: 'All selected rows imported', ...content(envelope(object({ companyId: uuid, contractId: uuid, version, imported: { type: 'integer' } }))) },
         400: { description: 'Invalid workbook or row values; no prices saved' },
+        401: { description: 'Missing or invalid access token', ...content(ref('ErrorResponse')) },
         403: { description: 'Template belongs to a different branch' },
         404: { description: 'Company contract not found in the current branch' },
         409: { description: 'Stale versions, duplicate prices, or contract cannot accept prices' },
@@ -221,7 +228,7 @@ export const catalogPaths = {
     ),
   },
   [`${root}/items/sizes`]: {
-    get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Includes variants without a size as size=null; hide the size selector for these variants. A size text filter matches only named sizes. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
+    get: operation('List active sizes across items in the current branch', 'ItemSizeListResponse', filters, undefined, 200, 'itemId is optional. Only active sizes and active items are returned. A linked service must be active and belong to the same branch; standalone items remain eligible. An explicit itemId outside this active branch catalog returns 404. Includes variants without a size as size=null; hide the size selector for these variants. A size text filter matches only named sizes. Includes item and item.service. Missing or inactive standard prices are null with priceStatus=UNAVAILABLE.'),
     post: operation('Add reusable size reference', 'ItemSizeResponse', [], 'AddItemSizeRequest', 201, 'Send size=null to add a variant without a size, including for existing items. A size=null variant marks a direct-price item. Additional sizes are rejected with 409. Direct-price and named-size variants cannot be mixed, including at creation. Soft deletion does not allow switching modes; an inactive direct-price variant can only be replaced by another size=null variant. itemVersion is the latest parent item version. Returns the new itemVersion. No prices are accepted. Standard and company contract prices reuse this size ID. A previously inactive size name may be reused with a new ID.'),
   },
   [`${root}/items/sizes/{itemSizeId}`]: {

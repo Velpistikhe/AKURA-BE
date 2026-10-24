@@ -240,15 +240,23 @@ export async function loadQuotationOptions(req: Request): Promise<QuotationRefer
   const parsed = z.object({ quotations: z.array(quotationReferenceOptionSchema) }).passthrough()
     .safeParse(await gatewayGet('marketing/quotation-references', req));
   if (!parsed.success) throw new HttpError('Invalid quotation reference list response', 502);
+  const branch = (req as AuthenticatedRequest).user?.officeBranchId;
+  if (!branch || parsed.data.quotations.some(quotation => quotation.officeBranchId !== branch)) {
+    throw new HttpError('Quotation reference list does not match the authenticated branch', 502);
+  }
   return parsed.data.quotations;
 }
 
+const contractDate = z.union([z.string().datetime(), z.string().date()])
+  .transform(value => value.length === 10 ? `${value}T00:00:00.000Z` : value);
 export const contractSchema = z.object({
   id: z.string().uuid(), version: z.number().int().nonnegative(), companyId: z.string().uuid(),
-  isActive: z.boolean(), status: z.string(), effectiveFrom: z.string().datetime(), effectiveUntil: z.string().datetime(),
-  contractNumber: z.string().min(1), contractDate: z.string().datetime(),
+  isActive: z.boolean().optional(), isDeleted: z.boolean().optional(), status: z.string(), effectiveFrom: contractDate, effectiveUntil: contractDate,
+  contractNumber: z.string().min(1), contractDate,
   company: z.object({ id: z.string().uuid(), name: z.string().min(1), officeBranchId: z.string().uuid(), revoked: z.boolean() }).passthrough(),
-}).passthrough();
+}).passthrough()
+  .refine(value => value.isActive !== undefined || value.isDeleted !== undefined, 'Contract lifecycle state is required')
+  .transform(value => ({ ...value, isActive: value.isActive !== false && value.isDeleted !== true }));
 export type ContractSnapshot = z.infer<typeof contractSchema>;
 /**
  * The only contract fields persisted on a Work Order. An explicit projection (not

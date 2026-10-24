@@ -8,7 +8,7 @@ const { itemWriteRepository } = require('../dist/modules/items/item-write.reposi
 
 async function main() {
   const branch = randomUUID(), actor = { id: randomUUID(), name: 'Excel Test' };
-  const service = { id: randomUUID(), name: 'Inspection', type: 'TUBULAR', isActive: true, hasMaintenance: true };
+  const service = { id: randomUUID(), officeBranchId: branch, name: 'Inspection', type: 'TUBULAR', isActive: true, hasMaintenance: true };
   const size = (name, svc = null, label = null) => ({ id: randomUUID(), itemId: randomUUID(), size: label, version: 2, isActive: true,
     item: { id: randomUUID(), name, service: svc, version: 1, isActive: true },
     price: { id: randomUUID(), version: 1, isActive: true, effectiveFrom: new Date('2020-01-01'), effectiveUntil: null, priceServicePrimary: '100.25', priceMaintenancePrimary: svc ? '20' : null },

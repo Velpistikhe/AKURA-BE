@@ -50,7 +50,7 @@ test('all affected list routes enforce activity before repository pagination', a
         await response.json();
         assert.equal(response.status, 200, `${path} ${role} ${state}`);
         const { query, branch } = captured.get(path);
-        const expectedActive = path === 'contracts' ? undefined : role !== 'ADMIN' ? true : path === 'prices' ? true : state === '' ? undefined : true;
+        const expectedActive = role !== 'ADMIN' ? true : path === 'contracts' ? undefined : path === 'prices' ? true : state === '' ? undefined : true;
         assert.equal(query.isActive, expectedActive, `${path} ${role} ${state}: ${JSON.stringify(query)}`);
         assert.equal(branch, 'test-branch');
         assert.equal(query.page, 2);

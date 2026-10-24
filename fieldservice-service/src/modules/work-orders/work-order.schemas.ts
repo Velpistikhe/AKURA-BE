@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { WorkOrderStatus } from '@prisma/client';
 const date = z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`));
 const version = z.number().int().min(0).max(2147483646);
+// Matches PostgreSQL Decimal(15,3), avoiding implicit rounding or database errors.
+const quantity = z.number().finite().nonnegative().max(999999999999.999)
+  .refine(value => /^\d{1,12}(\.\d{1,3})?$/.test(String(value)), 'Quantity must have at most three decimal places');
 const inspectorNames = z.array(z.string().trim().min(1).max(255)).max(100)
   .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
 // Create accepts [{ userId, name }] pairs taken from the inspector options
@@ -31,9 +34,10 @@ const validReference = (value: Reference) =>
 // both quotation and contract bases (PATCH keeps the name-based array and []).
 export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers, items: z.array(z.object({
   itemSizeId: z.string().uuid(),
-  snapshotItemSize: z.object({ itemSizeId: z.string().uuid(), snapShotItem: z.unknown(), size: z.unknown() }).passthrough(),
-  quantityInspection: z.number().finite().nonnegative(),
-  quantityMaintenance: z.number().finite().nonnegative(),
+  snapshotItemSize: z.object({ itemSizeId: z.string().uuid(), snapShotItem: z.unknown(), size: z.unknown() }).passthrough()
+    .refine(value => Object.hasOwn(value, 'snapShotItem') && Object.hasOwn(value, 'size'), 'Item snapshot must include snapShotItem and size'),
+  quantityInspection: quantity,
+  quantityMaintenance: quantity,
 }).strict()).min(1, 'At least one item is required') }).strict()
   .refine(validReference, 'At least one of quotationId, contractId or performaInvoiceId is required')
   .refine(value => !value.quotationId || value.endDate !== undefined,

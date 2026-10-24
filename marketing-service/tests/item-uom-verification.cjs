@@ -39,7 +39,7 @@ async function main() {
     const history = await itemHistoryRepository.read('ITEM', item.id, branch, { page: 1, limit: 20 });
     const change = history.history.find(row => row.version === updated.version).changes.find(row => row.field === 'uom');
     assert.deepEqual(change, { field: 'uom', label: 'Unit of measure', before: 'JOINT', after: 'PCS' });
-    const created = history.history.find(row => row.action === 'CREATE').changes.find(row => row.field === 'uom');
+    const created = history.history.find(row => row.action === 'CREATE' && row.entityType === 'ITEM').changes.find(row => row.field === 'uom');
     assert.equal(created.before, null);
     assert.equal(created.after, 'JOINT');
     console.log('PASS: required UOM, normalization, persistence, partial updates, stale versions, history, and database column without default.');

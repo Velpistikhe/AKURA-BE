@@ -26,6 +26,7 @@ const modules = [
 ] as const;
 
 const moduleFor = (path: string): typeof modules[number][0] => {
+  if (path === '/api/v1/marketing/internal/work-orders/events') return 'Quotations';
   if (path.startsWith('/api/v1/finance/taxes') || path === '/api/v1/marketing/internal/taxes/events') return 'Taxes';
   if (path === '/api/v1/marketing/internal/users/events' || path === '/api/v1/fieldservice/internal/users/events') return 'User Management';
   if (path.endsWith('/health') || !path.startsWith('/api/v1/')) return 'Gateway';

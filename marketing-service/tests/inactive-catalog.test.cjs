@@ -72,11 +72,12 @@ for (const inactive of ['service', 'item', 'size']) {
   });
 }
 
-test('inactive prices cannot be edited, reactivated, or deleted again', async t => {
+test('inactive prices reject edits without explicit standard-price reactivation and contract prices cannot reactivate', async t => {
   transaction(t, 'price');
   for (const isActive of [undefined, false]) {
     await assert.rejects(items.savePrice('size', { version: 0, isActive }, 'branch', actor), conflict);
     await assert.rejects(items.changeContract('price', { version: 0, isActive }, 'branch', actor), conflict);
   }
+  await assert.rejects(items.changeContract('price', { version: 0, isActive: true }, 'branch', actor), conflict);
   await assert.rejects(items.changeContract('price', { version: 0 }, 'branch', actor, true), conflict);
 });

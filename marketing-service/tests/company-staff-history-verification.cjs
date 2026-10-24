@@ -10,6 +10,7 @@ async function main() {
   const app = express(); app.use(express.json());
   app.use((req, res, next) => { res.locals.authUser = { id: actor, firstName: 'Staff', lastName: 'History', officeBranchId: req.headers['x-branch'] || branch }; next(); });
   app.use('/company-staffs', staffRoutes); app.use('/companies', companyRoutes);
+  app.use((_req, res) => res.status(404).json({ message: 'Route not found' }));
   app.use((error, req, res, next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const request = async (method, path, body, expected = 200, officeBranchId = branch) => {
@@ -51,7 +52,7 @@ async function main() {
     assert.deepEqual(await request('GET', path), current);
     await request('DELETE', path, { version: 2 }, 500);
     assert.deepEqual(await request('GET', path), current);
-    await request('DELETE', `/companies/${company.id}`, { version: 0 }, 500);
+    await request('DELETE', `/companies/${company.id}`, { version: 0 }, 404);
     assert.equal((await request('GET', `/companies/${company.id}`)).version, 0);
     assert.deepEqual(await request('GET', path), current);
     await prisma.companyStaffHistory.delete({ where: { id: blocker.id } });
@@ -62,7 +63,8 @@ async function main() {
     assert.deepEqual(directHistory.history.map(h => h.version), [3, 2, 1, 0]);
     assert.equal(directHistory.history[0].action, 'DEACTIVATE'); assert.equal(directHistory.history[0].snapshot.revoked, true);
     const active = await create();
-    await request('DELETE', `/companies/${company.id}`, { version: 0 });
+    await request('DELETE', `/companies/${company.id}`, { version: 0 }, 404);
+    await request('DELETE', `/company-staffs/${active.id}`, { version: active.version });
     const cascade = await request('GET', `/company-staffs/${active.id}/history`);
     assert.deepEqual(cascade.history.map(h => h.version), [1, 0]);
     assert.equal(cascade.history[0].action, 'DEACTIVATE'); assert.equal(cascade.history[0].snapshot.revoked, true);
@@ -71,7 +73,7 @@ async function main() {
     assert.equal(cascade.history[0].createdByName, 'Staff History');
     assert.deepEqual(await request('GET', path + '/history'), directHistory);
     await request('GET', `/company-staffs/${active.id}/history`, undefined, 404, randomUUID());
-    console.log('PASS: staff snapshots, actors, versions, pagination, branch isolation, concurrency, rollback, direct/cascade deactivation and retained history.');
+    console.log('PASS: staff snapshots, actors, versions, pagination, branch isolation, concurrency, rollback, explicit deactivation, retained history and unsupported company deletion.');
   } finally {
     await new Promise(resolve => server.close(resolve));
     await prisma.companyStaffHistory.deleteMany({ where: { companyStaff: { company: { officeBranchId: branch } } } });

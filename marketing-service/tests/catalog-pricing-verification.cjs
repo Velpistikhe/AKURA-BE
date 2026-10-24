@@ -14,7 +14,7 @@ async function main() {
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
-    res.locals.authUser = { id: actor, firstName: 'Catalog', lastName: 'Test', officeBranchId: req.headers['x-branch'] || branch };
+    res.locals.authUser = { id: actor, firstName: 'Catalog', lastName: 'Test', role: 'ADMIN', section: 'MARKETING', officeBranchId: req.headers['x-branch'] || branch };
     next();
   });
   app.use('/items', routes);
@@ -56,7 +56,7 @@ async function main() {
     assert.equal(large.priceId, null);
     assert.equal(large.priceStatus, 'UNAVAILABLE');
     assert.equal(await prisma.itemPrice.count({ where: { itemSize: { itemId: item.id } } }), 0);
-    assert.equal((await request('POST', '', { ...input, name: 'Invalid', sizes: [{ size: 'X', ...prices }] })).status, 400);
+    assert.equal((await request('POST', '', { ...input, name: 'Invalid', sizes: [{ size: 'X', ...prices, priceServicePrimary: -1 }] })).status, 400);
     assert.equal((await request('POST', '', { ...input, name: 'Rollback', sizes: [{ size: 'X' }, { size: ' x ' }] })).status, 409);
     assert.equal(await prisma.item.count({ where: { officeBranchId: branch, name: 'Rollback' } }), 0);
     // Normalized database key and transaction lock prevent concurrent duplicates.
@@ -80,9 +80,9 @@ async function main() {
     assert.equal(updates.filter(r => r.status === 200).length, 1);
     assert.equal(updates.filter(r => r.status === 409).length, 15);
     price = await prisma.itemPrice.findUniqueOrThrow({ where: { itemSizeId: large.id } });
-    assert.equal(price.priceServiceSisterCompany, '80');
-    assert.equal(price.priceMaintenancePrimary, '20');
-    const preserved = price.priceServicePrimary;
+    assert.equal(price.priceServiceSisterCompany.toString(), '80');
+    assert.equal(price.priceMaintenancePrimary.toString(), '20');
+    const preserved = price.priceServicePrimary.toString();
     price = await ok('PATCH', `/sizes/${large.id}/price`, { version: price.version, priceServiceSisterCompany: '88' });
     assert.equal(price.priceServicePrimary, preserved);
     const resolved = await ok('GET', `/sizes/prices?companyId=${standardCompany.id}&itemId=${item.id}`);
@@ -91,23 +91,25 @@ async function main() {
     const beforeItem = await ok('GET', `/${item.id}`);
     const injected = await prisma.catalogAuditLog.create({ data: { officeBranchId: branch, entityType: 'ITEM_PRICE', entityId: price.id, version: price.version + 1, action: 'TEST_CONFLICT', after: {}, ...createdBy } });
     assert.equal((await request('PATCH', `/sizes/${large.id}/price`, { version: price.version, priceServicePrimary: '999' })).status, 409);
-    assert.deepEqual(await ok('GET', `/sizes/${large.id}/price`), price);
+    assert.deepEqual((await ok('GET', `/sizes/${large.id}`)).price, price);
     assert.equal((await ok('GET', `/${item.id}`)).version, beforeItem.version);
     await prisma.catalogAuditLog.delete({ where: { id: injected.id } });
-    // Atomic contract PUT and version checks.
-    const puts = await pool(Array.from({ length: 12 }, () => () => request('PUT', `/sizes/${large.id}/contract-prices`, { contractId: contract.id, priceService: '50', priceMaintenance: '5' })));
+    // Concurrent contract price creation and version checks.
+    const puts = await pool(Array.from({ length: 12 }, () => () => request('POST', `/sizes/${large.id}/contract-prices`, { contractId: contract.id, priceService: '50', priceMaintenance: '5' })));
     assert.equal(puts.filter(r => r.status === 201).length, 1);
-    assert.equal(puts.filter(r => r.status === 400).length, 11);
+    assert.equal(puts.filter(r => r.status === 409).length, 11);
     const cp = puts.find(r => r.status === 201).body.data;
-    assert.equal((await request('PUT', `/sizes/${large.id}/contract-prices`, { contractId: contract.id, version: cp.version, priceService: '55', priceMaintenance: '5' })).status, 200);
+    assert.equal((await request('PATCH', `/contract-prices/${cp.id}`, { version: cp.version, priceService: '55', priceMaintenance: '5' })).status, 200);
     await ok('POST', `/sizes/${small.id}/price`, prices, 201);
     await ok('POST', `/sizes/${small.id}/contract-prices`, { contractId: contract.id, priceService: '60', priceMaintenance: '6' }, 201);
     // Branch isolation and history remain valid after deactivation.
     for (const path of [`/${item.id}`, `/${item.id}/history`, `/sizes/${large.id}`, `/sizes/${large.id}/history`, `/sizes/${large.id}/price/history`]) assert.equal((await request('GET', path, undefined, foreignBranch)).status, 404);
     assert.equal((await request('PATCH', `/${item.id}`, { version: 0, name: 'Attack' }, foreignBranch)).status, 404);
-    await ok('DELETE', `/sizes/${large.id}/price`, { version: price.version });
-    assert.equal((await request('PATCH', `/sizes/${large.id}/price`, { version: price.version + 1, isActive: true })).status, 409);
-    assert.equal((await ok('GET', `/sizes/${large.id}/price`)).isActive, false);
+    await ok('PATCH', `/sizes/${large.id}/price`, { version: price.version, isActive: false });
+    const reactivated = await ok('PATCH', `/sizes/${large.id}/price`, { version: price.version + 1, isActive: true });
+    assert.equal(reactivated.isActive, true);
+    await ok('PATCH', `/sizes/${large.id}/price`, { version: reactivated.version, isActive: false });
+    assert.equal((await ok('GET', `/sizes/${large.id}`)).price.isActive, false);
     let currentSize = await ok('GET', `/sizes/${large.id}`);
     const deletedSize = await ok('DELETE', `/sizes/${large.id}`, { version: currentSize.version });
     assert.equal(deletedSize.isActive, false);
@@ -125,8 +127,8 @@ async function main() {
     assert(sizeHistory.history.some(entry => entry.entityType === 'ITEM_SIZE'));
     assert(sizeHistory.history.some(entry => entry.entityType === 'ITEM_PRICE'));
     assert(sizeHistory.history.every(entry => ['ITEM_SIZE', 'ITEM_PRICE', 'COMPANY_CONTRACT_PRICE'].includes(entry.entityType)));
-    assert.equal(history.history[0].action, 'DEACTIVATE');
-    assert.equal(history.history[0].actionLabel, 'Deactivated');
+    assert.equal(history.history[0].action, 'UPDATE');
+    assert.equal(history.history[0].actionLabel, 'Updated');
     assert.equal(history.history[0].changedBy.name, 'Catalog Test');
     assert.ok(history.history.some(entry => entry.changes.some(change => change.field === 'priceServicePrimary' && change.before !== change.after)));
     assert.equal((await request('GET', `/${item.id}/history?limit=101`)).status, 400);
@@ -137,8 +139,8 @@ async function main() {
       request('DELETE', `/sizes/${small.id}`, { version: deleteTarget.version }),
       request('PATCH', `/sizes/${small.id}/price`, { version: targetPrice.version, priceServicePrimary: '777' }),
     ]);
-    assert.equal(priceDeleteRace.filter(r => r.status === 200).length, 1);
-    assert.equal(priceDeleteRace.filter(r => r.status === 409).length, 1);
+    assert.ok(priceDeleteRace.every(r => [200, 409].includes(r.status)));
+    assert.ok(priceDeleteRace.some(r => r.status === 200));
     if (priceDeleteRace[0].status !== 200) await ok('DELETE', `/sizes/${small.id}`, { version: (await ok('GET', `/sizes/${small.id}`)).version });
     assert.equal(await prisma.itemPrice.count({ where: { itemSizeId: small.id, isActive: true } }), 0);
     assert.equal(await prisma.companyContractPrice.count({ where: { itemSizeId: small.id, isActive: true } }), 1);

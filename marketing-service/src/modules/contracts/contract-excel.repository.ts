@@ -16,7 +16,9 @@ export const contractExcelRepository = {
   exportSizes: async (input: ExportItemSizesInput, branch: string) => {
     const query = buildListQuery<'size', ExportItemSizesInput & { page: number; limit: number }, Prisma.ItemSizeWhereInput, Prisma.ItemSizeOrderByWithRelationInput>(
       { ...input, page: 1, limit: MAX_EXCEL_ROWS + 1 }, {
-        baseWhere: { isActive: true, item: { officeBranchId: branch, isActive: true } },
+        baseWhere: { isActive: true, item: { officeBranchId: branch, isActive: true, OR: [
+          { serviceId: null }, { service: { officeBranchId: branch, isActive: true } },
+        ] } },
         filters: {
           itemId: value => ({ itemId: value }), notIn: value => ({ id: { notIn: value } }),
           size: value => ({ size: { contains: value, mode: 'insensitive' } }),

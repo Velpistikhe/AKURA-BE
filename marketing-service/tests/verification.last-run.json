@@ -1,0 +1,98 @@
+[
+  {
+    "file": "catalog-pricing-verification.cjs",
+    "passed": true,
+    "durationMs": 68369
+  },
+  {
+    "file": "company-contract-response-verification.cjs",
+    "passed": true,
+    "durationMs": 4591
+  },
+  {
+    "file": "company-history-verification.cjs",
+    "passed": true,
+    "durationMs": 3739
+  },
+  {
+    "file": "company-staff-history-verification.cjs",
+    "passed": true,
+    "durationMs": 5446
+  },
+  {
+    "file": "contract-excel-verification.cjs",
+    "passed": true,
+    "durationMs": 1610
+  },
+  {
+    "file": "endpoint-contract-verification.cjs",
+    "passed": true,
+    "checkedAt": "2026-10-24T10:05:57.387Z",
+    "durationMs": 25651
+  },
+  {
+    "file": "inspection-scope-verification.cjs",
+    "passed": true,
+    "durationMs": 1534
+  },
+  {
+    "file": "item-price-payload-verification.cjs",
+    "passed": true,
+    "durationMs": 4538
+  },
+  {
+    "file": "item-size-list-verification.cjs",
+    "passed": true,
+    "durationMs": 7879
+  },
+  {
+    "file": "item-size-reuse-verification.cjs",
+    "passed": true,
+    "durationMs": 3774
+  },
+  {
+    "file": "item-uom-verification.cjs",
+    "passed": true,
+    "durationMs": 1830
+  },
+  {
+    "file": "item-without-size-verification.cjs",
+    "passed": true,
+    "durationMs": 11867
+  },
+  {
+    "file": "marketing-concurrency-verification.cjs",
+    "passed": true,
+    "durationMs": 5497
+  },
+  {
+    "file": "quotation-approval-verification.cjs",
+    "passed": true,
+    "durationMs": 12743
+  },
+  {
+    "file": "quotation-discount-verification.cjs",
+    "passed": true,
+    "durationMs": 4114
+  },
+  {
+    "file": "quotation-http-verification.cjs",
+    "passed": true,
+    "durationMs": 8336
+  },
+  {
+    "file": "quotation-number-verification.cjs",
+    "passed": true,
+    "durationMs": 26179
+  },
+  {
+    "file": "quotation-price-options-verification.cjs",
+    "passed": true,
+    "durationMs": 23289
+  },
+  {
+    "file": "quotation-verification.cjs",
+    "passed": true,
+    "durationMs": 4649
+  }
+]

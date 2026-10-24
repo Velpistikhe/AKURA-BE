@@ -33,7 +33,7 @@ async function main() {
   };
   let service, size, companyStaff, fixtureCompany;
   const fixture = async (changes = {}) => prisma.quotation.create({ data: {
-    officeBranchId: branch, date: new Date('2026-09-13'), jobStart: '2026-10-01',
+    officeBranchId: branch, status: 'SUBMITTED', date: new Date('2026-09-13'), jobStart: '2026-10-01',
     inquiryMethod: 'EMAIL', inquiryDate: new Date('2026-09-10'), subject: 'Inspection and maintenance',
     termOfPayment: '30 days', validity: '1 week', tax: 11, taxSourceId: randomUUID(),
     supplyAkura: 'Inspectors and calibrated equipment', supplyCustomer: 'Access and handling facilities', location: 'Balikpapan', accomplished: '7 days', deliveryReports: '2 working days', deliveryInvoice: 'Invoice after approval',
@@ -64,7 +64,7 @@ async function main() {
     await request(unauthorized.id, { version: 0 }, 403, branch, 'USER', 'MARKETING');
     await request(unauthorized.id, { version: 0 }, 403, branch, 'ADMIN', 'FINANCE');
     await request(unauthorized.id, { version: 0 }, 404, randomUUID(), 'ADMIN', 'MARKETING');
-    assert.equal((await quotationRepository.findActive(unauthorized.id, branch)).status, 'CREATED');
+    assert.equal((await quotationRepository.findActive(unauthorized.id, branch)).status, 'SUBMITTED');
     for (const invalid of [{}, { version: -1 }, { version: 0, status: 'APPROVED' }, { version: '0' }]) await request(quote.id, invalid, 400);
     await request(quote.id, { version: 0 }, 404, randomUUID());
     await request(quote.id, { version: 3 }, 409);
@@ -86,7 +86,7 @@ async function main() {
     assert.equal(createHash('sha256').update(buffer).digest('hex'), approved.pdfDocument.sha256);
     assert.equal(buffer.length, approved.pdfDocument.size);
     assert.equal(await prisma.quotationPdf.count({ where: { quotationId: quote.id } }), 1);
-    const history = await prisma.quotationHistory.findFirst({ where: { quotationId: quote.id, action: 'APPROVE' } });
+    const history = await prisma.quotationSnapshot.findFirst({ where: { quotationId: quote.id, action: 'APPROVE' } });
     assert.equal(history.snapshot.pdfDocument.key, approved.pdf.key);
     const retry = await request(quote.id, { version: 1 });
     assert.equal(retry.pdf.key, approved.pdf.key); assert.equal(uploadCount, 1);
@@ -99,7 +99,7 @@ async function main() {
     failUpload = true; await request(failed.id, { version: 0 }, 503); failUpload = false;
     assert.equal(objects.size, objectCount);
     const untouched = await quotationRepository.findActive(failed.id, branch);
-    assert.equal(untouched.status, 'CREATED'); assert.equal(untouched.version, 0); assert.equal(untouched.pdfDocument, null);
+    assert.equal(untouched.status, 'SUBMITTED'); assert.equal(untouched.version, 0); assert.equal(untouched.pdfDocument, null);
     assert.equal(untouched.no, null); assert.equal(untouched.numberYear, null);
     assert.equal((await prisma.quotationSequence.findFirst({ where: { officeBranchId: branch } })).lastNumber, 1);
     assert.equal(await prisma.quotationPdf.count({ where: { quotationId: failed.id } }), 0);

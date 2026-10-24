@@ -77,8 +77,11 @@ export const itemRepository = {
     const now = new Date();
     const context = companyId ? await priceContext(tx, companyId, officeBranchId, now) : null;
     const contractWhere: Prisma.CompanyContractPriceWhereInput = { contractId: context?.contract?.id ?? '00000000-0000-0000-0000-000000000000' };
-    const activeCatalog: Prisma.ItemSizeWhereInput = { isActive: true, item: { isActive: true } };
-    if (input.itemId && !await tx.item.findFirst({ where: { id: input.itemId, officeBranchId }, select: { id: true } })) throw new HttpError('Item not found', 404);
+    const activeItem: Prisma.ItemWhereInput = { officeBranchId, isActive: true, OR: [
+      { serviceId: null }, { service: { officeBranchId, isActive: true } },
+    ] };
+    const activeCatalog: Prisma.ItemSizeWhereInput = { isActive: true, item: activeItem };
+    if (input.itemId && !resolvePrices && !await tx.item.findFirst({ where: { id: input.itemId, ...activeItem }, select: { id: true } })) throw new HttpError('Item not found', 404);
     if (resolvePrices && context) return quotationOptions(tx, input, context, officeBranchId, now);
     const result = await findAll<any, NonNullable<ListItemSizesInput['sortBy']>, ListItemSizesInput, Prisma.ItemSizeWhereInput, Prisma.ItemSizeOrderByWithRelationInput>(
       input,
@@ -133,7 +136,7 @@ export const itemRepository = {
         Prisma.sql`i.office_branch_id = ${branch}::uuid`,
         Prisma.sql`i.is_active = true`,
         Prisma.sql`s.is_active = true`,
-        Prisma.sql`(svc.id IS NULL OR svc.is_active = true)`,
+        Prisma.sql`(svc.id IS NULL OR (svc.is_active = true AND svc.office_branch_id = ${branch}::uuid))`,
         Prisma.sql`NOT EXISTS (SELECT 1 FROM company_contract_prices cp WHERE cp.contract_id = ${contractId}::uuid AND cp.item_size_id = s.id AND cp.is_active = true)`,
       ];
       if (input.itemId) conditions.push(Prisma.sql`i.id = ${input.itemId}::uuid`);

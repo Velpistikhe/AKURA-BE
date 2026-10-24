@@ -42,7 +42,7 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
   // calls are only made for a draft in this branch; the upstream requests never
   // run inside a database transaction.
   const current = await repository.get(id, actor(res));
-  if (current.status !== 'DRAFT' || current.revoked) throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
+  if (current.version !== version || current.status !== 'DRAFT' || current.revoked) throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
   // Auth is the source of truth for FIELD_SERVICE users: every stored inspector
   // must still exist in Auth with the same id/display name before the transition.
   await validateInspectorsForStart(req, current.inspectors.map(({ userId, name }) => ({ userId, name })));

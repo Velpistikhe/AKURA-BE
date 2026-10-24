@@ -422,7 +422,7 @@ export const openApiDocument = groupByModule({
           data: {
             type: 'object', required: ['service', 'timestamp', 'uptime'],
             properties: {
-              service: { type: 'string', enum: ['auth-service', 'app-manager-service', 'marketing-service'] },
+              service: { type: 'string', enum: ['auth-service', 'app-manager-service', 'marketing-service', 'fieldservice-service'] },
               timestamp: { type: 'string', format: 'date-time' },
               uptime: { type: 'number', minimum: 0 },
             },
@@ -922,8 +922,12 @@ export const openApiDocument = groupByModule({
           updatedByName: { type: 'string', nullable: true, readOnly: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
-          inspectionScopes: { type: 'array', items: schemaRef('ServiceScope') },
-          maintenanceScopes: { type: 'array', items: schemaRef('ServiceScope') },
+          inspectionScopes: { type: 'array', items: { type: 'object', required: ['id', 'serviceId', 'inspectionScope', 'revoked', 'createdAt', 'updatedAt'], properties: {
+            id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid' }, inspectionScope: { type: 'string' }, revoked: { type: 'boolean' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+          } } },
+          maintenanceScopes: { type: 'array', items: { type: 'object', required: ['id', 'serviceId', 'scope', 'revoked', 'createdAt', 'updatedAt'], properties: {
+            id: { type: 'string', format: 'uuid' }, serviceId: { type: 'string', format: 'uuid' }, scope: { type: 'string' }, revoked: { type: 'boolean' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+          } } },
         },
       },
       ServiceListItem: {
@@ -956,8 +960,12 @@ export const openApiDocument = groupByModule({
           serviceId: { type: 'string', format: 'uuid', nullable: true, description: 'Optional service owner. Null means this item is standalone.' },
           name: { type: 'string' },
           uom: { type: 'string', maxLength: 50, example: 'JOINT', description: 'Unit of measure. Existing items were initialized to JOINT.' },
-          inspectionScopes: { type: 'array', items: schemaRef('ServiceScope'), description: 'Inspection scope rows owned directly by this standalone item. Empty when serviceId is set.' },
-          maintenanceScopes: { type: 'array', items: schemaRef('ServiceScope'), description: 'Maintenance scope rows owned directly by this standalone item. Empty when serviceId is set.' },
+          inspectionScopes: { type: 'array', items: { type: 'object', required: ['id', 'itemId', 'inspectionScope', 'revoked', 'createdAt', 'updatedAt'], properties: {
+            id: { type: 'string', format: 'uuid' }, itemId: { type: 'string', format: 'uuid' }, inspectionScope: { type: 'string' }, revoked: { type: 'boolean' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+          } }, description: 'Inspection scope rows owned directly by this standalone item. Empty when serviceId is set.' },
+          maintenanceScopes: { type: 'array', items: { type: 'object', required: ['id', 'itemId', 'scope', 'revoked', 'createdAt', 'updatedAt'], properties: {
+            id: { type: 'string', format: 'uuid' }, itemId: { type: 'string', format: 'uuid' }, scope: { type: 'string' }, revoked: { type: 'boolean' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+          } }, description: 'Maintenance scope rows owned directly by this standalone item. Empty when serviceId is set.' },
           createdById: { type: 'string', format: 'uuid', readOnly: true },
           createdByName: { type: 'string', readOnly: true, description: 'Snapshot of the current user name when the item was created.' },
           updatedById: { type: 'string', format: 'uuid', nullable: true, readOnly: true },
@@ -966,6 +974,7 @@ export const openApiDocument = groupByModule({
           sizes: { type: 'array', items: schemaRef('ItemSize') },
           service: {
             type: 'object',
+            nullable: true,
             description: 'Included by the item-detail endpoint; omitted by create, update, and deactivate responses.',
             required: ['id', 'name', 'hasMaintenance'],
             properties: {
@@ -1351,10 +1360,10 @@ export const openApiDocument = groupByModule({
         description: 'Reusable size reference. Active size labels are unique per item after normalization. Optionally provide priceServicePrimary, priceServiceSisterCompany, priceMaintenancePrimary, and priceMaintenanceSisterCompany, using the same validation as POST /items/sizes/{itemSizeId}/price. Primary service price is required if any price is supplied; maintenance-enabled services require both maintenance prices.',
         properties: {
           size: { type: 'string', nullable: true, minLength: 1, maxLength: 100, description: 'Use null for direct pricing. Direct-price items cannot accept additional sizes; named-size items cannot accept size=null. Blank strings are rejected.' },
-          priceServicePrimary: { type: 'number', minimum: 0, description: 'Required when any price is provided. Same rules as CatalogPriceRequest.' },
-          priceServiceSisterCompany: { type: 'number', minimum: 0, nullable: true, description: 'Optional sister-company price.' },
-          priceMaintenancePrimary: { type: 'number', minimum: 0, nullable: true },
-          priceMaintenanceSisterCompany: { type: 'number', minimum: 0, nullable: true },
+          priceServicePrimary: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceServicePrimary' },
+          priceServiceSisterCompany: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceServiceSisterCompany' },
+          priceMaintenancePrimary: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceMaintenancePrimary' },
+          priceMaintenanceSisterCompany: { $ref: '#/components/schemas/CatalogPriceRequest/properties/priceMaintenanceSisterCompany' },
         },
       },
     },

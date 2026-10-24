@@ -51,5 +51,5 @@ operationalPaths['/api/v1/marketing/quotation-references/{quotationId}'] = { get
   tags:['Quotations'], summary:'Read a quotation reference for Finance or Field Service',security,
   description:'Read-only active quotation within the current user branch. Allowed sections: MARKETING, FINANCE, ACCOUNTING, FIELD_SERVICE; ADMIN and APP_MANAGER also allowed. Does not grant access to Marketing mutations.',
   parameters:[{name:'quotationId',in:'path',required:true,schema:uuid}],
-  responses:{200:{description:'Quotation snapshot',content:{'application/json':{schema:envelope(ref('Quotation'))}}},401:{description:'Invalid token or stale branch assignment'},403:{description:'Section access denied'},404:{description:'Quotation not found in current branch'}}
+  responses:{400:{description:'Invalid quotation ID'},200:{description:'Quotation snapshot',content:{'application/json':{schema:envelope(ref('Quotation'))}}},401:{description:'Invalid token or stale branch assignment'},403:{description:'Section access denied'},404:{description:'Quotation not found in current branch'}}
 } };

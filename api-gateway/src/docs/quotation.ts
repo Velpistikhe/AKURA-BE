@@ -23,6 +23,10 @@ const envelope = (data: object) => ({
   properties: { status: { type: 'integer' }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' }, data, requestId: uuid },
 });
 export const quotationSchemas = {
+  DeleteQuotationRequest: {
+    type: 'object', additionalProperties: false, required: ['version'],
+    properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 } },
+  },
   QuotationPdf: {
     type: 'object', readOnly: true,
     properties: {
@@ -187,6 +191,39 @@ const commonErrors = {
 const common = { tags: ['Quotations'], security: [{ bearerAuth: [] }, { accessTokenCookie: [] }] };
 const idParameter = { in: 'path', name: 'quotationId', required: true, schema: uuid };
 export const quotationPaths = {
+  '/api/v1/marketing/internal/work-orders/events': {
+    post: {
+      tags: ['Quotations'], summary: 'Internal: synchronize a Field Service Work Order link', security: [],
+      description: 'Field Service delivers link or revoke events through the Gateway. Requires Field Service credentials and the Work Order sync secret. Branch ownership is checked before updating a quotation. Duplicate link/revoke events are idempotent; a conflicting Work Order link cannot overwrite the current reference.',
+      parameters: [
+        { in: 'header', name: 'x-service-name', required: true, schema: { type: 'string', enum: ['fieldservice-service'] } },
+        { in: 'header', name: 'x-service-secret', required: true, schema: { type: 'string' } },
+        { in: 'header', name: 'x-work-order-sync-secret', required: true, schema: { type: 'string' } },
+      ],
+      requestBody: { required: true, content: { 'application/json': { schema: {
+        type: 'object', additionalProperties: false,
+        required: ['workOrderId', 'quotationId', 'officeBranchId', 'revoked', 'workOrderSnapshot'],
+        properties: { workOrderId: uuid, quotationId: uuid, officeBranchId: uuid, revoked: { type: 'boolean' },
+          workOrderSnapshot: { type: 'object', additionalProperties: true, required: ['number', 'status'], properties: {
+            number: { type: 'string', minLength: 1, maxLength: 100 }, status: { type: 'string', minLength: 1, maxLength: 50 },
+          } },
+        },
+      } } } },
+      responses: {
+        200: { description: 'Link event acknowledged after commit', content: { 'application/json': { schema: {
+          type: 'object', required: ['success', 'workOrderId', 'quotationId', 'revoked'], properties: {
+            success: { type: 'boolean', enum: [true] }, workOrderId: uuid, quotationId: uuid, revoked: { type: 'boolean' },
+          },
+        } } } },
+        400: response('Invalid Work Order event', 'ErrorResponse'),
+        403: { description: 'Invalid service or Work Order delivery credentials', content: { 'application/json': { schema: {
+          type: 'object', required: ['success', 'message'], properties: { success: { type: 'boolean', enum: [false] }, message: { type: 'string' } },
+        } } } },
+        404: response('Quotation not found in the event branch', 'ErrorResponse'),
+        409: response('Conflicting Work Order link or quotation state', 'ErrorResponse'),
+      },
+    },
+  },
   '/api/v1/marketing/quotation-references': {
     get: {
       ...common, summary: 'List quotation references for downstream document bases',

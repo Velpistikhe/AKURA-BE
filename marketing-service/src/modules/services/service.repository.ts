@@ -29,7 +29,7 @@ const snapshot = (value: unknown): Snapshot => value && typeof value === 'object
 const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const displayScopes = (value: unknown) => Array.isArray(value)
   ? value.map((entry) => (snapshot(entry)?.inspectionScope ?? snapshot(entry)?.scope)).filter((scope): scope is string => typeof scope === 'string').join(', ')
-  : value;
+  : value ?? null;
 const detailScopes = <T extends { id: string; officeBranchId: string; name: string; type: string; hasMaintenance: boolean; version: number; isActive: boolean; createdById: string; createdByName: string; updatedById: string | null; updatedByName: string | null; createdAt: Date; updatedAt: Date; scopes: Array<{ id: string; serviceId: string | null; itemId: string | null; type: string; scope: string; revoked: boolean; createdAt: Date; updatedAt: Date }> }>({ scopes, ...row }: T) => ({
   ...row,
   inspectionScopes: scopes.filter(item => item.type === 'INSPECTION').map(item => ({ id: item.id, serviceId: item.serviceId, inspectionScope: item.scope, revoked: item.revoked, createdAt: item.createdAt, updatedAt: item.updatedAt })),
@@ -131,7 +131,7 @@ export const serviceRepository = {
     select: detailSelect,
     });
 
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', null, { id: row.id, version: row.version }, actor, 'CREATE');
+      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', null, detailScopes(row), actor, 'CREATE');
       return detailScopes(row);
   }),
   update: (id: string, officeBranchId: string, data: UpdateServiceInput, actor: AuditActor) => prisma.$transaction(async (tx) => {

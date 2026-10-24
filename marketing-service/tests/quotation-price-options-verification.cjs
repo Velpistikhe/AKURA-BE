@@ -6,6 +6,8 @@ const itemRoutes = require('../dist/modules/items/item.routes.js').default;
 const serviceRoutes = require('../dist/modules/services/service.routes.js').default;
 const quotationRoutes = require('../dist/modules/quotations/quotation.routes.js').default;
 const { contractExcelRepository } = require('../dist/modules/contracts/contract-excel.repository.js');
+// Field Service behavior is covered separately by quotation-work-order.test.cjs.
+require('../dist/modules/quotations/work-order.integration.js').hasActiveWorkOrder = async () => false;
 
 async function main() {
   const branch = randomUUID(), actor = randomUUID(), otherBranch = randomUUID();

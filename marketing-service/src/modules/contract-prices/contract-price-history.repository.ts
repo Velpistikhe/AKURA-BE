@@ -1,5 +1,6 @@
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
+import { formatContractDates } from '../../utils/dateOnly.js';
 
 const fields = [
   ['priceService', 'Service price'], ['priceMaintenance', 'Maintenance price'], ['isActive', 'Active status'],
@@ -34,7 +35,7 @@ export const contractPriceHistoryRepository = {
       }),
       prisma.companyContractPrice.count({ where }),
     ], { isolationLevel: 'RepeatableRead' });
-    return { prices, pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) } };
+    return { prices: prices.map(price => ({ ...price, contract: formatContractDates(price.contract) })), pagination: { page: input.page, limit: input.limit, total, totalPages: Math.ceil(total / input.limit) } };
   },
   list: async (contractPriceId: string, input: { page: number; limit: number }, branch: string) => {
     const price = await prisma.companyContractPrice.findFirst({ where: { id: contractPriceId, contract: { company: { officeBranchId: branch, revoked: false } } }, select: { id: true } });

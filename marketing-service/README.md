@@ -280,7 +280,7 @@ Quotation references diverifikasi melalui harness eksternal untuk memastikan pem
 
 `POST /api/v1/marketing/quotations/:quotationId/approve` through the gateway, with authentication and JSON body `{"version": 0}` (use the latest quotation version).
 
-Approves active `CREATED`, `SENT`, or `REVISED` quotations within the user's branch. The PDF uses saved customer/item prices, separate inspection and maintenance quantities, stored totals, and quotation terms. The supplied TRIDAYA PDF provides the letterhead and general terms assets in `assets/quotation`; customer-specific scope descriptions, job-start estimates, contact details, and preparer names absent from quotation data are not copied from the sample. Deploy the `assets` directory alongside `dist`.
+Approves active `SUBMITTED` quotations within the user's branch. Submit a `CREATED` or `REJECTED` quotation before approval. Approval requires ADMIN role in MARKETING. The PDF uses saved customer/item prices, separate inspection and maintenance quantities, stored totals, and quotation terms. The supplied TRIDAYA PDF provides the letterhead and general terms assets in `assets/quotation`; customer-specific scope descriptions, job-start estimates, contact details, and preparer names absent from quotation data are not copied from the sample. Deploy the `assets` directory alongside `dist`.
 
 On serverless hosts (Vercel), pdfkit loads its standard font metrics lazily through the package `imports` wildcard, which the deployment file tracer cannot follow, so `src/modules/quotations/pdfkit-standard-fonts.ts` anchors every `pdfkit/standard-fonts/*` subpath with a literal `require.resolve`, and `quotation-pdf.ts` anchors `letterhead.png` and `general-terms.png` the same way; without these anchors the function throws `MODULE_NOT_FOUND` for `Helvetica.cjs` on first PDF render. `tests/quotation-pdf-serverless-trace.test.cjs` runs `@vercel/nft` (the same tracer Vercel uses) against `dist/server.js` and fails if any font metric module or quotation image drops out of the traced bundle.
 
@@ -314,3 +314,11 @@ Marketing is the single source of truth for quotation content. Field Service res
 - `GET /api/v1/marketing/quotation-references/:quotationId` returns a single active quotation with its items and signed PDF URL. Field Service uses it to resolve the quotation basis at work-order creation and to re-validate the stored snapshot when a Work Order starts.
 
 Snapshot drift is detected by re-validation rather than by republishing state: revising, deactivating or restoring a quotation changes Marketing immediately, and Field Service rejects a start that no longer matches with 409.
+
+## Endpoint and Swagger verification
+
+Build Marketing and API Gateway before running `npm run test:contract`. The contract harness derives the endpoint inventory from route source and compares it with Swagger in both directions. It executes successful and rejected HTTP requests for every operation and validates JSON request/response schemas, PDF/Excel routes, JWT verification, role/section restrictions, branch ownership, optimistic concurrency, contract lifecycle, quotation lifecycle and internal callbacks.
+
+The harness uses real Marketing HTTP handlers and the development/test PostgreSQL database. Auth JWKS/profile, Field Service and PDF object storage are local test doubles; PDF generation and Excel processing execute normally. Test branches and related child rows are cleaned up, and local HTTP servers close after each run. This does not verify a deployed Gateway, live Field Service or the real S3 bucket.
+
+Run `npm run test:verification` for all standalone verification suites, or `npm run test:all` for typecheck, the Node test suite and all verification suites. Failures return a nonzero exit code. Coverage and results are saved in `tests/endpoint-contract.last-run.json` and `tests/verification.last-run.json`. Contract dates in API responses use `YYYY-MM-DD`; creation audits retain initial item/service snapshots. Active size lists, quotation options and Excel exports exclude inactive or foreign-branch service parents.

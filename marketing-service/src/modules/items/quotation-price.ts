@@ -68,7 +68,7 @@ export const quotationOptions = async (tx: Prisma.TransactionClient, input: List
     JOIN items i ON i.id = s.item_id
     LEFT JOIN services svc ON svc.id = i.service_id
     WHERE i.office_branch_id = ${branch}::uuid
-      AND s.is_active AND i.is_active AND (svc.id IS NULL OR svc.is_active)
+      AND s.is_active AND i.is_active AND (svc.id IS NULL OR (svc.is_active AND svc.office_branch_id = ${branch}::uuid))
       ${input.itemId ? Prisma.sql`AND i.id = ${input.itemId}::uuid` : Prisma.empty}
       ${input.notIn?.length ? Prisma.sql`AND s.id::text NOT IN (${Prisma.join(input.notIn)})` : Prisma.empty}
       ${input.size ? Prisma.sql`AND strpos(lower(${sizeLabel}), lower(${input.size})) > 0` : Prisma.empty}

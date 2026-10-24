@@ -1,0 +1,635 @@
+{
+  "operations": 78,
+  "checks": 252,
+  "externalDependencies": "Auth JWKS/profile, Field Service and PDF object storage are local test doubles; real Marketing HTTP app, JWT verification, PDF generation, Excel processing and PostgreSQL",
+  "coverage": [
+    {
+      "operation": "GET /health",
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-contract-references/{companyId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /quotation-references",
+      "statuses": [
+        401,
+        200
+      ]
+    },
+    {
+      "operation": "GET /quotation-references/{quotationId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /contract-references/{contractId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /companies/{companyId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /companies/{companyId}/staff-history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /companies",
+      "statuses": [
+        401,
+        400,
+        403,
+        200
+      ]
+    },
+    {
+      "operation": "GET /companies/{companyId}",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "POST /companies",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "PATCH /companies/{companyId}",
+      "statuses": [
+        401,
+        400,
+        200,
+        409
+      ]
+    },
+    {
+      "operation": "GET /company-staffs/{companyStaffId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-staffs",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-staffs/{companyStaffId}",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "POST /company-staffs",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "PATCH /company-staffs/{companyStaffId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /company-staffs/{companyStaffId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /services",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /services/{serviceId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /services/{serviceId}",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "POST /services",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "PATCH /services/{serviceId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /services/{serviceId}/inspection/scopes",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "POST /services/{serviceId}/maintenance/scopes",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "DELETE /services/{serviceId}/maintenance/scopes/{scopeId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /services/{serviceId}/inspection/scopes/{inspectionScopeId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /services/{serviceId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /items",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "PATCH /items/contract-prices/{contractPriceId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /items/contract-prices/{contractPriceId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "PATCH /items/sizes/{itemSizeId}/price",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/sizes",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/sizes/contract-price-options/{contractId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/sizes/export",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/sizes/prices",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /items/sizes",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "GET /items/sizes/{itemSizeId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/sizes/{itemSizeId}/price/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/sizes/{itemSizeId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /items/sizes/{itemSizeId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /items/sizes/{itemSizeId}/price",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "POST /items/sizes/{itemSizeId}/contract-prices",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "GET /items/{itemId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /items/{itemId}",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "PATCH /items/{itemId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /items/{itemId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-contracts",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /company-contracts",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "POST /company-contracts/{contractId}/prices/import",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "GET /company-contracts/{contractId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-contracts/{contractId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /company-contracts/{contractId}/submit",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /company-contracts/{contractId}/reject",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /company-contracts/{contractId}/approve",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "PATCH /company-contracts/{contractId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /company-contracts/{contractId}/revise",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "POST /company-contracts/{contractId}/terminate",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "DELETE /company-contracts/{contractId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-contract-prices",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /company-contract-prices/{contractPriceId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /quotations/{quotationId}/pdf",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /quotations/{quotationId}/approve",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /quotations/{quotationId}/submit",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /quotations/{quotationId}/reject",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /quotations/{quotationId}/revise",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "GET /quotations/{quotationId}/history",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /quotations",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "GET /quotations/{quotationId}",
+      "statuses": [
+        401,
+        400,
+        200,
+        404
+      ]
+    },
+    {
+      "operation": "PATCH /quotations/{quotationId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /quotations/{quotationId}/items",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "DELETE /quotations/{quotationId}/items/{itemId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /quotations/{quotationId}/work-orders",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "POST /quotations",
+      "statuses": [
+        401,
+        400,
+        201
+      ]
+    },
+    {
+      "operation": "DELETE /quotations/{quotationId}",
+      "statuses": [
+        401,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /internal/taxes/events",
+      "statuses": [
+        403,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /internal/users/events",
+      "statuses": [
+        403,
+        400,
+        200
+      ]
+    },
+    {
+      "operation": "POST /internal/work-orders/events",
+      "statuses": [
+        403,
+        400,
+        200
+      ]
+    }
+  ]
+}
