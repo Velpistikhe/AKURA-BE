@@ -3,7 +3,7 @@ const { randomUUID } = require('node:crypto');
 const express = require('express');
 const { prisma } = require('../dist/config/db.js');
 const routes = require('../dist/modules/items/item.routes.js').default;
-const { createItemScopeSchema } = require('../dist/modules/items/item.schemas.js');
+const { createItemScopeSchema, createItemSchema } = require('../dist/modules/items/item.schemas.js');
 
 async function main() {
   const branch = randomUUID();
@@ -41,6 +41,17 @@ async function main() {
     assert.equal(createItemScopeSchema.safeParse({ inspectionScopes: ['x'.repeat(501)] }).success, false);
     assert.equal(createItemScopeSchema.safeParse({ inspectionScopes: ['Same scope', '  same   scope  '] }).success, false);
     assert.equal(createItemScopeSchema.safeParse({ inspectionScopes: Array.from({ length: 101 }, (_, i) => `Scope ${i}`) }).success, false);
+
+    // Creation accepts inspection scopes for a standalone item only; a service
+    // item owns no scopes and a standalone item never owns maintenance scopes.
+    const base = { name: 'Rule item', uom: 'JOINT' };
+    assert.equal(createItemSchema.safeParse({ ...base, inspectionScopes: ['Visual'] }).success, true);
+    assert.equal(createItemSchema.safeParse({ ...base, serviceId: null, inspectionScopes: ['Visual'] }).success, true);
+    assert.equal(createItemSchema.safeParse({ ...base, maintenanceScopes: ['Cleaning'] }).success, false);
+    assert.equal(createItemSchema.safeParse({ ...base, serviceId: null, maintenanceScopes: ['Cleaning'] }).success, false);
+    assert.equal(createItemSchema.safeParse({ ...base, serviceId: randomUUID() }).success, true);
+    assert.equal(createItemSchema.safeParse({ ...base, serviceId: randomUUID(), inspectionScopes: ['Visual'] }).success, false);
+    assert.equal(createItemSchema.safeParse({ ...base, serviceId: randomUUID(), maintenanceScopes: ['Cleaning'] }).success, false);
 
     const standalone = await prisma.item.create({ data: {
       officeBranchId: branch, name: 'Standalone item', uom: 'JOINT', ...audit, activeKey: 'standalone item',

@@ -82,7 +82,7 @@ export const itemIdSchema = z.object({ itemId: z.string().uuid() }).strict();
 export const itemSizeIdSchema = z.object({ itemSizeId: z.string().uuid() }).strict();
 export const createItemSchema = z
   .object({
-    serviceId: z.string().uuid().optional(),
+    serviceId: z.string().uuid().nullable().optional(),
   inspectionScopes: z.array(referenceLabel(500)).max(100).default([])
     .refine(values => new Set(values.map(referenceKey)).size === values.length, 'Inspection scopes must be unique'),
   maintenanceScopes: z.array(referenceLabel(500)).max(100).default([])
@@ -95,6 +95,9 @@ export const createItemSchema = z
   .superRefine((value, ctx) => {
     if (value.serviceId && (value.inspectionScopes.length || value.maintenanceScopes.length)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['serviceId'], message: 'An item with a service cannot have scopes' });
+    }
+    if (!value.serviceId && value.maintenanceScopes.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['maintenanceScopes'], message: 'A standalone item can only have inspectionScopes' });
     }
   });
 

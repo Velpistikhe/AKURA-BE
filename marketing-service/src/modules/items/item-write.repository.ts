@@ -197,10 +197,9 @@ export const itemWriteRepository = {
     if (await tx.item.findFirst({ where: { officeBranchId: branch, serviceId: data.serviceId ?? null, isActive: true, OR: [{ activeKey }, { name: { equals: data.name, mode: 'insensitive' } }] } })) throw new HttpError('Item already exists', 409);
     const item = await tx.item.create({ data: {
       officeBranchId: branch, serviceId: data.serviceId, name: data.name, uom: data.uom, activeKey, ...createdBy(actor),
-      scopes: { create: [
-        ...data.inspectionScopes.map(scope => ({ type: 'INSPECTION' as const, scope, revoked: false })),
-        ...data.maintenanceScopes.map(scope => ({ type: 'MAINTENANCE' as const, scope, revoked: false })),
-      ] },
+      // A standalone item owns inspection scopes only; maintenance scopes belong
+      // to a service. The schema rejects the other combinations before this write.
+      scopes: { create: data.inspectionScopes.map(scope => ({ type: 'INSPECTION' as const, scope, revoked: false })) },
     } , include: { scopes: true } });
     await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];

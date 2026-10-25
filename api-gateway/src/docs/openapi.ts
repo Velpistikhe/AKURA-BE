@@ -1337,13 +1337,13 @@ export const openApiDocument = groupByModule({
       },
       CreateItemRequest: {
         type: 'object', additionalProperties: false, required: ['name', 'uom'],
-        description: 'Creates an item with an optional service. Standalone items may define inspectionScopes and maintenanceScopes; an item with serviceId cannot define scopes. Active item names are unique within the authenticated branch. Each sizes entry may include standard service/inspection and sister-company prices, plus both maintenance prices when the service has maintenance. Prices are created atomically with the sizes.',
+        description: 'Creates an item with an optional service. Standalone items (no serviceId) may define inspectionScopes only; maintenanceScopes are not accepted. An item with serviceId cannot define scopes. Active item names are unique within the authenticated branch. Each sizes entry may include standard service/inspection and sister-company prices, plus both maintenance prices when the service has maintenance. Prices are created atomically with the sizes.',
         properties: {
           serviceId: { type: 'string', format: 'uuid', nullable: true },
           name: { type: 'string', minLength: 1, maxLength: 200 },
           uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT', description: 'Required unit of measure; normalized and trimmed. Blank values are rejected.' },
-          inspectionScopes: { type: 'array', maxItems: 100, uniqueItems: true, default: [], items: { type: 'string', minLength: 1, maxLength: 500 }, description: 'Allowed only when serviceId is omitted.' },
-          maintenanceScopes: { type: 'array', maxItems: 100, uniqueItems: true, default: [], items: { type: 'string', minLength: 1, maxLength: 500 }, description: 'Allowed only when serviceId is omitted.' },
+          inspectionScopes: { type: 'array', maxItems: 100, uniqueItems: true, default: [], items: { type: 'string', minLength: 1, maxLength: 500 }, description: 'Allowed only when serviceId is omitted or null.' },
+          maintenanceScopes: { type: 'array', maxItems: 100, uniqueItems: true, default: [], items: { type: 'string', minLength: 1, maxLength: 500 }, description: 'Must be empty for items without a service (serviceId omitted or null); maintenance scopes are service-level only.' },
           sizes: { type: 'array', maxItems: 100, default: [], description: 'Empty or omitted creates one variant without a size. A size=null variant marks direct pricing and cannot coexist with additional sizes. Mixed null/named sizes return 409.', items: schemaRef('ItemSizeInput') },
         },
       },

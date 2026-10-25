@@ -112,7 +112,9 @@ async function main() {
     await request('GET', '/companies', 403, undefined, await identity({ officeBranchId: null }));
     await request('GET', '/companies', 403, undefined, await identity({ isActive: false }));
     const company = await request('POST', '/companies', 201, { name: `Contract ${branch}`, npwp: '0012345678901234', type: 'PT', address: 'Jakarta' });
-    const standalone = await request('POST', '/items', 201, { name: 'Standalone', uom: 'PCS', inspectionScopes: ['Visual'], maintenanceScopes: ['Cleaning'] });
+    const standalone = await request('POST', '/items', 201, { name: 'Standalone', uom: 'PCS', inspectionScopes: ['Visual'] });
+    // A standalone item accepts inspection scopes only.
+    await request('POST', '/items', 400, { name: 'Standalone scopes', uom: 'PCS', inspectionScopes: ['Visual'], maintenanceScopes: ['Cleaning'] });
     await request('GET', `/items/${standalone.id}`, 200);
     await request('DELETE', `/items/${standalone.id}`, 200, { version: standalone.version });
     await request('GET', `/companies/${company.id}`, 200);

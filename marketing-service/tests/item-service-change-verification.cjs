@@ -113,20 +113,20 @@ async function main() {
 
     // Item scopes are revoked when the item joins a service.
     const standalone = await request('POST', '', {
-      name: 'Scoped standalone', uom: 'JOINT', inspectionScopes: ['Visual'], maintenanceScopes: ['Cleaning'],
+      name: 'Scoped standalone', uom: 'JOINT', inspectionScopes: ['Visual'],
     }, 201);
     assert.equal(standalone.inspectionScopes.length, 1);
-    assert.equal(standalone.maintenanceScopes.length, 1);
+    assert.equal(standalone.maintenanceScopes.length, 0);
     const scoped = await request('PATCH', `/${standalone.id}`, { version: standalone.version, serviceId: serviceA.id });
     assert.equal(scoped.serviceId, serviceA.id);
     const scopes = await prisma.serviceScope.findMany({ where: { itemId: standalone.id } });
-    assert.equal(scopes.length, 2);
+    assert.equal(scopes.length, 1);
     assert.ok(scopes.every(scope => scope.revoked));
     assert.equal((await prisma.serviceScope.count({ where: { itemId: standalone.id, revoked: false } })), 0);
     // Detaching keeps the revoked scopes as history.
     const detached = await request('PATCH', `/${standalone.id}`, { version: scoped.version, serviceId: null });
     assert.equal(detached.serviceId, null);
-    assert.equal(await prisma.serviceScope.count({ where: { itemId: standalone.id, revoked: true } }), 2);
+    assert.equal(await prisma.serviceScope.count({ where: { itemId: standalone.id, revoked: true } }), 1);
 
     // The item history records the service change.
     const history = await itemHistoryRepository.read('ITEM', standalone.id, branch, { page: 1, limit: 20 });
