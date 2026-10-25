@@ -79,7 +79,11 @@ async function main() {
   assert(!noScope.includes('Scope of works:'), 'scope line must be omitted when empty');
   assert(!noScope.some(text => text.includes('Scope of works: -')), 'placeholder scope must not render');
   assert(noScope.includes('Type of service:'));
-  assert(noScope.some(text => text.includes('TUBULAR - Inspection')));
+  // The label carries the service name directly, without the service type prefix.
+  const serviceIndex = noScope.indexOf('Type of service:');
+  assert(serviceIndex >= 0, 'Type of service label expected');
+  assert.equal(noScope[serviceIndex + 1].trim(), 'Inspection', 'service name expected directly after the label');
+  assert(!noScope.some(text => text.includes('TUBULAR')), 'service type must not render');
 
   // 2. Job Location block with subtotal, tax and total price on the right.
   const totals = await capture([line(0, { serviceId: 's1', serviceScopes: 'Visual', inspectionScopes: 'Visual', maintenanceScopes: '' }, 'Drill Pipe')]);

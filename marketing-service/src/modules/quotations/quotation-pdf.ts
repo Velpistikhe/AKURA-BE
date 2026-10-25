@@ -170,7 +170,8 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     lineHeader();
     let lineNo = 0;
     for (const group of groupQuotationItems(quote.items)) {
-      const serviceLabel = `Type of service: ${group.type.replaceAll('_', ' ')} - ${group.name}`;
+      // The label shows the service name only; the service type prefix is not printed.
+      const serviceLabel = `Type of service: ${group.name}`;
       for (const chargeType of ['Inspection', 'Maintenance'] as const) {
         const charges = group.items.map(item => ({
           item,

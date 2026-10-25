@@ -122,8 +122,8 @@ export const quotationController = {
    * identity, branch and section. The payload carries quotationId with startDate,
    * endDate and inspectors as an array of { userId, name } pairs; Field Service
    * re-validates every pair against its FieldServiceUser snapshot and stores the
-   * confirmed userId and name. Quotation content is read from the snapshot that was
-   * synchronized at approval, so no quotation version is forwarded.
+   * confirmed userId and name. Quotation content is resolved live by Field Service from
+   * Marketing's quotation reference, so no quotation version is forwarded.
    */
   async createWorkOrder(req: Request, res: Response) {
     const input = createWorkOrderFromQuotationSchema.parse(req.body);
