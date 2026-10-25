@@ -13,6 +13,7 @@
         "test:contract": "node tests/swagger-contract.cjs && node tests/endpoint-contract-verification.cjs",
         "test:verification": "node tests/run-verification.cjs",
         "test:inspection": "node tests/inspection-scope-verification.cjs",
+  "test:item-scopes": "node tests/item-inspection-scope-verification.cjs",
         "test:item-price-payload": "node tests/item-price-payload-verification.cjs",
         "test:all": "npm run typecheck && npm test && npm run test:verification",
         "db:generate": "prisma generate",

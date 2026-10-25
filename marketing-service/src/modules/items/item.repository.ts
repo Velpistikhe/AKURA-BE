@@ -168,6 +168,8 @@ export const itemRepository = {
 
   addSize: (data: AddItemSizeInput, branch: string, actor: AuditActor) => itemWriteRepository.addSize(data, branch, actor).then(flattenSizePrice),
 
+  addInspectionScopes: (id: string, data: import('./item.schemas.js').CreateItemScopeInput, branch: string) => itemWriteRepository.addInspectionScopes(id, data, branch).then(flattenItemScopes),
+
   removeSize: (id: string, branch: string, actor: AuditActor, version: number) => itemWriteRepository.removeSize(id, branch, actor, version).then(flattenSizePrice),
   remove: (id: string, branch: string, actor: AuditActor, version: number) => itemWriteRepository.remove(id, branch, actor, version).then(flattenItemPrices),
 };

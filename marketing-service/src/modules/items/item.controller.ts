@@ -17,6 +17,9 @@ export const itemController = {
   addSize: async (req: Request, res: Response): Promise<void> => {
     send(req, res, 201, await itemService.addSize(res.locals.body, getOfficeBranchId(res), getAuditActor(res)));
   },
+  addInspectionScopes: async (req: Request, res: Response): Promise<void> => {
+    send(req, res, 201, await itemService.addInspectionScopes(res.locals.params.itemId, res.locals.body, getOfficeBranchId(res)));
+  },
   listSizes: async (req: Request, res: Response): Promise<void> => {
     send(req, res, 200, await itemService.listSizes(res.locals.query, getOfficeBranchId(res)));
   },

@@ -8,7 +8,7 @@ import { recordContractHistory } from '../contracts/contract-history.js';
 
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { CatalogEntity, recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
-import { AddItemSizeInput, CreateItemInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema, referenceKey, UpdatePriceInput } from './item.schemas.js';
+import { AddItemSizeInput, CreateItemInput, CreateItemScopeInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema, referenceKey, UpdatePriceInput } from './item.schemas.js';
 
 type Tx = Prisma.TransactionClient;
 // One shared lock order for catalog writes and company revision/copy operations.
@@ -215,6 +215,26 @@ export const itemWriteRepository = {
     const size = await insertSize(tx, branch, item, input, actor);
     const parent = await bumpItem(tx, branch, item, actor);
     return { ...size, itemVersion: parent.version };
+  }),
+  addInspectionScopes: (id: string, data: CreateItemScopeInput, branch: string) => write(branch, async tx => {
+    const item = await tx.item.findFirst({ where: { id, officeBranchId: branch } });
+    if (!item) throw new HttpError('Item not found', 404);
+    // A revoked (inactive) item cannot receive new scopes.
+    if (!item.isActive) throw new HttpError('Item is inactive', 409);
+    // Only standalone items (serviceId is null) may own scopes.
+    if (item.serviceId !== null) throw new HttpError('Items linked to a service cannot have scopes', 409);
+
+    // Skip scopes that are already active; a revoked row with the same
+    // scope text is reactivated to preserve the unique (itemId, type, scope) key.
+    const activeScopes = await tx.serviceScope.findMany({ where: { itemId: id, type: 'INSPECTION', revoked: false }, select: { scope: true } });
+    const activeKeys = new Set(activeScopes.map(row => referenceKey(row.scope)));
+    for (const scope of data.inspectionScopes) {
+      if (activeKeys.has(referenceKey(scope))) continue;
+      const previous = await tx.serviceScope.findFirst({ where: { itemId: id, type: 'INSPECTION', scope } });
+      if (previous) await tx.serviceScope.update({ where: { id: previous.id }, data: { revoked: false } });
+      else await tx.serviceScope.create({ data: { itemId: id, type: 'INSPECTION', scope } });
+    }
+    return tx.item.findUniqueOrThrow({ where: { id }, include: { scopes: { where: { revoked: false }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } } });
   }),
   updateItem: (id: string, data: UpdateItemInput, branch: string, actor: AuditActor) => write(branch, async tx => {
     const changingService = data.serviceId !== undefined;

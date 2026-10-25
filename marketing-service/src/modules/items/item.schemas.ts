@@ -107,11 +107,10 @@ export const addItemSizeSchema = z.object({
 }).strict();
 
 export const createItemScopeSchema = z.object({
-  inspectionScope: referenceLabel(500).optional(),
-  scope: referenceLabel(500).optional(),
-}).strict().refine(value => (value.inspectionScope !== undefined) !== (value.scope !== undefined), 'Provide exactly one scope field');
-export const itemInspectionScopeIdSchema = z.object({ itemId: z.string().uuid(), inspectionScopeId: z.string().uuid() }).strict();
-export const itemMaintenanceScopeIdSchema = z.object({ itemId: z.string().uuid(), scopeId: z.string().uuid() }).strict();
+  inspectionScopes: z.array(referenceLabel(500)).min(1).max(100)
+    .refine(values => new Set(values.map(referenceKey)).size === values.length, 'Inspection scopes must be unique'),
+}).strict();
+export const itemInspectionScopeIdSchema = z.object({ itemId: z.string().uuid() }).strict();
 export type CreateItemScopeInput = z.infer<typeof createItemScopeSchema>;
 
 export const itemHistorySchema = z.object({

@@ -1,7 +1,7 @@
 import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 import { itemRepository } from './item.repository.js';
-import { AddItemSizeInput, CreateItemInput, ListItemsInput, ListItemSizesInput, ListContractItemSizesInput } from './item.schemas.js';
+import { AddItemSizeInput, CreateItemInput, CreateItemScopeInput, ListItemsInput, ListItemSizesInput, ListContractItemSizesInput } from './item.schemas.js';
 import { AuditActor } from '../../types/auth.types.js';
 
 export const itemList = (query: ListItemsInput, officeBranchId: string) => itemRepository.list(query, officeBranchId);
@@ -9,6 +9,7 @@ export const itemList = (query: ListItemsInput, officeBranchId: string) => itemR
 export const itemService = {
   create: (data: CreateItemInput, officeBranchId: string, actor: AuditActor) => itemRepository.create(data, officeBranchId, actor),
   addSize: (data: AddItemSizeInput, officeBranchId: string, actor: AuditActor) => itemRepository.addSize(data, officeBranchId, actor),
+  addInspectionScopes: (id: string, data: CreateItemScopeInput, officeBranchId: string) => itemRepository.addInspectionScopes(id, data, officeBranchId),
   async listSizes(data: ListItemSizesInput, officeBranchId: string) {
     await this.validateSizeListItem(data, officeBranchId);
     return itemRepository.listSizes(data, officeBranchId);
