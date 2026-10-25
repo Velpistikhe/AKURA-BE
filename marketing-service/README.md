@@ -105,12 +105,24 @@ Endpoint katalog yang tersedia:
 | `/items` | GET | Daftar item aktif beserta service, tanpa memuat size |
 | `/items/:itemId` | GET | Detail item aktif beserta service tanpa memuat array size |
 | `/items/sizes` | GET | Daftar size aktif lintas item dalam branch pengguna; `itemId` opsional, filter `size`, `itemName`, `serviceName`, sort `size`, default `createdAt desc`, dengan pagination dan data `item.service` pada setiap row |
+| `/items/:itemId` | PATCH | Mengubah nama, satuan ukur, dan/atau service owner; `serviceId: null` membuat item standalone |
 | `/items` | POST | Membuat referensi item dan size opsional secara atomik; tiap entry `sizes` dapat sekaligus menyertakan harga standar (inspection/service, sister company, dan maintenance) yang divalidasi seperti POST `/items/sizes/:itemSizeId/price` |
 | `/items/sizes` | POST | Menambahkan referensi size; body wajib berisi `itemId`, `itemVersion`, dan `size`, serta opsional harga standar yang divalidasi seperti POST `/items/sizes/:itemSizeId/price` |
 | `/items/sizes/:itemSizeId` | DELETE | Menonaktifkan satu item size dan menutup periode harga standar tanpa menonaktifkan item induk atau harga kontrak |
 | `/items/:itemId` | DELETE | Menonaktifkan item, seluruh size aktif, dan harga standar; harga kontrak dipertahankan |
 
-PATCH item tersedia untuk mengubah nama. Label size tidak dapat diubah; perubahan daftar size dilakukan dengan menambah referensi baru atau soft delete size lama. PATCH dan DELETE wajib mengirim `version` resource terbaru; POST penambahan size wajib `itemVersion` parent terbaru. Versi stale menghasilkan `409`. Perubahan harga menaikkan versi size dan item; perubahan contract price juga menaikkan versi kontrak. Semua operasi katalog menggunakan satu urutan lock branch bersama operasi company dan service, transaksi atomik, compare-and-swap, dan audit before/after pada `catalog_audit_logs`. API audit hanya menyediakan pembacaan; aplikasi selalu menambahkan snapshot baru tanpa mengubah atau menghapus snapshot lama. Soft delete item/size hanya menutup harga standar aktif; harga kontrak dipertahankan dan riwayat yang sudah nonaktif tetap utuh.
+PATCH item tersedia untuk mengubah nama, satuan ukur, dan service owner. Label size tidak dapat diubah; perubahan daftar size dilakukan dengan menambah referensi baru atau soft delete size lama. PATCH dan DELETE wajib mengirim `version` resource terbaru; POST penambahan size wajib `itemVersion` parent terbaru. Versi stale menghasilkan `409`. Perubahan harga menaikkan versi size dan item; perubahan contract price juga menaikkan versi kontrak. Semua operasi katalog menggunakan satu urutan lock branch bersama operasi company dan service, transaksi atomik, compare-and-swap, dan audit before/after pada `catalog_audit_logs`. API audit hanya menyediakan pembacaan; aplikasi selalu menambahkan snapshot baru tanpa mengubah atau menghapus snapshot lama. Soft delete item/size hanya menutup harga standar aktif; harga kontrak dipertahankan dan riwayat yang sudah nonaktif tetap utuh.
+
+### Perpindahan service pada item
+
+PATCH `/items/:itemId` menerima `serviceId` sebagai UUID atau `null`. Field yang tidak dikirim tidak mengubah service; `null` melepas item dari service sehingga menjadi item standalone. Aturan perpindahan:
+
+- Service tujuan harus aktif dan berada di branch yang sama; service yang sudah dinonaktifkan, tidak ditemukan, atau milik branch lain menghasilkan `409`.
+- Service asal dan tujuan harus memiliki status `hasMaintenance` yang sama. Item standalone dianggap tanpa maintenance. Perpindahan dari atau ke service dengan maintenance, serta pelepasan item dari service dengan maintenance, menghasilkan `409`. Item hanya dapat masuk service dengan maintenance melalui `POST /items`.
+- Nama aktif item unik per service. Jika service tujuan sudah memiliki item aktif dengan `activeKey` yang sama, hasilnya `409`. Nama yang dihitung adalah nama baru bila permintaan juga mengubah nama, atau nama item saat ini bila nama tidak dikirim.
+- Item yang berpindah ke sebuah service mengikuti scope service tersebut, sehingga scope milik item sendiri di-nonaktifkan (`revoked=true`) dan disimpan sebagai riwayat. Melepas item dari service tidak memulihkan scope lama.
+- Item tetap dapat dipindahkan keluar dari service yang sudah dinonaktifkan. Pengubahan lain pada item yang service-nya nonaktif tetap ditolak `409`.
+- Harga kontrak dan quotation tidak berubah. `company_contract_prices.catalogSnapshot` dan data quotation tetap memakai snapshot saat disimpan, sesuai sifat data historis.
 
 Saat POST harga, harga service primary, sister company, dan contract wajib dikirim; tidak memiliki default `0`. Nilai negatif, null untuk service price, boolean, string kosong, dan lebih dari dua desimal ditolak (`400`). Gunakan string desimal untuk nominal besar. Nilai `0` eksplisit valid. Maintenance price boleh null kecuali service memiliki maintenance, saat itu harga maintenance wajib lengkap. GET harga yang hilang tidak membuat harga nol: GET detail price mengembalikan `404`, daftar size mengembalikan `priceStatus=UNAVAILABLE` dan harga null.
 

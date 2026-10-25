@@ -25,20 +25,21 @@ const updatedBy = (actor: AuditActor) => ({ updatedById: actor.id, updatedByName
 const contractUpdatedBy = (actor: AuditActor) => ({ updatedById: actor.id, version: { increment: 1 } });
 type ItemCatalogEntity = Exclude<CatalogEntity, 'SERVICE' | 'SERVICE_SCOPE' | 'MAINTENANCE_SCOPE'>;
 const delegates = { ITEM: 'item', ITEM_SIZE: 'itemSize', ITEM_PRICE: 'itemPrice', COMPANY_CONTRACT_PRICE: 'companyContractPrice', COMPANY_CONTRACT: 'companyContract' } as const;
-const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before: any, data: any, actor: AuditActor, action = 'UPDATE') => {
+const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before: any, data: any, actor: AuditActor, action = 'UPDATE', afterExtra?: Record<string, unknown>) => {
   const delegate = tx[delegates[entity]] as any;
   const after = await delegate.update({ where: { id: before.id, version: before.version }, data: {
     ...data, ...(entity === 'COMPANY_CONTRACT' ? contractUpdatedBy(actor) : updatedBy(actor)),
   } });
-  await recordCatalogAudit(tx, branch, entity, before, after, actor, action);
+  await recordCatalogAudit(tx, branch, entity, before, afterExtra ? { ...after, ...afterExtra } : after, actor, action);
   if (entity === 'COMPANY_CONTRACT') await recordContractHistory(tx, before, after, actor, action);
   return after;
 };
-const itemInBranch = async (tx: Tx, id: string, branch: string) => {
+const itemInBranch = async (tx: Tx, id: string, branch: string, allowInactiveService = false) => {
   const item = await tx.item.findFirst({ where: { id, officeBranchId: branch }, include: { service: true } });
   if (!item) throw new HttpError('Item not found', 404);
   if (item.service && item.service.officeBranchId !== branch) throw new HttpError('Service does not belong to the current branch', 404);
-  if (item.service && !item.service.isActive) throw new HttpError('Service is inactive', 409);
+  // A service change may rescue an item whose service was already deactivated.
+  if (item.service && !item.service.isActive && !allowInactiveService) throw new HttpError('Service is inactive', 409);
   if (!item.isActive) throw new HttpError('Item is inactive', 409);
   return item;
 };
@@ -216,18 +217,54 @@ export const itemWriteRepository = {
     return { ...size, itemVersion: parent.version };
   }),
   updateItem: (id: string, data: UpdateItemInput, branch: string, actor: AuditActor) => write(branch, async tx => {
-    const item = await itemInBranch(tx, id, branch);
+    const changingService = data.serviceId !== undefined;
+    // A service change may rescue an item whose service was already deactivated.
+    const item = await itemInBranch(tx, id, branch, changingService);
     requireCatalogVersion(item, data.version);
     const { service, ...before } = item;
-    const updates: Prisma.ItemUpdateInput = {};
+    // Unchecked input accepts the raw serviceId foreign key.
+    const updates: Prisma.ItemUncheckedUpdateInput = {};
+    if (changingService) {
+      const requestedServiceId = data.serviceId ?? null;
+      const targetService = requestedServiceId === null ? null : await tx.service.findFirst({
+        where: { id: requestedServiceId, officeBranchId: branch, isActive: true },
+        select: { id: true, name: true, hasMaintenance: true, isActive: true },
+      });
+      if (requestedServiceId !== null && !targetService) throw new HttpError('Service is inactive or not found', 409);
+      // Source and target must agree on maintenance: price validation and the
+      // quotation subtotal both follow the service maintenance flag.
+      if ((service?.hasMaintenance ?? false) !== (targetService?.hasMaintenance ?? false)) {
+        throw new HttpError('Source and target services must have the same maintenance status', 409);
+      }
+      if (requestedServiceId !== item.serviceId) {
+        // The active name key is unique per service, so the target service must
+        // not already hold an active item with the same effective name.
+        const activeKey = referenceKey(data.name ?? item.name);
+        const duplicate = await tx.item.findFirst({ where: {
+          officeBranchId: branch, serviceId: requestedServiceId, activeKey, isActive: true, id: { not: id },
+        }, select: { id: true } });
+        if (duplicate) throw new HttpError('An active item with this name already exists in the target service', 409);
+        updates.serviceId = requestedServiceId;
+        // A service-linked item follows the target service scopes. Item-owned
+        // scopes are revoked and kept as history instead of being deleted.
+        if (requestedServiceId !== null) {
+          await tx.serviceScope.updateMany({ where: { itemId: id, revoked: false }, data: { revoked: true } });
+        }
+      }
+    }
     if (data.name !== undefined) {
       const activeKey = referenceKey(data.name);
-      if (await tx.item.findFirst({ where: { officeBranchId: branch, activeKey, isActive: true, id: { not: id } } })) throw new HttpError('Item already exists in this branch', 409);
+      if (await tx.item.findFirst({ where: { officeBranchId: branch, serviceId: changingService ? data.serviceId ?? null : item.serviceId, activeKey, isActive: true, id: { not: id } } })) throw new HttpError('Item already exists in this service', 409);
       updates.name = data.name;
       updates.activeKey = activeKey;
     }
     if (data.uom !== undefined) updates.uom = data.uom;
-    return change(tx, branch, 'ITEM', before, updates, actor);
+    // Scope rows carry no version or audit trail, so capture them in the ITEM snapshot.
+    const scopeSnapshot = await tx.serviceScope.findMany({ where: { itemId: id }, orderBy: { id: 'asc' } });
+    const auditedBefore = { ...before, scopes: scopeSnapshot };
+    const after = await change(tx, branch, 'ITEM', auditedBefore, updates, actor, 'UPDATE',
+      { scopes: await tx.serviceScope.findMany({ where: { itemId: id }, orderBy: { id: 'asc' } }) });
+    return after;
   }),
   removeSize: (id: string, branch: string, actor: AuditActor, version: number) => write(branch, async tx => {
     const { size, item } = await sizeInBranch(tx, id, branch);

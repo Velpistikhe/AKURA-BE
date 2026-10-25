@@ -82,7 +82,7 @@ export const catalogSchemas = {
   CatalogMoney: money,
   CatalogNullableMoney: optionalMoney,
   CatalogVersionRequest: input({ version }, ['version']),
-  UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name or uom. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected.' },
+  UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' }, serviceId: { ...uuid, nullable: true, description: 'Target service. Provide a service UUID to move the item, or null to detach it and make it standalone. Omit the field to keep the current service.' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name, uom or serviceId. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected. A service change requires an active service in the same branch and the same maintenance status as the current service; a name that already exists in the target service returns 409. Moving the item into a service revokes its own scopes so it follows the target service scopes. Contract prices and quotations keep their stored snapshots and are not changed.' },
   CatalogPriceRequest: { ...input({ ...standard }, ['priceServicePrimary']), description: 'Primary service price is required; sister-company price is optional. A size must retain at least one active primary price.' },
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
   UpdateCatalogPriceRequest: { ...input({ version, ...standard, isActive: { type: 'boolean', description: 'An active standard price may be deactivated. An inactive standard price may be explicitly reactivated with true only while its size, item and optional service remain active.' } }, ['version']), minProperties: 2, description: 'Partial PATCH: provide version and at least one editable field. Omitted amounts are preserved. The merged price must satisfy maintenance requirements. An inactive standard price requires isActive=true; reactivation starts a new effective period. Inactive parent records or stale versions return 409.' },
@@ -109,7 +109,7 @@ export const catalogSchemas = {
   ContractPriceOptionListResponse: paginated('sizes', ref('ContractPriceOption')),
   CatalogContractSizeListResponse: paginated('sizes', sizeRow),
   CatalogSizeDetailResponse: envelope(object({ id: uuid, itemId: uuid, size: { type: 'string', nullable: true, description: 'Null for an item variant without a size.' }, ...audit, ...periods, isActive: { type: 'boolean' }, price: { ...price, nullable: true }, item: ref('ItemListRow') }, ['id', 'itemId', 'version', 'size', 'price', 'item'])),
-  CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: uuid, name: { type: 'string' }, uom: { type: 'string', example: 'JOINT' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'uom', 'version'])),
+  CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: { ...uuid, nullable: true, description: 'Owning service. Null means the item is standalone.' }, name: { type: 'string' }, uom: { type: 'string', example: 'JOINT' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'uom', 'version'])),
   QuotationSizeOption: object({
     id: uuid, itemId: uuid, size: {type:'string',nullable:true}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
     item: object({id:uuid,name:{type:'string'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
@@ -210,7 +210,7 @@ export const catalogPaths = {
   },
   [`${root}/items/{itemId}`]: {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),
-    patch: operation('Update item name or unit of measure using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest'),
+    patch: operation('Update item name, unit of measure or owning service using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest', 200, 'The service can be replaced by another active service in the same branch or detached with null. Source and target services must share the same maintenance status, and the effective item name must be unique in the target service; conflicts return 409. Item-owned scopes are revoked when the item joins a service, and the item then follows the target service scopes. Contract prices and quotations keep their stored snapshots.'),
     delete: operation('Deactivate item, active sizes and standard prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Contract prices and contract versions remain unchanged; no contract is created automatically. Historical inactive records remain unchanged.'),
   },
   [`${root}/items/sizes/prices`]: {

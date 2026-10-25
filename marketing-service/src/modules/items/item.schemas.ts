@@ -45,8 +45,14 @@ const priceFields = {
 export const versionSchema = z.object({ version: z.number().int().nonnegative() }).strict();
 export const referenceLabel = (max: number) => z.string().trim().min(1).max(max).transform(value => value.normalize('NFKC').replace(/\s+/g, ' ').trim()).pipe(z.string().min(1).max(max));
 export const referenceKey = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
-export const updateItemSchema = versionSchema.extend({ name: referenceLabel(200).optional(), uom: referenceLabel(50).optional() })
-  .refine(value => value.name !== undefined || value.uom !== undefined, 'At least one editable field is required');
+// serviceId is nullable: null detaches the item from its service and makes it standalone.
+// An omitted serviceId keeps the current service unchanged.
+export const updateItemSchema = versionSchema.extend({
+  name: referenceLabel(200).optional(),
+  uom: referenceLabel(50).optional(),
+  serviceId: z.string().uuid().nullable().optional(),
+})
+  .refine(value => value.name !== undefined || value.uom !== undefined || value.serviceId !== undefined, 'At least one editable field is required');
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
 export const createItemPriceSchema = z.object(priceFields).strict();
 export const updateItemPriceSchema = createItemPriceSchema.partial().extend({ version: versionSchema.shape.version, isActive: z.boolean().optional() })
