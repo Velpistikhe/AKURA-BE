@@ -141,12 +141,11 @@ export type InspectorReference = z.infer<typeof inspectorReferenceSchema>;
 const inspectorListSchema = z.object({ inspectors: z.array(inspectorReferenceSchema) });
 export type StoredInspector = { userId: string | null; name: string };
 /**
- * Notifies Marketing that a Work Order was revoked so the quotation reference
- * is cleared on the Marketing side. The callback runs inside the revoke
- * transaction: a failure aborts the transaction, so the Work Order stays live
- * and both services keep agreeing on the quotation state.
+ * Notifies Marketing of a Work Order status transition. For revokes the callback
+ * also clears the quotation reference; it is synchronous so any failure aborts
+ * the Field Service transaction and the two services remain consistent.
  */
-export async function notifyMarketingWorkOrderRevoked(workOrder: { id: string; quotationId: string | null; officeBranchId: string }, req: Request): Promise<void> {
+export async function notifyMarketingWorkOrderStatus(workOrder: { id: string; number: string; status: string; quotationId: string | null; officeBranchId: string; revoked?: boolean }, req: Request): Promise<void> {
   if (!workOrder.quotationId) return;
   if (!env.WORK_ORDER_SYNC_SECRET) throw new HttpError('Work Order callback credentials are not configured', 503);
   const callbackPath = 'marketing/internal/work-orders/events';
@@ -157,16 +156,16 @@ export async function notifyMarketingWorkOrderRevoked(workOrder: { id: string; q
       headers: { 'content-type': 'application/json', 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET,
         ...serviceHeaders(callbackPath), ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
       body: JSON.stringify({ workOrderId: workOrder.id, quotationId: workOrder.quotationId, officeBranchId: workOrder.officeBranchId,
-        revoked: true, workOrderSnapshot: { ...workOrder, revoked: true } }),
+        revoked: workOrder.revoked === true, workOrderSnapshot: workOrder }),
     });
-  } catch { throw new HttpError('Marketing Service is unavailable; Work Order revoke was not applied', 503); }
+  } catch { throw new HttpError('Marketing Service is unavailable; Work Order status change was not applied', 503); }
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new HttpError(body?.message || 'Marketing Service rejected the Work Order revoke', response.status === 404 || response.status === 409 ? response.status : 503);
+    throw new HttpError(body?.message || 'Marketing Service rejected the Work Order status change', response.status === 404 || response.status === 409 ? response.status : 503);
   }
   const acknowledgment = await response.json().catch(() => null) as { success?: boolean; workOrderId?: string } | null;
   if (acknowledgment?.success !== true || acknowledgment.workOrderId !== workOrder.id) {
-    throw new HttpError('Invalid acknowledgment from Marketing Service; Work Order revoke was not applied', 502);
+    throw new HttpError('Invalid acknowledgment from Marketing Service; Work Order status change was not applied', 502);
   }
 }
 

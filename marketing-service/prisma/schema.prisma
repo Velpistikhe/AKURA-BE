@@ -350,6 +350,12 @@ enum InquiryMethod {
   @@map("inquiry_method")
 }
 
+enum WorkOrderStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+}
+
 enum QuotationStatus {
   CREATED
   SUBMITTED
@@ -427,6 +433,8 @@ model Quotation {
   isActive            Boolean            @default(true) @map("is_active")
   /// True while the quotation backs a live Work Order in Field Service.
   hasWorkOrder        Boolean            @default(false) @map("has_work_order")
+  /// Mirrored Field Service status; null for canceled or unlinked Work Orders.
+  workOrderStatus     WorkOrderStatus?   @map("work_order_status")
   /// Field Service Work Order id. Remote reference, not a foreign key.
   workOrderId         String?            @map("work_order_id") @db.Uuid
   /// Work Order identity captured when the work order was published.

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { quotationRepository } from './quotation.repository.js';
+import { quotationRepository, workOrderStatusMirror } from './quotation.repository.js';
 
 /**
  * Service-to-service Work Order link state delivered by Field Service.
@@ -19,7 +19,7 @@ export const workOrderSyncEventSchema = z.object({
   quotationId: z.string().uuid(),
   officeBranchId: z.string().uuid(),
   revoked: z.boolean(),
-  workOrderSnapshot: z.object({ number: z.string().min(1).max(100), status: z.string().min(1).max(50) }).catchall(z.unknown()),
+  workOrderSnapshot: z.object({ number: z.string().min(1).max(100), status: z.enum(['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED']) }).catchall(z.unknown()),
 }).strict();
 export type WorkOrderSyncEvent = z.infer<typeof workOrderSyncEventSchema>;
 
@@ -28,9 +28,12 @@ export async function applyWorkOrderSyncEvent(input: unknown) {
   if (!parsed.success) throw new HttpError('Invalid Work Order sync event', 400);
   const { workOrderId, quotationId, officeBranchId, revoked, workOrderSnapshot } = parsed.data;
   const workOrder = { id: workOrderId, number: workOrderSnapshot.number, status: workOrderSnapshot.status, quotationId, officeBranchId, revoked };
+  // A canceled Work Order clears the mirrored status instead of storing one it
+  // does not have; a revoked Work Order clears the whole reference.
+  const workOrderStatus = workOrderStatusMirror(workOrderSnapshot.status);
   if (revoked) await quotationRepository.clearWorkOrder(quotationId, officeBranchId, workOrderId);
   else await quotationRepository.attachWorkOrder(quotationId, officeBranchId, workOrder, { id: workOrderId, name: 'Field Service' });
-  return { success: true, workOrderId, quotationId, revoked };
+  return { success: true, workOrderId, quotationId, revoked, workOrderStatus };
 }
 
 const router = Router();

@@ -82,6 +82,10 @@ export const catalogSchemas = {
   CatalogMoney: money,
   CatalogNullableMoney: optionalMoney,
   CatalogVersionRequest: input({ version }, ['version']),
+
+  CreateItemInspectionScopesRequest: { ...input({ inspectionScopes: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 500 } } }, ['inspectionScopes']), description: 'Inspection scopes to add in one request. Scope strings are normalized and trimmed, must be unique within the request, and active duplicate scopes already on the item are skipped. Revoked scope rows with matching text are reactivated.' },
+
+
   UpdateItemRequest: { ...input({ version, name: { type: 'string', minLength: 1, maxLength: 200 }, uom: { type: 'string', minLength: 1, maxLength: 50, example: 'JOINT' }, serviceId: { ...uuid, nullable: true, description: 'Target service. Provide a service UUID to move the item, or null to detach it and make it standalone. Omit the field to keep the current service.' } }, ['version']), minProperties: 2, description: 'Provide version and at least one of name, uom or serviceId. Omitted fields are preserved. Unit of measure is normalized and trimmed; null and blank values are rejected. A service change requires an active service in the same branch and the same maintenance status as the current service; a name that already exists in the target service returns 409. Moving the item into a service revokes its own scopes so it follows the target service scopes. Contract prices and quotations keep their stored snapshots and are not changed.' },
   CatalogPriceRequest: { ...input({ ...standard }, ['priceServicePrimary']), description: 'Primary service price is required; sister-company price is optional. A size must retain at least one active primary price.' },
   UpdateContractPriceRequest: input({ version, priceService: money, priceMaintenance: optionalMoney, isActive: { type: 'boolean' } }, ['version', 'priceService']),
@@ -212,6 +216,9 @@ export const catalogPaths = {
     get: operation('Get active item', 'ItemDetailResponse', [path('itemId')]),
     patch: operation('Update item name, unit of measure or owning service using its current version', 'CatalogItemMutationResponse', [path('itemId')], 'UpdateItemRequest', 200, 'The service can be replaced by another active service in the same branch or detached with null. Source and target services must share the same maintenance status, and the effective item name must be unique in the target service; conflicts return 409. Item-owned scopes are revoked when the item joins a service, and the item then follows the target service scopes. Contract prices and quotations keep their stored snapshots.'),
     delete: operation('Deactivate item, active sizes and standard prices atomically', 'ItemResponse', [path('itemId')], 'CatalogVersionRequest', 200, 'Soft deletion; all changed rows increment version and append before/after audit snapshots. Contract prices and contract versions remain unchanged; no contract is created automatically. Historical inactive records remain unchanged.'),
+  },
+  [`${root}/items/{itemId}/scopes`]: {
+    post: operation('Add one or more inspection scopes to a standalone item', 'ItemDetailResponse', [path('itemId')], 'CreateItemInspectionScopesRequest', 201, 'The item must be active, belong to the authenticated branch and have serviceId=null. Items linked to a service or inactive items are rejected. Existing active scopes are skipped.'),
   },
   [`${root}/items/sizes/prices`]: {
     get: operation(

@@ -1,7 +1,7 @@
 import { applicableTax } from '../taxes/tax-sync.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { priceContext, resolveQuotationPrice, quotationSizeInclude, PriceContext } from '../items/quotation-price.js';
-import { Prisma, ServiceType } from '@prisma/client';
+import { Prisma, ServiceType, WorkOrderStatus } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -15,6 +15,7 @@ const listSelect = {
   id: true, officeBranchId: true, no: true, numberYear: true, date: true,
   subject: true, customerSnapshot: true, companySnapshot: true,
   status: true, invoiceStatus: true, subTotal: true, taxAmount: true, total: true,
+  workOrderStatus: true,
   version: true, revision: true, isActive: true, hasWorkOrder: true, workOrderId: true,
   createdById: true, createdByName: true, updatedById: true, updatedByName: true,
   createdAt: true, updatedAt: true,
@@ -26,6 +27,18 @@ const detailInclude = { pdfDocument: true, items: { where: { isActive: true }, o
 
 export const approvableStatuses = ['SUBMITTED'] as const;
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
+
+/**
+ * Mirrors a Field Service Work Order status onto the quotation. A canceled Work
+ * Order clears the mirror instead of storing a status it does not have, and an
+ * unknown status is rejected so the quotation never holds a value that Field
+ * Service did not report.
+ */
+export const workOrderStatusMirror = (status: string): WorkOrderStatus | null => {
+  if (status === 'CANCELED') return null;
+  if (status === 'DRAFT' || status === 'IN_PROGRESS' || status === 'COMPLETED') return status;
+  throw new HttpError('Unsupported Work Order status', 400);
+};
 
 export const canEditQuotation = (status: string, actor: AuditActor): boolean => {
   if (actor.section !== 'MARKETING') return false;
@@ -98,7 +111,7 @@ const historyFields = [
   ['location', 'Location'], ['accomplished', 'Accomplished'], ['deliveryReports', 'Delivery reports'], ['deliveryInvoice', 'Delivery invoice'],
   ['staffId', 'Staff'], ['customerSnapshot', 'Customer'], ['companySnapshot', 'Company'], ['status', 'Status'], ['invoiceStatus', 'Invoice status'],
   ['subTotal', 'Subtotal'], ['taxAmount', 'Tax amount'], ['total', 'Total'], ['revision', 'Revision'], ['isActive', 'Active status'],
-  ['hasWorkOrder', 'Work order status'], ['workOrderId', 'Work order'],
+  ['hasWorkOrder', 'Work order link'], ['workOrderStatus', 'Work order status'], ['workOrderId', 'Work order'],
   ['items', 'Quotation items'],
 ] as const;
 const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -167,17 +180,22 @@ export const quotationRepository = {
   async attachWorkOrder(id: string, officeBranchId: string, workOrder: { id: string; number: string; status: string; quotationId: string | null }, actor: AuditActor) {
     return prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
-      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true, isActive: true, status: true } });
+      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true, isActive: true, status: true, workOrderStatus: true } });
       if (!quote) throw new HttpError('Quotation not found', 404);
-      // Idempotent retry: the same Work Order may already be linked.
-      if (quote.hasWorkOrder && quote.workOrderId === workOrder.id) return tx.quotation.findUniqueOrThrow({ where: { id }, include });
+      const workOrderStatus = workOrderStatusMirror(workOrder.status);
+      // Retries and subsequent status events for the same Work Order are idempotent.
+      if (quote.hasWorkOrder && quote.workOrderId === workOrder.id) {
+        if (quote.workOrderStatus !== workOrderStatus) {
+          await tx.quotation.update({ where: { id }, data: { workOrderStatus, workOrderSnapshot: json(workOrder), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+          await saveRevision(tx, id, actor, 'WORK_ORDER_STATUS');
+        }
+        return tx.quotation.findUniqueOrThrow({ where: { id }, include });
+      }
       if (quote.hasWorkOrder || quote.workOrderId) throw new HttpError('Quotation already has a Work Order', 409);
-      // A revision may have claimed the row while Field Service was creating the
-      // Work Order; the caller compensates by revoking the new Work Order.
       if (!quote.isActive || quote.status !== 'APPROVED') throw new HttpError('Quotation is no longer an active APPROVED quotation', 409);
       const claimed = await tx.quotation.updateMany({
         where: { id, officeBranchId, hasWorkOrder: false, workOrderId: null },
-        data: { hasWorkOrder: true, workOrderId: workOrder.id, workOrderSnapshot: json(workOrder), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
+        data: { hasWorkOrder: true, workOrderId: workOrder.id, workOrderStatus, workOrderSnapshot: json(workOrder), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
       });
       if (!claimed.count) throw new HttpError('Quotation already has a Work Order', 409);
       await saveRevision(tx, id, actor, 'WORK_ORDER_LINKED');
@@ -192,11 +210,11 @@ export const quotationRepository = {
   async clearWorkOrder(id: string, officeBranchId: string, workOrderId: string) {
     return prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
-      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true } });
+      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true, workOrderStatus: true } });
       if (!quote) throw new HttpError('Quotation not found', 404);
-      if (!quote.hasWorkOrder && !quote.workOrderId) return;
+      if (!quote.hasWorkOrder && !quote.workOrderId && quote.workOrderStatus === null) return;
       if (quote.workOrderId !== workOrderId) throw new HttpError('Quotation is linked to a different Work Order', 409);
-      await tx.quotation.update({ where: { id }, data: { hasWorkOrder: false, workOrderId: null, workOrderSnapshot: Prisma.DbNull, version: { increment: 1 } } });
+      await tx.quotation.update({ where: { id }, data: { hasWorkOrder: false, workOrderId: null, workOrderStatus: null, workOrderSnapshot: Prisma.DbNull, version: { increment: 1 } } });
       await saveRevision(tx, id, { id: workOrderId, name: 'Field Service' }, 'WORK_ORDER_UNLINKED');
     }, { maxWait: 10000, timeout: 20000 });
   },

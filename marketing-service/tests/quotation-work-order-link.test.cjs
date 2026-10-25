@@ -62,12 +62,14 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
       attachCalls.push({ id, officeBranchId, order });
       quotation.hasWorkOrder = true;
       quotation.workOrderId = order.id;
+      quotation.workOrderStatus = order.status === 'CANCELED' ? null : order.status;
       return quotation;
     };
     quotationRepository.clearWorkOrder = async (id, officeBranchId, orderId) => {
       clearCalls.push({ id, officeBranchId, orderId });
       quotation.hasWorkOrder = false;
       quotation.workOrderId = null;
+      quotation.workOrderStatus = null;
     };
     let reviseCalled = false;
     quotationRepository.revise = async () => { reviseCalled = true; return quotation; };
@@ -137,13 +139,22 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     assert.equal(attachCalls[0].order.id, workOrderId);
     assert.equal(attachCalls[0].officeBranchId, branch);
 
-    await clearWorkOrderEvent({ workOrderId, quotationId, officeBranchId: branch, revoked: true, workOrderSnapshot: { number: workOrder.number, status: workOrder.status } });
+    await clearWorkOrderEvent({ workOrderId, quotationId, officeBranchId: branch, revoked: false, workOrderSnapshot: { number: workOrder.number, status: 'IN_PROGRESS' } });
+    assert.equal(quotation.workOrderStatus, 'IN_PROGRESS', 'status updates for an already linked Work Order must be mirrored');
+    await clearWorkOrderEvent({ workOrderId, quotationId, officeBranchId: branch, revoked: false, workOrderSnapshot: { number: workOrder.number, status: 'COMPLETED' } });
+    assert.equal(quotation.workOrderStatus, 'COMPLETED');
+    await clearWorkOrderEvent({ workOrderId, quotationId, officeBranchId: branch, revoked: false, workOrderSnapshot: { number: workOrder.number, status: 'CANCELED' } });
+    assert.equal(quotation.workOrderStatus, null, 'CANCELED must clear workOrderStatus');
+    assert.equal(clearCalls.length, 0, 'CANCELED clears only the mirrored status and retains the Work Order link');
+
+    await clearWorkOrderEvent({ workOrderId, quotationId, officeBranchId: branch, revoked: true, workOrderSnapshot: { number: workOrder.number, status: 'CANCELED' } });
     assert.equal(clearCalls.length, 1, 'the revoke event must clear the quotation reference');
     assert.equal(clearCalls[0].orderId, workOrderId);
     assert.equal(quotation.hasWorkOrder, false);
     assert.equal(quotation.workOrderId, null);
+    assert.equal(quotation.workOrderStatus, null);
 
-    console.log('PASS: Work Order link state is stored on create, cleared on revoke, and blocks quotation revisions.');
+    console.log('PASS: Work Order link state is stored on create, status changes are mirrored, CANCELED clears the status, and revoke clears the link.');
   } finally {
     global.fetch = originalFetch;
     quotationRepository.findActive = originalFindActive;

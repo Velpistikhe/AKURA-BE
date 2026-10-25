@@ -202,6 +202,14 @@ async function main() {
     const workOrder = await request('POST', `/quotations/${quotation.id}/work-orders`, 201, { quotationId: quotation.id, startDate: '2026-11-01', endDate: '2026-11-02', inspectors: [{ userId: randomUUID(), name: 'Inspector Test' }] });
     const event = { workOrderId: workOrder.id, quotationId: quotation.id, officeBranchId: branch, revoked: false, workOrderSnapshot: { number: workOrder.number, status: workOrder.status } };
     await request('POST', '/internal/work-orders/events', 200, event, null, { 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET });
+    quotation = await prisma.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+    assert.equal(quotation.workOrderStatus, 'DRAFT', 'the linked Work Order status must be mirrored onto the quotation');
+    await request('POST', '/internal/work-orders/events', 200, { ...event, workOrderSnapshot: { number: workOrder.number, status: 'IN_PROGRESS' } }, null, { 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET });
+    quotation = await prisma.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+    assert.equal(quotation.workOrderStatus, 'IN_PROGRESS');
+    await request('POST', '/internal/work-orders/events', 200, { ...event, workOrderSnapshot: { number: workOrder.number, status: 'CANCELED' } }, null, { 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET });
+    quotation = await prisma.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+    assert.equal(quotation.workOrderStatus, null, 'CANCELED must clear the mirrored Work Order status');
     await request('POST', '/internal/work-orders/events', 200, { ...event, revoked: true }, null, { 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET });
     quotation = await prisma.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
     await request('DELETE', `/quotations/${quotation.id}`, 200, { version: quotation.version });

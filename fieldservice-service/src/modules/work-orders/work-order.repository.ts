@@ -267,7 +267,7 @@ export const workOrderRepository = {
     if (!workOrder) throw new HttpError('Work order not found', 404);
     return workOrder;
   },
-  async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+  async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
     const { version, inspectors, quotationId, contractId, performaInvoiceId, ...fields } = input;
     const quotation = (quotationId !== undefined || contractId !== undefined || performaInvoiceId !== undefined)
       ? reference({ quotationId, contractId, performaInvoiceId }, quote, actor) : {};
@@ -311,8 +311,13 @@ export const workOrderRepository = {
         }
       }
       const row = await tx.workOrder.update({ where: { id }, data: { ...fields, ...quotation }, include });
-      return saveHistory(tx, row, before, actor, 'UPDATE');
-    });
+      const history = await saveHistory(tx, row, before, actor, 'UPDATE');
+      // Marketing is told before the commit. A failed callback aborts the
+      // transaction, so the Work Order status and the mirrored quotation
+      // status cannot disagree.
+      if (beforeCommit && row.quotationId && row.status !== before?.status) await beforeCommit(row);
+      return history;
+    }, { maxWait: 10000, timeout: 20000 });
   },
   /**
    * DRAFT -> IN_PROGRESS. For quotation-based orders the stored snapshot is
@@ -322,7 +327,7 @@ export const workOrderRepository = {
    * The claim itself is an optimistic updateMany on status/version/revoked, so
    * concurrent starters cannot both succeed.
    */
-  async start(id: string, version: number, quote: QuotationSnapshot | null, actor: Actor) {
+  async start(id: string, version: number, quote: QuotationSnapshot | null, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
     const stored = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
     if (!stored) throw new HttpError('Work order not found', 404);
     if (stored.version !== version || stored.status !== 'DRAFT' || stored.revoked) {
@@ -351,7 +356,9 @@ export const workOrderRepository = {
         throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
       }
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
-      return saveHistory(tx, row, before, actor, 'START');
+      const history = await saveHistory(tx, row, before, actor, 'START');
+      if (beforeCommit && row.quotationId) await beforeCommit(row);
+      return history;
     }, { maxWait: 10000, timeout: 20000 });
   },
   async revoke(id: string, version: number, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {

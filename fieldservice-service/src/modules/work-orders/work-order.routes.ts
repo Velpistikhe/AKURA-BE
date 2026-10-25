@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadContract, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderRevoked, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { loadContract, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null };
@@ -47,17 +47,17 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
   // must still exist in Auth with the same id/display name before the transition.
   await validateInspectorsForStart(req, current.inspectors.map(({ userId, name }) => ({ userId, name })));
   const quote = current.quotationId ? await loadQuotationForStart(req, current.quotationId, actor(res).officeBranchId) : null;
-  send(req, res, await repository.start(id, version, quote, actor(res)));
+  send(req, res, await repository.start(id, version, quote, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
 }));
 router.patch('/:id', requireWorkOrderSection('MARKETING', 'FIELD_SERVICE'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   await repository.get(id, actor(res));
   const quotation = (input.quotationId !== undefined || input.contractId !== undefined || input.performaInvoiceId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;
-  send(req, res, await repository.update(id, input, quotation, actor(res)));
+  send(req, res, await repository.update(id, input, quotation, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
 }));
 router.delete('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const { version } = deleteWorkOrderSchema.parse(req.body);
-  send(req, res, await repository.revoke(workOrderIdSchema.parse(req.params.id), version, actor(res), row => notifyMarketingWorkOrderRevoked(row, req)));
+  send(req, res, await repository.revoke(workOrderIdSchema.parse(req.params.id), version, actor(res), row => notifyMarketingWorkOrderStatus({ ...row, revoked: true }, req)));
 }));
 export default router;

@@ -139,6 +139,7 @@ export const quotationSchemas = {
       version: { type: 'integer', minimum: 0 }, isActive: { type: 'boolean' }, ...audit,
       revision: { type: 'integer', minimum: 0, readOnly: true, example: 1, description: 'Initially 0. Revising approved content creates a new quotation ID with revision + 1 and previousQuotationId. Draft edits do not increment revision. Approval reuses the original no/numberYear. Use version for concurrency checks.' },
       hasWorkOrder: { type: 'boolean', readOnly: true, description: 'True while this quotation has a live Work Order. Cleared when Field Service revokes that Work Order.' },
+      workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, readOnly: true, description: 'Latest Field Service Work Order status. Null when no active Work Order is linked or its status is CANCELED.' },
       workOrderId: { ...uuid, nullable: true, readOnly: true, description: 'Field Service Work Order currently linked to this quotation; null when no live Work Order exists.' },
       workOrderSnapshot: { type: 'object', nullable: true, readOnly: true, description: 'Work Order response snapshot stored when the Work Order was created; cleared on revoke.' },
       items: { type: 'array', items: ref('QuotationItem') },
@@ -153,6 +154,7 @@ export const quotationSchemas = {
       status: ref('QuotationStatus'), invoiceStatus: ref('InvoiceStatus'), subTotal: money, taxAmount: money, total: money,
       version: { type: 'integer' }, revision: { type: 'integer' }, isActive: { type: 'boolean' }, createdAt: timestamp, updatedAt: timestamp,
       hasWorkOrder: { type: 'boolean', readOnly: true, description: 'True while this quotation has a live Work Order.' },
+      workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, readOnly: true, description: 'Latest Field Service Work Order status. Null when no active Work Order is linked or its status is CANCELED.' },
       workOrderId: { ...uuid, nullable: true, readOnly: true, description: 'Field Service Work Order currently linked to this quotation.' },
     },
   },
@@ -170,6 +172,7 @@ export const quotationSchemas = {
       status: ref('QuotationStatus'), invoiceStatus: ref('InvoiceStatus'), subTotal: money, taxAmount: money, total: money,
       version: { type: 'integer' }, revision: { type: 'integer' }, isActive: { type: 'boolean' }, createdAt: timestamp, updatedAt: timestamp,
       hasWorkOrder: { type: 'boolean', readOnly: true, description: 'True while this quotation has a live Work Order.' },
+      workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, readOnly: true, description: 'Latest Field Service Work Order status. Null when no active Work Order is linked or its status is CANCELED.' },
       workOrderId: { ...uuid, nullable: true, readOnly: true, description: 'Field Service Work Order currently linked to this quotation.' },
       approvedAt: { ...timestamp, nullable: true, description: 'Approval time of the stored quotation PDF document.' },
     },
@@ -193,8 +196,8 @@ const idParameter = { in: 'path', name: 'quotationId', required: true, schema: u
 export const quotationPaths = {
   '/api/v1/marketing/internal/work-orders/events': {
     post: {
-      tags: ['Quotations'], summary: 'Internal: synchronize a Field Service Work Order link', security: [],
-      description: 'Field Service delivers link or revoke events through the Gateway. Requires Field Service credentials and the Work Order sync secret. Branch ownership is checked before updating a quotation. Duplicate link/revoke events are idempotent; a conflicting Work Order link cannot overwrite the current reference.',
+      tags: ['Quotations'], summary: 'Internal: synchronize a Field Service Work Order link and status', security: [],
+      description: 'Field Service delivers link, status-change, or revoke events through the Gateway. Requires Field Service credentials and the Work Order sync secret. Branch ownership is checked before updating a quotation. Duplicate events are idempotent; CANCELED clears workOrderStatus and revoke clears the Work Order link.',
       parameters: [
         { in: 'header', name: 'x-service-name', required: true, schema: { type: 'string', enum: ['fieldservice-service'] } },
         { in: 'header', name: 'x-service-secret', required: true, schema: { type: 'string' } },
@@ -205,7 +208,7 @@ export const quotationPaths = {
         required: ['workOrderId', 'quotationId', 'officeBranchId', 'revoked', 'workOrderSnapshot'],
         properties: { workOrderId: uuid, quotationId: uuid, officeBranchId: uuid, revoked: { type: 'boolean' },
           workOrderSnapshot: { type: 'object', additionalProperties: true, required: ['number', 'status'], properties: {
-            number: { type: 'string', minLength: 1, maxLength: 100 }, status: { type: 'string', minLength: 1, maxLength: 50 },
+            number: { type: 'string', minLength: 1, maxLength: 100 }, status: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED'] },
           } },
         },
       } } } },
@@ -213,6 +216,7 @@ export const quotationPaths = {
         200: { description: 'Link event acknowledged after commit', content: { 'application/json': { schema: {
           type: 'object', required: ['success', 'workOrderId', 'quotationId', 'revoked'], properties: {
             success: { type: 'boolean', enum: [true] }, workOrderId: uuid, quotationId: uuid, revoked: { type: 'boolean' },
+            workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, description: 'Mirrored Work Order status; null for a canceled Work Order.' },
           },
         } } } },
         400: response('Invalid Work Order event', 'ErrorResponse'),
