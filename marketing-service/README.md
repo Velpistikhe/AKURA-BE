@@ -78,7 +78,7 @@ Endpoint daftar menerima `page` (default `1`), `limit` (default `20`, maksimum `
 |---|---|---|---|---|
 | `GET /companies` | `isSisterCompany` | `name`, `type`, `address` | `name`, `type`, `address`, `npwp`, `isSisterCompany`, `version`, `updatedAt` | `createdAt desc` |
 | `GET /company-staffs` | `companyId`, `title` | `name`, `telp`, `email` | `companyId`, `name`, `title`, `version`, `updatedAt` | `createdAt desc` |
-| `GET /services` | `isActive`, `name`, `type` | - | `name`, `type`, `isActive` | `createdAt desc` |
+| `GET /services` | `isActive`, `name`, `type`, `hasMaintenance` | - | `name`, `type`, `isActive` | `createdAt desc` |
 | `GET /items` | `name`, `serviceName` | - | `name`, `serviceName` | `createdAt desc` |
 | `GET /items/sizes` | `itemId` (opsional), `size`, `itemName`, `serviceName`, `notIn` | - | `size` | `createdAt desc` |
 | `GET /items/sizes/contract-prices` | `companyId` (wajib), `itemId`, `size`, `itemName`, `serviceName`, `notIn` | - | `size` | `createdAt desc` |

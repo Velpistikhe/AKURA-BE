@@ -61,6 +61,7 @@ export const serviceRepository = {
       filters: {
         type: (type) => ({ type }),
         isActive: (isActive) => ({ isActive }),
+        hasMaintenance: (hasMaintenance) => ({ hasMaintenance }),
         name: (name) => ({ name: { contains: name, mode: 'insensitive' } }),
       },
       defaultSort: { createdAt: 'desc' },

@@ -24,6 +24,7 @@ export const SERVICE_LIST_CONFIG = {
     type: z.nativeEnum(ServiceType).optional(),
     name: z.string().trim().min(1).max(200).optional(),
     isActive: booleanFilter,
+    hasMaintenance: booleanFilter,
   },
   pagination,
 } as const;
