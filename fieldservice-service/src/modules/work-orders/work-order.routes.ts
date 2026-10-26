@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Actor, requireActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadContract, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null };
@@ -33,7 +33,10 @@ router.get('/:id', asyncHandler(async (req, res) => { send(req, res, await repos
 router.post('/', asyncHandler(async (req, res) => {
   const input = createWorkOrderSchema.parse(req.body);
   const quotation = await resolveBasis(req, input, actor(res).officeBranchId);
-  send(req, res, await repository.create(input, quotation, actor(res)), 201);
+  const itemSnapshots = !input.quotationId
+    ? await Promise.all(input.items.map(async item => ({ ...item, snapshot: await loadItemSizeReference(req, item.itemSizeId) })))
+    : undefined;
+  send(req, res, await repository.create(input, quotation, actor(res), itemSnapshots), 201);
 }));
 router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id);

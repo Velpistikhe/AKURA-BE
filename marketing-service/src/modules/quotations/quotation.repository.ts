@@ -270,7 +270,14 @@ export const quotationRepository = {
     const quote = await prisma.quotation.findFirst({ where: { id, officeBranchId, isActive: true },
       include: { pdfDocument: true, items: { where: { isActive: true }, orderBy: { position: 'asc' } } } });
     if (!quote) throw new HttpError('Quotation not found', 404);
-    return quote;
+    // Expose the frozen scope snapshot of every line. It is read from the line
+    // itself, so the scopes describe the approved document and not the current
+    // catalog, which may have changed since the quotation was approved.
+    return { ...quote, items: quote.items.map(item => {
+      const scopes = item.priceSelection as Record<string, unknown> | null;
+      const scope = (key: string) => typeof scopes?.[key] === 'string' ? scopes[key] as string : '';
+      return { ...item, inspectionScopes: scope('inspectionScopes'), maintenanceScopes: scope('maintenanceScopes') };
+    }) };
   },
   /**
    * Cross-section list of APPROVED quotations as downstream document bases

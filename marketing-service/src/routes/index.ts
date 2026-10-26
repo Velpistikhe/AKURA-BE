@@ -1,6 +1,8 @@
 import { prisma } from '../config/db.js';
 import { getOfficeBranchId } from '../utils/officeBranch.js';
 import { contractIdSchema } from '../modules/contracts/contract.schemas.js';
+import { itemSizeIdSchema } from '../modules/items/item.schemas.js';
+import { itemScopeInclude, itemScopeSnapshot } from '../modules/quotations/quotation-service-groups.js';
 import { companyIdSchema } from '../modules/companies/company.schemas.js';
 import { contractRepository } from '../modules/contracts/contract.repository.js';
 import { HttpError } from '../utils/httpError.js';
@@ -25,6 +27,23 @@ router.get('/company-contract-references/:companyId', asyncHandler(requireQuotat
 }));
 router.get('/quotation-references', asyncHandler(requireQuotationReferenceAccess), asyncHandler(quotationController.listReference));
 router.get('/quotation-references/:quotationId', asyncHandler(requireQuotationReferenceAccess), validate('params', quotationIdSchema), asyncHandler(quotationController.getReference));
+router.get('/item-size-references/:itemSizeId', asyncHandler(requireQuotationReferenceAccess), validate('params', itemSizeIdSchema), asyncHandler(async (req, res) => {
+  const branch = getOfficeBranchId(res);
+  const size = await prisma.itemSize.findFirst({
+    where: { id: res.locals.params.itemSizeId, item: { officeBranchId: branch } },
+    include: itemScopeInclude,
+  });
+  if (!size) throw new HttpError('Item size not found', 404);
+  if (!size.isActive || !size.item.isActive) throw new HttpError('Item size is inactive', 409);
+  const service = size.item.service;
+  if (service && (!service.isActive || service.officeBranchId !== branch)) throw new HttpError('Item size is inactive', 409);
+  const scopes = itemScopeSnapshot(size.item);
+  res.json({ status: 200, success: true, message: 'Item size reference retrieved successfully', data: {
+    itemSizeId: size.id, serviceName: service?.name ?? size.item.name,
+    inspectionScope: scopes.inspectionScopes, maintenanceScope: scopes.maintenanceScopes,
+    itemName: size.item.name, size: size.size,
+  }, requestId: req.headers['x-request-id'] });
+}));
 router.get('/contract-references/:contractId', asyncHandler(requireQuotationReferenceAccess), validate('params', contractIdSchema), asyncHandler(async (req, res) => {
   const contract = await prisma.companyContract.findFirst({ where: { id: res.locals.params.contractId, company: { officeBranchId: getOfficeBranchId(res), revoked: false } },
     include: { company: true, prices: { where: { isActive: true } } } });

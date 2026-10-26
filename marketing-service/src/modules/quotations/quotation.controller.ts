@@ -124,6 +124,11 @@ export const quotationController = {
    * re-validates every pair against its FieldServiceUser snapshot and stores the
    * confirmed userId and name. Quotation content is resolved live by Field Service from
    * Marketing's quotation reference, so no quotation version is forwarded.
+   *
+   * The client only selects which quotation items become Work Order lines. The
+   * quantities are copied from those quotation lines, never from the client, and a
+   * selected size outside the quotation is rejected locally before the cross-service
+   * call.
    */
   async createWorkOrder(req: Request, res: Response) {
     const input = createWorkOrderFromQuotationSchema.parse(req.body);
@@ -131,6 +136,16 @@ export const quotationController = {
     if (input.quotationId !== res.locals.params.quotationId) throw new HttpError('quotationId must match the quotation in the URL', 400);
     const quote = await quotationRepository.findActive(input.quotationId, branch);
     if (quote.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
+    const lines = new Map(quote.items.map(item => [item.itemSizeId, item]));
+    const items = input.items.map(selection => {
+      const line = lines.get(selection.itemSizeId);
+      if (!line) throw new HttpError('Every selected item must belong to the quotation', 400);
+      return {
+        itemSizeId: selection.itemSizeId,
+        quantityInspection: Number(line.quantityInspection),
+        quantityMaintenance: Number(line.quantityMaintenance),
+      };
+    });
     const token = getAccessToken(req);
     if (!token) throw new HttpError('Access token is required', 401);
     const path = 'fieldservice/work-orders';
@@ -144,12 +159,7 @@ export const quotationController = {
           quotationId: quote.id,
           startDate: input.startDate, endDate: input.endDate,
           inspectors: input.inspectors,
-          items: input.items ?? quote.items.map(item => ({
-            itemSizeId: item.itemSizeId,
-            snapshotItemSize: { itemSizeId: item.itemSizeId, snapShotItem: { itemName: item.itemName, serviceName: item.serviceName, serviceType: item.serviceType }, size: item.size },
-            quantityInspection: Number(item.quantityInspection),
-            quantityMaintenance: Number(item.quantityMaintenance),
-          })),
+          items,
         }),
       });
     } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }

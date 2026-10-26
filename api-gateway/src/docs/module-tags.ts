@@ -52,6 +52,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/proforma-invoices')) return 'Proforma Invoices';
   if (path.startsWith('/api/v1/finance/invoices')) return 'Invoices';
   if (path.startsWith('/api/v1/fieldservice')) return 'Work Order';
+  if (path.includes('/item-size-references')) return 'Item Sizes';
   if (path.includes('/quotation-references')) return 'Quotations';
   if (path.includes('/quotations')) return 'Quotations';
   throw new Error(`Assign a Swagger module for ${path}`);

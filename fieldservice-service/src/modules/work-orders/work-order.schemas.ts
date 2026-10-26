@@ -34,8 +34,6 @@ const validReference = (value: Reference) =>
 // both quotation and contract bases (PATCH keeps the name-based array and []).
 export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers, items: z.array(z.object({
   itemSizeId: z.string().uuid(),
-  snapshotItemSize: z.object({ itemSizeId: z.string().uuid(), snapShotItem: z.unknown(), size: z.unknown() }).passthrough()
-    .refine(value => Object.hasOwn(value, 'snapShotItem') && Object.hasOwn(value, 'size'), 'Item snapshot must include snapShotItem and size'),
   quantityInspection: quantity,
   quantityMaintenance: quantity,
 }).strict()).min(1, 'At least one item is required') }).strict()
@@ -67,3 +65,4 @@ export type CreateWorkOrderInput = z.infer<typeof createWorkOrderSchema>;
 export type UpdateWorkOrderInput = z.infer<typeof updateWorkOrderSchema>;
 
 export const workOrderHistorySchema = listWorkOrderSchema.pick({ page: true, limit: true });
+

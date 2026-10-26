@@ -46,6 +46,8 @@ const quotationItemSchema = z.object({
   quantityInspection: z.string(), quantityMaintenance: z.string(),
   priceInspection: money, priceMaintenance: money.nullable(), subTotal: money,
   priceSelection: z.record(z.unknown()).nullable(), isActive: z.boolean(), version: z.number().int(),
+  // Frozen scope snapshot of the line, exposed by Marketing on the reference.
+  inspectionScopes: z.string().nullish(), maintenanceScopes: z.string().nullish(),
 }).passthrough();
 // Quotation header returned by GET marketing/quotation-references/:id. Tax and total
 // fields are validated but excluded from the persisted snapshot by toQuotationSnapshot.
@@ -96,6 +98,29 @@ export function toQuotationSnapshot(quotation: QuotationSnapshot): WorkOrderQuot
     items: quotation.items.map(item =>
       Object.fromEntries(quotationItemSnapshotKeys.map(key => [key, item[key]]))),
   } as WorkOrderQuotationSnapshot;
+}
+
+/**
+ * The exact item content a Work Order row stores: the size identity plus the
+ * descriptive catalog snapshot taken from the quotation. Only these fields are
+ * persisted, so no extra Marketing column and no price can reach the column.
+ */
+export type WorkOrderItemSnapshot = {
+  itemSizeId: string; serviceName: string; inspectionScope: string;
+  maintenanceScope: string; itemName: string; size: string | null;
+};
+/**
+ * Builds the stored item snapshot from a live quotation line. The description is
+ * taken from the quotation line (its historical catalog snapshot) and the scopes
+ * from the frozen scope snapshot of that line, so the Work Order item matches the
+ * approved document even after the catalog changes.
+ */
+export function toWorkOrderItemSnapshot(item: QuotationSnapshot['items'][number]): WorkOrderItemSnapshot {
+  return {
+    itemSizeId: item.itemSizeId, serviceName: item.serviceName,
+    inspectionScope: item.inspectionScopes ?? '', maintenanceScope: item.maintenanceScopes ?? '',
+    itemName: item.itemName, size: item.size ?? null,
+  };
 }
 /**
  * Live Marketing validation used when a quotation-based Work order starts.
@@ -280,6 +305,25 @@ export async function loadContract(req: Request, id: string, branch: string) {
   if (contract.id !== id || contract.company.officeBranchId !== branch || contract.company.id !== contract.companyId) throw new HttpError('Contract not found', 404);
   validateContract(contract);
   return contract;
+}
+
+/**
+ * The catalog identity of one item size, read live from Marketing. Used by the
+ * Work Order item snapshot when the document basis carries no quotation line
+ * (contract or performa invoice), so the stored description is never invented
+ * by the client.
+ */
+const itemSizeReferenceSchema = z.object({
+  itemSizeId: z.string().uuid(), serviceName: z.string(),
+  inspectionScope: z.string(), maintenanceScope: z.string(),
+  itemName: z.string(), size: z.string().nullable(),
+}).passthrough();
+export type ItemSizeReference = z.infer<typeof itemSizeReferenceSchema>;
+export async function loadItemSizeReference(req: Request, id: string): Promise<ItemSizeReference> {
+  const parsed = itemSizeReferenceSchema.safeParse(await gatewayGet(`marketing/item-size-references/${id}`, req));
+  if (!parsed.success) throw new HttpError('Invalid item size response', 502);
+  if (parsed.data.itemSizeId !== id) throw new HttpError('Item size not found', 404);
+  return parsed.data;
 }
 export function validateContract(contract: ContractSnapshot) {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());

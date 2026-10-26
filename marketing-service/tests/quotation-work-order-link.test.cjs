@@ -47,8 +47,10 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
 
   const quotationId = randomUUID();
   const workOrderId = randomUUID();
+  const itemSizeId = randomUUID();
   const workOrder = { id: workOrderId, number: 'WO/2026/000001', status: 'DRAFT', quotationId, officeBranchId: branch, revoked: false, version: 0 };
-  const quotation = { id: quotationId, officeBranchId: branch, version: 0, status: 'APPROVED', isActive: true, hasWorkOrder: false, workOrderId: null, items: [] };
+  const quotation = { id: quotationId, officeBranchId: branch, version: 0, status: 'APPROVED', isActive: true, hasWorkOrder: false, workOrderId: null,
+    items: [{ itemSizeId, quantityInspection: '1', quantityMaintenance: '0' }] };
   const attachCalls = [];
   const clearCalls = [];
 
@@ -133,6 +135,7 @@ test('Quotation Work Order link state: create stores the reference, revoke clear
     quotation.workOrderId = null;
     const created = await request('POST', `/${quotationId}/work-orders`, {
       quotationId, startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [{ userId: randomUUID(), name: 'Budi Inspector' }],
+      items: [{ itemSizeId }],
     }, 201);
     assert.equal(created.message, 'Work order created successfully');
     assert.equal(attachCalls.length, 1, 'the Work Order reference must be stored before the response');

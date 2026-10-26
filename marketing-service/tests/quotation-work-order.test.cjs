@@ -7,7 +7,7 @@ const env = require('../dist/config/env.js').env;
 const { quotationRepository } = require('../dist/modules/quotations/quotation.repository.js');
 const { createWorkOrderFromQuotationSchema } = require('../dist/modules/quotations/quotation.schemas.js');
 const itemSizeId = randomUUID();
-const items = [{ itemSizeId, snapshotItemSize: { itemSizeId, snapShotItem: { name: 'Tank' }, size: 'L' }, quantityInspection: 1, quantityMaintenance: 0 }];
+const items = [{ itemSizeId }];
 
 test('Create work order from quotation validates locally and forwards through Field Service', async (t) => {
   const branch = randomUUID(), actor = { id: randomUUID(), name: 'WO Test' }, inspectorId = randomUUID();
@@ -51,7 +51,7 @@ test('Create work order from quotation validates locally and forwards through Fi
   const fixtureQuotation = (changes = {}, id = randomUUID()) => {
     const row = {
       id, officeBranchId: branch, version: 0, status: 'APPROVED', isActive: true,
-      items: [{itemSizeId: randomUUID(), itemName:'Tank', serviceName:'Inspection', serviceType:'INSPECTION', size:'L', quantityInspection:'1', quantityMaintenance:'0'}], ...changes,
+      items: [{itemSizeId, itemName:'Tank', serviceName:'Inspection', serviceType:'INSPECTION', size:'L', quantityInspection:'1', quantityMaintenance:'0'}], ...changes,
     };
     rows.set(id, row);
     return row;
@@ -62,15 +62,20 @@ test('Create work order from quotation validates locally and forwards through Fi
   try {
     // Schema rejects malformed bodies before any cross-service call.
     for (const invalid of [
-      {}, { startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector] },
-      { quotationId: randomUUID(), startDate: '2026-10-05', endDate: '2026-10-01', inspectors: [inspector] },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05' },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [] },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector, inspector] },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [{ userId: 'not-a-uuid', name: 'Ghost' }] },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], quotationVersion: 0 },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], summary: 'x' },
-      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], status: 'COMPLETED' },
+      {}, { startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items },
+      { quotationId: randomUUID(), startDate: '2026-10-05', endDate: '2026-10-01', inspectors: [inspector], items },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', items },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [], items },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector, inspector], items },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [{ userId: 'not-a-uuid', name: 'Ghost' }], items },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items, quotationVersion: 0 },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items, summary: 'x' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items, status: 'COMPLETED' },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items: [] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items: [{ itemSizeId, quantityInspection: 1, quantityMaintenance: 0 }] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items: [{ itemSizeId, quantityMaintenance: 0 }] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items: [{ itemSizeId }, { itemSizeId }] },
+      { quotationId: randomUUID(), startDate: '2026-10-01', endDate: '2026-10-05', inspectors: [inspector], items: [{ itemSizeId: 'not-a-uuid' }] },
     ]) assert.equal(createWorkOrderFromQuotationSchema.safeParse(invalid).success, false, JSON.stringify(invalid));
     assert.equal(createWorkOrderFromQuotationSchema.parse(bodyFor(randomUUID())).startDate, '2026-10-01');
 
@@ -100,7 +105,7 @@ test('Create work order from quotation validates locally and forwards through Fi
     assert.equal(calls, 0);
 
     // Cross-service forward: token, service credentials and payload are asserted.
-    const approved = fixtureQuotation({ status: 'APPROVED', items: [{ priceSelection: { priceSource: 'CONTRACT' } }] });
+    const approved = fixtureQuotation({ status: 'APPROVED', items: [{ itemSizeId, itemName:'Tank', serviceName:'Inspection', serviceType:'INSPECTION', size:'L', quantityInspection:'2', quantityMaintenance:'1', priceSelection: { priceSource: 'CONTRACT' } }] });
     const workOrder = { id: randomUUID(), number: 'WO/2026/000001', status: 'DRAFT', quotationId: approved.id,
       officeBranchId: branch, revoked: false, version: 0, startDate: '2026-10-01', endDate: '2026-10-05' };
     const attached = [];
@@ -133,17 +138,27 @@ test('Create work order from quotation validates locally and forwards through Fi
       quotationId: approved.id,
       startDate: '2026-10-01', endDate: '2026-10-05',
       inspectors: [inspector],
-      items,
+      // The client only selected itemSizeId; the quantities come from the quotation line.
+      items: [{ itemSizeId, quantityInspection: 2, quantityMaintenance: 1 }],
     });
     assert.equal(JSON.parse(forwarded.options.body).quotationVersion, undefined, 'quotation version is never forwarded; Field Service resolves the quotation live from Marketing');
     assert.equal(JSON.parse(forwarded.options.body).summary, undefined, 'summary no longer exists on the Work order');
     assert.equal(JSON.parse(forwarded.options.body).status, undefined, 'status must never be forwarded; Field Service stores DRAFT');
     assert.equal(JSON.parse(forwarded.options.body).officeBranchId, undefined, 'branch must never be client-supplied');
 
-    for (const sources of [['PRIMARY'], ['SISTER_COMPANY'], ['PRIMARY', 'CONTRACT']]) {
-      approved.items = sources.map(priceSource => ({ priceSelection: { priceSource } }));
+    // A selected size outside the quotation is rejected locally, before any forward.
+    forwarded = null;
+    const outsideSelection = { ...bodyFor(approved.id), items: [{ itemSizeId: randomUUID() }] };
+    assert.equal((await request(approved.id, outsideSelection, 400)).message, 'Every selected item must belong to the quotation');
+    assert.equal(forwarded, null, 'an item outside the quotation must not reach Field Service');
+
+    // The forwarded payload does not depend on the quotation's price source.
+    for (const priceSource of ['PRIMARY', 'SISTER_COMPANY', 'CONTRACT']) {
+      approved.items = [{ itemSizeId, quantityInspection: '2', quantityMaintenance: '1', priceSelection: { priceSource } }];
       assert.equal((await request(approved.id, bodyFor(approved.id))).data.id, workOrder.id);
     }
+    // Restore the fixture for the failure-mode checks below.
+    approved.items = [{ itemSizeId, quantityInspection: '2', quantityMaintenance: '1', priceSelection: { priceSource: 'CONTRACT' } }];
 
     forwardMode = 'down';
     assert.equal((await request(approved.id, bodyFor(approved.id), 503)).message, 'Field Service is unavailable; retry later');

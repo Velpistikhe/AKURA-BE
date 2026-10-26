@@ -21,17 +21,17 @@ test('Marketing contract lifecycle and date-only references normalize without an
   assert.equal(contractSchema.safeParse({ ...reference, contractDate: '2026-02-30' }).success, false);
 });
 
-test('Work Order quantities reject precision loss/overflow and snapshots require explicit content keys', () => {
+test('Work Order quantities reject precision loss/overflow and item lines accept only size and quantities', () => {
   const itemSizeId = randomUUID();
-  const item = { itemSizeId, snapshotItemSize: { itemSizeId, snapShotItem: {}, size: null }, quantityInspection: 1, quantityMaintenance: 0 };
+  const item = { itemSizeId, quantityInspection: 1, quantityMaintenance: 0 };
   const input = { performaInvoiceId: randomUUID(), startDate: '2030-01-01', inspectors: [{ userId: randomUUID(), name: 'Inspector' }], items: [item] };
   for (const field of ['quantityInspection', 'quantityMaintenance']) {
     for (const value of [0.0001, 1000000000000, -1, Infinity, NaN]) assert.equal(createWorkOrderSchema.safeParse({ ...input, items: [{ ...item, [field]: value }] }).success, false, `${field}=${value}`);
     for (const value of [0, 0.001, 1.234, 999999999999.999]) assert.equal(createWorkOrderSchema.safeParse({ ...input, items: [{ ...item, [field]: value }] }).success, true, `${field}=${value}`);
   }
-  for (const field of ['snapShotItem', 'size']) {
-    const snapshotItemSize = { ...item.snapshotItemSize }; delete snapshotItemSize[field];
-    assert.equal(createWorkOrderSchema.safeParse({ ...input, items: [{ ...item, snapshotItemSize }] }).success, false);
+  // Description fields are resolved server-side, never accepted from the client.
+  for (const extra of ['snapshotItemSize', 'item', 'snapShotItem']) {
+    assert.equal(createWorkOrderSchema.safeParse({ ...input, items: [{ ...item, [extra]: {} }] }).success, false, extra);
   }
 });
 

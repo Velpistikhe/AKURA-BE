@@ -113,6 +113,7 @@ async function main() {
     await request('GET', '/companies', 403, undefined, await identity({ isActive: false }));
     const company = await request('POST', '/companies', 201, { name: `Contract ${branch}`, npwp: '0012345678901234', type: 'PT', address: 'Jakarta' });
     const standalone = await request('POST', '/items', 201, { name: 'Standalone', uom: 'PCS', inspectionScopes: ['Visual'] });
+    await request('POST', `/items/${standalone.id}/scopes`, 201, { inspectionScopes: ['Thread Check'] });
     // A standalone item accepts inspection scopes only.
     await request('POST', '/items', 400, { name: 'Standalone scopes', uom: 'PCS', inspectionScopes: ['Visual'], maintenanceScopes: ['Cleaning'] });
     await request('GET', `/items/${standalone.id}`, 200);
@@ -181,6 +182,10 @@ async function main() {
     await request('DELETE', `/company-contracts/${contractRevision.id}`, 200, { version: contractRevision.version });
     for (const routePath of ['/companies', '/company-staffs', '/services', '/items', '/items/sizes', '/company-contracts', '/company-contract-prices', '/quotations', '/quotation-references']) await request('GET', routePath, 200);
     await request('GET', '/quotation-references', 200, undefined, finance);
+    const itemSizeReference = await request('GET', `/item-size-references/${size.id}`, 200, undefined, finance);
+    assert.equal(itemSizeReference.itemSizeId, size.id);
+    await request('GET', `/item-size-references/${randomUUID()}`, 404, undefined, finance);
+    await request('GET', `/item-size-references/${size.id}`, 404, undefined, other);
     const quotationInput = { jobStart: '2026-11-01', inquiryMethod: 'EMAIL', inquiryDate: '2026-10-01', subject: 'Inspection', termOfPayment: '30 days', validity: '30 days', supplyAkura: 'Equipment', supplyCustomer: 'Access', location: 'Jakarta', accomplished: '7 days', deliveryReports: 'PDF', deliveryInvoice: 'Email', staffId: staff.id, items: [{ itemSizeId: size.id, quantityInspection: '2', quantityMaintenance: '1' }] };
     await request('POST', '/internal/taxes/events', 200, { eventId: randomUUID(), officeBranchId: branch, version: 1, taxes: [{ id: randomUUID(), officeBranchId: branch, percentage: '11', effectiveFrom: '2000-01-01T00:00:00.000Z', effectiveUntil: null, updatedAt: new Date().toISOString() }] }, null, { 'x-tax-sync-secret': env.TAX_SYNC_SECRET });
     let quotation = await request('POST', '/quotations', 201, quotationInput);
@@ -201,7 +206,7 @@ async function main() {
     const quoteRevision = await request('POST', `/quotations/${quotation.id}/revise`, 201, { version: quotation.version });
     await request('DELETE', `/quotations/${quoteRevision.id}`, 200, { version: quoteRevision.version });
     quotation = await prisma.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
-    const workOrder = await request('POST', `/quotations/${quotation.id}/work-orders`, 201, { quotationId: quotation.id, startDate: '2026-11-01', endDate: '2026-11-02', inspectors: [{ userId: randomUUID(), name: 'Inspector Test' }] });
+    const workOrder = await request('POST', `/quotations/${quotation.id}/work-orders`, 201, { quotationId: quotation.id, startDate: '2026-11-01', endDate: '2026-11-02', inspectors: [{ userId: randomUUID(), name: 'Inspector Test' }], items: [{ itemSizeId: size.id }] });
     const event = { workOrderId: workOrder.id, quotationId: quotation.id, officeBranchId: branch, revoked: false, workOrderSnapshot: { number: workOrder.number, status: workOrder.status } };
     await request('POST', '/internal/work-orders/events', 200, event, null, { 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET });
     quotation = await prisma.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
@@ -262,3 +267,4 @@ async function main() {
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
+

@@ -13,7 +13,11 @@ const {errorHandler}=require('../dist/middlewares/error.middleware.js');
 const {workOrderRepository:repo}=require('../dist/modules/work-orders/work-order.repository.js');
 const {nextWorkOrderIdentity,workOrderDate}=require('../dist/modules/work-orders/work-order-number.js');
 const {createWorkOrderSchema,updateWorkOrderSchema}=require('../dist/modules/work-orders/work-order.schemas.js');
-const items=[{itemSizeId:randomUUID(),snapshotItemSize:{itemSizeId:randomUUID(),snapShotItem:{name:'Test'},size:'L'},quantityInspection:1,quantityMaintenance:0}];
+const items=[{itemSizeId:randomUUID(),quantityInspection:1,quantityMaintenance:0}];
+// A non-quotation basis resolves the item description from the Marketing
+// item-size reference, so the route hands the snapshot to the repository.
+const itemReferences=items.map(item=>({...item,snapshot:{itemSizeId:item.itemSizeId,serviceName:'Inspection',
+ inspectionScope:'Visual Inspection',maintenanceScope:'Cleaning',itemName:'Test',size:'L'}}));
 require('../dist/utils/logger.js').logger.silent=true;
 
 test('Creation rejects inspector date overlaps in every non-revoked status and serializes concurrent requests',async()=>{
@@ -26,7 +30,7 @@ test('Creation rejects inspector date overlaps in every non-revoked status and s
  const inspectors=[{userId:inspectorA,name:'Schedule A'},{userId:inspectorB,name:'Schedule B'}];
  const input=(startDate='2026-09-15',endDate='2026-09-20',pairs=inspectors)=>
   createWorkOrderSchema.parse({contractId,startDate,endDate:endDate??undefined,inspectors:pairs,items});
- const create=(...args)=>repo.create(input(...args),contract,actor);
+ const create=(...args)=>repo.create(input(...args),contract,actor,itemReferences);
  const conflict=promise=>assert.rejects(promise,error=>error.statusCode===409&&/overlapping work order/.test(error.message));
  const where={officeBranchId:{in:[branch,otherBranch]}};
  const clearOrders=async()=>{
@@ -99,7 +103,7 @@ test('PATCH rejects inspector schedule overlaps and keeps the stored state on re
   company:{id:companyId,name:'Patch Guard Company',officeBranchId:branch,revoked:false}};
  const guards=[{userId:inspectorA,name:'Guard A'},{userId:inspectorB,name:'Guard B'}];
  const create=(startDate,endDate,pairs=guards)=>
-  repo.create(createWorkOrderSchema.parse({contractId,startDate,endDate,inspectors:pairs,items}),contract,actor);
+  repo.create(createWorkOrderSchema.parse({contractId,startDate,endDate,inspectors:pairs,items}),contract,actor,itemReferences);
  const where={officeBranchId:branch};
  const clearOrders=async()=>{
   await prisma.workOrderHistory.deleteMany({where:{workOrder:where}});
@@ -166,7 +170,8 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
  const contract={id:contractId,companyId,version:0,status:'APPROVED',isActive:true,contractNumber:'CT-2026/001',contractDate:'2026-01-01T00:00:00.000Z',effectiveFrom:'2000-01-01T00:00:00.000Z',effectiveUntil:'2099-01-01T00:00:00.000Z',company:{id:companyId,name:'Customer Co',officeBranchId:branch,revoked:false},prices:[{id:randomUUID(),priceService:'10'}]};
  // Quotation reference: full Marketing payload. Prices are served upstream so the
  // reduced snapshot can prove they are dropped before they are stored.
- const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,revision:0,date:'2026-09-01T00:00:00.000Z',jobStart:'ASAP',inquiryMethod:'EMAIL',inquiryDate:'2026-08-01T00:00:00.000Z',subject:'Work',termOfPayment:'COD',validity:'30 days',supplyAkura:'Akura',supplyCustomer:'Customer',location:'Site',accomplished:'-',deliveryReports:'-',deliveryInvoice:'-',staffId:randomUUID(),customerSnapshot:'Buyer',companySnapshot:{name:'Company'},subTotal:'100',taxAmount:'11',total:'111',createdAt:'2026-09-01T00:00:00.000Z',updatedAt:'2026-09-01T00:00:00.000Z',futureMarketingColumn:'should not be stored',items:[{id:randomUUID(),itemSizeId:randomUUID(),position:0,serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,subTotal:'100',priceSelection:null,isActive:true,version:0,futureItemColumn:'should not be stored'}]};
+ const quotationItemSizeId=randomUUID();
+  const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,revision:0,date:'2026-09-01T00:00:00.000Z',jobStart:'ASAP',inquiryMethod:'EMAIL',inquiryDate:'2026-08-01T00:00:00.000Z',subject:'Work',termOfPayment:'COD',validity:'30 days',supplyAkura:'Akura',supplyCustomer:'Customer',location:'Site',accomplished:'-',deliveryReports:'-',deliveryInvoice:'-',staffId:randomUUID(),customerSnapshot:'Buyer',companySnapshot:{name:'Company'},subTotal:'100',taxAmount:'11',total:'111',createdAt:'2026-09-01T00:00:00.000Z',updatedAt:'2026-09-01T00:00:00.000Z',futureMarketingColumn:'should not be stored',items:[{id:randomUUID(),itemSizeId:quotationItemSizeId,position:0,serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,subTotal:'100',priceSelection:null,inspectionScopes:'Visual',maintenanceScopes:'Clean',isActive:true,version:0,futureItemColumn:'should not be stored'}]};
  const originalFetch=global.fetch;
  let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0,quotationHttpStatus=200;
  let authInspectorCalls=0,authInspectorFails=false,authInspectorNames=null,authInspectorMissing=null;
@@ -207,6 +212,12 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
    if(contractStatus!==200)return {ok:false,status:contractStatus,json:async()=>({message:'Unable to validate reference with upstream service'})};
    return {ok:true,json:async()=>({data:{...contract,company:{...contract.company,officeBranchId:token==='Bearer other'?otherBranch:contract.company.officeBranchId}}})};
   }
+  if(String(url).includes('/item-size-references/')) {
+   const referenced=String(url).split('/').pop();
+   if(referenced!==items[0].itemSizeId)return {ok:false,status:404,json:async()=>({message:'Referenced record not found'})};
+   return {ok:true,json:async()=>({data:{itemSizeId:referenced,serviceName:'Inspection',
+    inspectionScope:'Visual Inspection',maintenanceScope:'Cleaning',itemName:'Test',size:'L'}})};
+  }
   quotationCalls++;
   if(upstreamFails)throw Error('offline');
   if(quotationHttpStatus!==200)return {ok:false,status:quotationHttpStatus,json:async()=>({message:'Active quotation not found in this branch'})};
@@ -244,7 +255,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // An empty basis is rejected; supplying more than one basis is allowed and quotation takes precedence in resolveBasis.
   for(const invalid of [{contractId:null},{contractId:null,quotationId:null},{contractId:null,quotationId:null,performaInvoiceId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
   // A quotation basis still requires endDate and inspectors of its own.
-  const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-10-15',endDate:'2026-10-20',inspectors:inspectorPairs,items};
+   const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-10-15',endDate:'2026-10-20',inspectors:inspectorPairs,items:[{itemSizeId:quotationItemSizeId,quantityInspection:1,quantityMaintenance:0}]};
   await request('POST','/work-orders',{...quotationBasis,endDate:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:undefined},400);
   await request('POST','/work-orders',{...quotationBasis,inspectors:[]},400);
@@ -318,6 +329,11 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.deepEqual(linked.quotationSnapshot.items[0],{id:quotation.items[0].id,itemSizeId:quotation.items[0].itemSizeId,position:0,
    serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',isActive:true,version:0},
    'quotation snapshot items carry description and quantity only');
+  const storedItem=linked.items[0];
+  assert.deepEqual(storedItem.item,{itemSizeId:quotationItemSizeId,serviceName:'Inspection',
+   inspectionScope:'Visual',maintenanceScope:'Clean',itemName:'Tank',size:'L'});
+  assert.equal(Object.hasOwn(storedItem,'snapshotItemSize'),false);
+  assert.equal(storedItem.item.itemSizeId,storedItem.itemSizeId);
   // The snapshot is an allowlist projection: a future Marketing column never arrives.
   assert.equal(Object.hasOwn(linked.quotationSnapshot,'futureMarketingColumn'),false);
   assert.equal(Object.hasOwn(linked.quotationSnapshot.items[0],'futureItemColumn'),false);
@@ -507,27 +523,27 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   const stable=await repo.get(row.id,actor);
   const sequenceBefore=await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}});
   Object.assign(raw,{startDate:'2027-01-15',endDate:'2027-01-20'});
-  await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor),/History unavailable/);
+  await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences),/History unavailable/);
   await assert.rejects(repo.update(row.id,updateWorkOrderSchema.parse({version:3,startDate:'2026-09-16',inspectors:['Rollback']}),null,actor),/History unavailable/);
   await assert.rejects(repo.revoke(row.id,3,actor),/History unavailable/);
   failHistory=false;
   assert.deepEqual(await repo.get(row.id,actor),stable);
   assert.equal((await repo.history(row.id,1,20,actor)).pagination.total,4);
   assert.equal((await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}})).lastNumber,sequenceBefore.lastNumber);
-  const created=await Promise.all(Array.from({length:6},(_,i)=>repo.create(createWorkOrderSchema.parse({...raw,startDate:`2027-02-${String(i+1).padStart(2,'0')}`,endDate:`2027-02-${String(i+1).padStart(2,'0')}`}),contract,actor)));
+  const created=await Promise.all(Array.from({length:6},(_,i)=>repo.create(createWorkOrderSchema.parse({...raw,startDate:`2027-02-${String(i+1).padStart(2,'0')}`,endDate:`2027-02-${String(i+1).padStart(2,'0')}`}),contract,actor,itemReferences)));
   assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+7).padStart(6,'0')}`));
   // Child insertion failure must roll back both Work order and number allocation.
   let fail=true;
   prisma.$use(async(params,next)=>{if(fail&&params.model==='WorkOrder'&&params.action==='create')params.args.data.inspectors.create.push({name:'x'.repeat(256),position:999});return next(params);});
-  await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor));fail=false;
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000013`);
+  await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences));fail=false;
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences)).number,`WO/${year}/000013`);
   const allocate=clock=>prisma.$transaction(tx=>nextWorkOrderIdentity(tx,clockBranch,clock));
   const end=()=>new Date('2026-12-31T16:59:59Z'),start=()=>new Date('2026-12-31T17:00:00Z');
   assert.equal((await allocate(end)).number,'WO/2026/000001');assert.equal((await allocate(end)).number,'WO/2026/000002');assert.equal((await allocate(start)).number,'WO/2027/000001');
   let reads=0;const crossed=await allocate(()=>++reads===1?end():start());assert.equal(crossed.number,'WO/2027/000002');assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
   Object.assign(raw,{startDate:'2027-03-15',endDate:'2027-03-20'});
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor)).number,`WO/${year}/000014`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences)).number,`WO/${year}/000014`);
   const inProgress=await request('GET','/work-orders/'+byContract.id);
   assert.equal(inProgress.status,'IN_PROGRESS');
   const callbacksBeforeContractRevoke=marketingCallbackCalls;
@@ -545,5 +561,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   await prisma.fieldServiceUser.deleteMany({where:{id:{in:[inspectorA,inspectorB,foreignInspector]}}});await prisma.$disconnect();
  }
 });
+
+
 
 

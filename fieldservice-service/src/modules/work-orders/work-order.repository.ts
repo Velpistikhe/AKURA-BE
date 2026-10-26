@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
-import { QuotationSnapshot, ContractSnapshot, validateContract, toQuotationSnapshot, toContractSnapshot } from '../../integrations/gateway.js';
+import { QuotationSnapshot, ContractSnapshot, ItemSizeReference, validateContract, toQuotationSnapshot, toContractSnapshot, toWorkOrderItemSnapshot } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
@@ -105,6 +105,38 @@ function checkDates(startDate: Date, endDate?: Date | null) {
   if (endDate && endDate < startDate) throw new HttpError('End date cannot precede start date', 400);
 }
 /**
+ * Builds the stored item rows from the submitted { itemSizeId, quantityInspection,
+ * quantityMaintenance } lines. The descriptive part of the snapshot is never
+ * client-supplied: a quotation basis takes it from the live Marketing quotation
+ * line, so the stored snapshot matches the approved document. Another basis reads
+ * it from the Marketing item-size reference resolved by the route.
+ *
+ * Every submitted size must exist in that source; a size that is not part of it
+ * is rejected instead of stored without a description.
+ */
+function resolveItemSnapshots(items: CreateWorkOrderInput['items'], input: { quotationId?: string | null },
+  quote: QuotationSnapshot | ContractSnapshot | null,
+  itemReferences?: Array<CreateWorkOrderInput['items'][number] & { snapshot: ItemSizeReference }>) {
+  if (input.quotationId) {
+    const lines = new Map<string, QuotationSnapshot['items'][number]>();
+    for (const line of (quote as QuotationSnapshot | null)?.items ?? []) lines.set(line.itemSizeId, line);
+    return items.map(item => {
+      const line = lines.get(item.itemSizeId);
+      if (!line) throw new HttpError('Every item must be part of the quotation', 409);
+      return { itemSizeId: item.itemSizeId, item: toWorkOrderItemSnapshot(line),
+        quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance };
+    });
+  }
+  const references = new Map((itemReferences ?? []).map(row => [row.itemSizeId, row.snapshot]));
+  return items.map(item => {
+    const reference = references.get(item.itemSizeId);
+    if (!reference) throw new HttpError('Item size reference was not resolved', 502);
+    const { itemSizeId, ...description } = reference;
+    return { itemSizeId: item.itemSizeId, item: { itemSizeId, ...description },
+      quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance };
+  });
+}
+/**
  * A quotation may back only one live Work order per branch: while a non-revoked
  * Work order already references the quotation, no other may be created (create)
  * or re-pointed to it (update) in the same branch. Only revoking the existing
@@ -202,10 +234,14 @@ export const workOrderRepository = {
     }));
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
-  async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+  async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor,
+    itemReferences?: Array<CreateWorkOrderInput['items'][number] & { snapshot: ItemSizeReference }>) {
     const { inspectors = [], items, quotationId: _quotationId, contractId: _contractId, performaInvoiceId: _performaInvoiceId, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
+    // The item description is never client-supplied. A quotation basis resolves it
+    // from the live Marketing quotation; other bases have no catalog source.
+    const itemRows = resolveItemSnapshots(items, input, quote, itemReferences);
     // The Work Order is always created as DRAFT; the request never carries status.
     return prisma.$transaction(async tx => {
       // Serialize same-quotation requests before the duplicate read and numbering.
@@ -217,7 +253,7 @@ export const workOrderRepository = {
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
       const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
         createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectorUsers) },
-        items: { create: items.map(item => ({ itemSizeId: item.itemSizeId, snapshotItemSize: json(item.snapshotItemSize),
+        items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       return saveHistory(tx, row, null, actor, 'CREATE');
     }, { maxWait: 10000, timeout: 20000 });
@@ -390,3 +426,4 @@ export const workOrderRepository = {
     }, { maxWait: 10000, timeout: 20000 });
   },
 };
+

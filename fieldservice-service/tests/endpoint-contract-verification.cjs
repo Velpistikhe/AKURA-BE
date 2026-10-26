@@ -40,7 +40,8 @@ async function main() {
     if (quotationFailure) return res.status(quotationFailure).json({ message: 'Quotation unavailable' });
     res.json({ data: { quotations: optionRows } });
   });
-  boundary.get('/api/v1/marketing/quotation-references/:id', (req, res) => {
+  boundary.get('/api/v1/marketing/item-size-references/:id', (req, res) => res.json({ data: { itemSizeId: req.params.id, serviceName: 'Pipe Inspection', inspectionScope: 'Visual', maintenanceScope: 'Clean', itemName: 'Pipe', size: null } }));
+boundary.get('/api/v1/marketing/quotation-references/:id', (req, res) => {
     if (quotationFailure) return res.status(quotationFailure).json({ message: 'Quotation unavailable' });
     res.status(req.params.id === quotationId ? 200 : 404).json({ data: quotation });
   });
@@ -86,7 +87,7 @@ async function main() {
     return body.data ?? body;
   }
   const inspectors = [{ userId: inspectorId, name: inspectorName }];
-  const item = { itemSizeId, snapshotItemSize: { itemSizeId, snapShotItem: { name: 'Pipe' }, size: null }, quantityInspection: 1, quantityMaintenance: 0 };
+  const item = { itemSizeId, quantityInspection: 1, quantityMaintenance: 0 };
   const input = { contractId, startDate: '2030-01-01', endDate: '2030-01-02', inspectors, items: [item] };
   const sync = async (id, selectedBranch) => {
     const user = { id, username: 'inspector', firstName: selectedBranch === branch ? 'Contract' : 'Foreign', lastName: 'Inspector', email: null, telp: null, role: 'USER', section: 'FIELD_SERVICE', officeBranchId: selectedBranch, isActive: true, version: 1, createdAt: timestamp, updatedAt: timestamp, futureField: 'preserved' };
@@ -180,3 +181,6 @@ async function main() {
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
+
+
+

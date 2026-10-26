@@ -50,7 +50,7 @@ model WorkOrderItem {
   workOrderId String @map("work_order_id") @db.Uuid
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
   itemSizeId String @map("item_size_id") @db.Uuid
-  snapshotItemSize Json @map("snapshot_item_size") @db.JsonB
+  item Json @map("item") @db.JsonB
   quantityInspection Decimal @map("quantity_inspection") @db.Decimal(15, 3)
   quantityMaintenance Decimal @map("quantity_maintenance") @db.Decimal(15, 3)
   @@map("work_order_items")
@@ -123,3 +123,4 @@ model FieldServiceUserSyncRevision {
 
   @@map("field_service_user_sync_revisions")
 }
+

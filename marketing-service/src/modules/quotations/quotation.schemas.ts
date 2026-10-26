@@ -68,12 +68,17 @@ export const createQuotationSchema = z.object(fields).strict()
   .refine(value => !!value.staffId, 'Staff is required')
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
 const isoDate = z.string().date();
+// Work Order lines from an approved quotation: the client only selects which
+// quotation items become Work Order lines. Quantities always come from the
+// quotation itself, so clients cannot submit or override them; a size outside
+// the quotation is rejected by the controller.
 export const createWorkOrderFromQuotationSchema = z.object({
   quotationId: z.string().uuid(),
   startDate: isoDate,
   endDate: isoDate,
   inspectors: inspectors,
-  items: z.array(z.object({ itemSizeId: z.string().uuid(), snapshotItemSize: z.object({ itemSizeId: z.string().uuid(), snapShotItem: z.unknown(), size: z.unknown() }).passthrough(), quantityInspection: z.number().nonnegative(), quantityMaintenance: z.number().nonnegative() }).strict()).min(1).optional(),
+  items: z.array(z.object({ itemSizeId: z.string().uuid() }).strict()).min(1, 'At least one quotation item is required').max(100)
+    .refine(rows => new Set(rows.map(row => row.itemSizeId)).size === rows.length, 'Each quotation item may be selected only once'),
 }).strict()
   .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
 export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;

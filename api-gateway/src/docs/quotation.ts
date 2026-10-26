@@ -83,17 +83,18 @@ export const quotationSchemas = {
     },
   },
   CreateWorkOrderFromQuotationRequest: {
-    type: 'object', additionalProperties: false, required: ['quotationId', 'startDate', 'endDate', 'inspectors'],
+    type: 'object', additionalProperties: false, required: ['quotationId', 'startDate', 'endDate', 'inspectors', 'items'],
     properties: {
       quotationId: { type: 'string', format: 'uuid', description: 'Must match the quotationId in the path. The quotation must be APPROVED in the authenticated branch.' },
       startDate: { type: 'string', format: 'date' },
       endDate: { type: 'string', format: 'date', description: 'Required. Must be on or after startDate.' },
       inspectors: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['userId', 'name'], properties: { userId: { type: 'string', format: 'uuid', description: 'ID of an inspector option returned by GET /api/v1/fieldservice/options/inspectors for the authenticated branch (an active FIELD_SERVICE user synchronized into Field Service).' }, name: { type: 'string', minLength: 1, maxLength: 255, description: 'Display name (firstName + lastName) copied from the same inspector option snapshot. Field Service re-validates the pair before storing it; duplicate userId values are rejected.' } } }, description: 'Inspector user pairs in display order; duplicates are rejected.' },
+      items: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['itemSizeId'], properties: { itemSizeId: { type: 'string', format: 'uuid', description: 'Quotation item size to include in the Work Order. Must belong to this quotation and may appear only once.' } } }, description: 'Required selection of the quotation items that become Work Order lines. Only itemSizeId is accepted: quantityInspection and quantityMaintenance are copied from the quotation line itself and any quantity submitted by the client is rejected (400). A size outside the quotation is also rejected (400).' },
     },
     example: { quotationId: '00000000-0000-4000-8000-000000000009', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [
       { userId: '00000000-0000-4000-8000-0000000000a1', name: 'Budi Santoso' },
       { userId: '00000000-0000-4000-8000-0000000000a2', name: 'Agus Wijaya' },
-    ] },
+    ], items: [{ itemSizeId: '00000000-0000-4000-8000-000000000002' }] },
   },
   CreateQuotationRequest: {
     type: 'object', additionalProperties: false, required: [...requiredHeader, 'items'],
@@ -112,6 +113,8 @@ export const quotationSchemas = {
     type: 'object', required: ['id', 'quotationId', 'itemSizeId', 'position', 'serviceName', 'serviceType', 'itemName', 'size', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'discount', 'note', 'subTotal', 'isActive', ...Object.keys(audit)],
     properties: {
       id: uuid, quotationId: uuid, itemSizeId: uuid, position: { type: 'integer', minimum: 0 },
+      inspectionScopes: { type: 'string', readOnly: true, description: 'Frozen active inspection scopes of the size, joined with a comma and one space. Empty when the size had none.' },
+      maintenanceScopes: { type: 'string', readOnly: true, description: 'Frozen active maintenance scopes of the size, joined with a comma and one space. Empty when the size had none.' },
       serviceName: { type: 'string' }, serviceType: ref('ServiceType'), itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for an item without a size.' },
       note: { type: 'string', maxLength: 5000, nullable: true, description: 'Optional note for this quotation item.' },
       priceSelection: { ...ref('QuotationPriceSelection'), nullable: true, readOnly: true },
@@ -246,9 +249,9 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/work-orders': {
     post: {
       ...common, summary: 'Create a DRAFT Work Order from an approved quotation', parameters: [idParameter],
-      description: 'Creates the Work Order in Field Service using the selected active quotation in the authenticated branch. Requires an APPROVED quotation with any price source, including contract pricing. The payload must include quotationId (matching the path), startDate, endDate and the inspectors array of { userId, name } pairs copied verbatim from the Field Service inspector options snapshot, with at least one pair (an empty array is rejected with 400); after all other validations pass Field Service re-validates every pair against its local FieldServiceUser read model (the name must equal the snapshot display name firstName+lastName) and stores the confirmed userId and name in the Work Order, rejecting mismatches or IDs outside the authenticated branch. The user access token is forwarded and independently verified by Field Service. While another non-revoked Work Order in the branch already references the same quotation, Field Service rejects the creation with 409 because one quotation may back only one live Work Order; revoking that Work Order frees the quotation for a new creation. Status is always DRAFT; number/date and audit data are generated by Field Service. Creation persists its CREATE history atomically. Field Service unavailability returns 503; the operation is not retried automatically.',
+      description: 'Creates the Work Order in Field Service using the selected active quotation in the authenticated branch. Requires an APPROVED quotation with any price source, including contract pricing. The payload must include quotationId (matching the path), startDate, endDate, the inspectors array of { userId, name } pairs copied verbatim from the Field Service inspector options snapshot (at least one pair), and items: the required selection of at least one quotation item as [{ itemSizeId }] with duplicates rejected. Clients never submit quantities: quantityInspection and quantityMaintenance are copied from each selected quotation line, and a quantity field in an item or a size outside the quotation returns 400 before any cross-service call. After all other validations pass Field Service re-validates every inspector pair against its local FieldServiceUser read model (the name must equal the snapshot display name firstName+lastName) and stores the confirmed userId and name in the Work Order, rejecting mismatches or IDs outside the authenticated branch. The user access token is forwarded and independently verified by Field Service. While another non-revoked Work Order in the branch already references the same quotation, Field Service rejects the creation with 409 because one quotation may back only one live Work Order; revoking that Work Order frees the quotation for a new creation. Status is always DRAFT; number/date and audit data are generated by Field Service. Creation persists its CREATE history atomically. Field Service unavailability returns 503; the operation is not retried automatically.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateWorkOrderFromQuotationRequest') } } },
-      responses: { ...commonErrors, 201: response('DRAFT Work Order created', 'WorkOrderResponse'), 400: response('quotationId does not match the path quotation', 'ErrorResponse'), 404: response('Active quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation is not approved, the quotation already backs a non-revoked Work Order in this branch, or an inspector schedule overlaps', 'ErrorResponse'), 503: response('Field Service is unavailable', 'ErrorResponse') },
+      responses: { ...commonErrors, 201: response('DRAFT Work Order created', 'WorkOrderResponse'), 400: response('quotationId does not match the path quotation, a submitted quantity, a duplicate or missing item selection, or a selected size outside the quotation', 'ErrorResponse'), 404: response('Active quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation is not approved, the quotation already backs a non-revoked Work Order in this branch, or an inspector schedule overlaps', 'ErrorResponse'), 503: response('Field Service is unavailable', 'ErrorResponse') },
     },
   },
   '/api/v1/marketing/quotations/{quotationId}/approve': {

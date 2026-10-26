@@ -18,13 +18,18 @@ const envelope = (data: object) => ({ type: 'object', properties: { status: { ty
 // Create takes inspector { userId, name } pairs (re-validated and stored server-side);
 // PATCH keeps the display-name array contract.
 const { status: _createStatus, ..._patchFields } = fields;
-const createFields = { ..._patchFields, endDate: { ...date, description: 'Optional for contract/performa basis; required for quotation basis. Null is rejected on creation.' }, inspectors: inspectorPairs, items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId','snapshotItemSize','quantityInspection','quantityMaintenance'], properties: { itemSizeId: uuid, snapshotItemSize: { type:'object', required:['itemSizeId','snapShotItem','size'], properties:{itemSizeId:uuid,snapShotItem:{},size:{}} }, quantityInspection:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001}, quantityMaintenance:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001} } } } };
+const createFields = { ..._patchFields, endDate: { ...date, description: 'Optional for contract/performa basis; required for quotation basis. Null is rejected on creation.' }, inspectors: inspectorPairs, items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId','quantityInspection','quantityMaintenance'], properties: { itemSizeId: uuid, quantityInspection:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001}, quantityMaintenance:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001} } } } };
 const { inspectors: _listInspectors, startDate: _listStartDate, endDate: _listEndDate, ..._listBaseFields } = fields;
 const workOrderListRowFields = { ..._listBaseFields, startDate: date, endDate: { ...date, nullable: true } };
 export const workOrderSchemas = {
-  WorkOrderItem: { type: 'object', required: ['id', 'workOrderId', 'itemSizeId', 'snapshotItemSize', 'quantityInspection', 'quantityMaintenance'], properties: {
+  WorkOrderItem: { type: 'object', required: ['id', 'workOrderId', 'itemSizeId', 'item', 'quantityInspection', 'quantityMaintenance'], properties: {
     id: uuid, workOrderId: uuid, itemSizeId: uuid,
-    snapshotItemSize: { type: 'object', additionalProperties: true, required: ['itemSizeId', 'snapShotItem', 'size'], properties: { itemSizeId: uuid, snapShotItem: {}, size: {} } },
+    item: { type: 'object', additionalProperties: false, required: ['itemSizeId', 'serviceName', 'inspectionScope', 'maintenanceScope', 'itemName', 'size'], properties: {
+      itemSizeId: uuid, serviceName: { type: 'string' },
+      inspectionScope: { type: 'string', description: 'Active inspection scopes of the size, joined with a comma.' },
+      maintenanceScope: { type: 'string', description: 'Active maintenance scopes of the size, joined with a comma.' },
+      itemName: { type: 'string' }, size: { type: 'string', nullable: true, description: 'Null for a size without a variant.' },
+    }, readOnly: true, description: 'Item description snapshotted by Field Service. A quotation basis takes it from the live Marketing quotation line; another basis reads it from the Marketing item-size reference. It is never accepted from the client.' },
     quantityInspection: { type: 'string', format: 'decimal', pattern: '^\\d{1,12}(\\.\\d{1,3})?$' },
     quantityMaintenance: { type: 'string', format: 'decimal', pattern: '^\\d{1,12}(\\.\\d{1,3})?$' },
   } },
@@ -35,8 +40,8 @@ export const workOrderSchemas = {
     example: { quotationId: '00000000-0000-4000-8000-000000000001', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [
       { userId: '00000000-0000-4000-8000-0000000000a1', name: 'Budi Santoso' },
       { userId: '00000000-0000-4000-8000-0000000000a2', name: 'Agus Wijaya' },
-    ], items: [{ itemSizeId:'00000000-0000-4000-8000-000000000002', snapshotItemSize:{itemSizeId:'00000000-0000-4000-8000-000000000002',snapShotItem:{itemName:'Tank'},size:'L'}, quantityInspection:1,quantityMaintenance:0 }] },
-    description: 'Creates a Work Order with status DRAFT. Authenticated caller may create regardless of service origin; at least one of quotationId, contractId or performaInvoiceId is required. Every request includes at least one item with itemSizeId, snapshotItemSize (itemSizeId, snapShotItem, size), quantityInspection and quantityMaintenance. Items are persisted in Field Service. Marketing forwards quotation item snapshots when available; frontend may send its own items. Inspector IDs are checked against branch snapshots.' },
+    ], items: [{ itemSizeId:'00000000-0000-4000-8000-000000000002', quantityInspection:1,quantityMaintenance:0 }] },
+    description: 'Creates a Work Order with status DRAFT. Every item contains only itemSizeId, quantityInspection and quantityMaintenance. When quotationId is supplied, Field Service fetches the approved quotation from Marketing, validates its branch and builds each WorkOrderItem.item from the quotation description/scopes; the other bases resolve the item size from Marketing. Client-supplied descriptions are rejected. Inspector IDs are checked against branch snapshots.' },
   WorkOrderUpdate: { type: 'object', additionalProperties: false, required: ['version'], minProperties: 2, properties: { ...fields, version } },
   WorkOrderDelete: { type: 'object', additionalProperties: false, required: ['version'], properties: { version } },
   WorkOrderStart: {
