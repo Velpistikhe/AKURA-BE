@@ -1,3 +1,4 @@
+import { billingPricesSchema, resolveBillingPrices } from '../modules/items/billing-prices.js';
 import { prisma } from '../config/db.js';
 import { getOfficeBranchId } from '../utils/officeBranch.js';
 import { contractIdSchema } from '../modules/contracts/contract.schemas.js';
@@ -21,6 +22,10 @@ import { requireMarketingAccess, requireQuotationReferenceAccess } from '../midd
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+router.post('/billing-price-references', asyncHandler(requireQuotationReferenceAccess), validate('body', billingPricesSchema), asyncHandler(async (req, res) => {
+  const data = await resolveBillingPrices(res.locals.body, getOfficeBranchId(res));
+  res.json({ status: 200, success: true, message: 'Billing prices resolved successfully', data, requestId: req.headers['x-request-id'] });
+}));
 router.get('/company-contract-references/:companyId', asyncHandler(requireQuotationReferenceAccess), validate('params', companyIdSchema), asyncHandler(async (req, res) => {
   const contract = await contractRepository.resolveCompanyReference(res.locals.params.companyId, getOfficeBranchId(res));
   res.json({ status: 200, success: true, data: contract, requestId: req.headers['x-request-id'] });

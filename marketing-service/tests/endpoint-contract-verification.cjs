@@ -36,8 +36,8 @@ async function main() {
     createdById: randomUUID(), createdByName: 'Finance Test', updatedById: null, updatedByName: null,
     createdAt: '2026-10-26T00:00:00.000Z', updatedAt: '2026-10-26T00:00:00.000Z',
   });
-  boundary.post('/api/v1/finance/invoices/from-marketing', (req, res) => res.status(201).json({ data: financeDocument('INVOICE', 'INV/2026/000001', req.body) }));
-  boundary.post('/api/v1/finance/proforma-invoices/from-marketing', (req, res) => res.status(201).json({ data: financeDocument('PROFORMA_INVOICE', 'PI/2026/000001', req.body) }));
+  boundary.post('/api/v1/finance/invoices', (req, res) => res.status(201).json({ data: financeDocument('INVOICE', 'INV/2026/000001', req.body) }));
+  boundary.post('/api/v1/finance/proforma-invoices', (req, res) => res.status(201).json({ data: financeDocument('PROFORMA_INVOICE', 'PI/2026/000001', req.body) }));
   const listen = app => new Promise(resolve => { const server = app.listen(0, '127.0.0.1', () => resolve(server)); });
   const dependencyServer = await listen(boundary);
   process.env.API_GATEWAY_URL = `http://127.0.0.1:${dependencyServer.address().port}`;
@@ -167,6 +167,7 @@ async function main() {
     const small = await prisma.itemSize.findFirstOrThrow({ where: { itemId: itemRow.id, size: 'Small' } });
     await request('POST', `/items/sizes/${small.id}/price`, 201, { priceServicePrimary: '50', priceMaintenancePrimary: '10', priceMaintenanceSisterCompany: '5' });
     await request('GET', `/items/sizes/prices?companyId=${company.id}`, 200);
+    await request('POST', '/billing-price-references', 200, {companyId:company.id,itemSizeIds:[size.id,small.id]}, finance);
     await request('GET', '/items/sizes/export', 200);
     let contract = await request('POST', '/company-contracts', 201, { companyId: company.id, contractNumber: `CONTRACT-${branch}`, contractDate: '2026-01-01', effectiveFrom: '2026-01-01', effectiveUntil: '2099-12-31' });
     let contractPrice = await request('POST', `/items/sizes/${size.id}/contract-prices`, 201, { contractId: contract.id, priceService: '90', priceMaintenance: '10' });

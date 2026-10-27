@@ -49,8 +49,9 @@ const quotationItemSchema = z.object({
   // Frozen scope snapshot of the line, exposed by Marketing on the reference.
   inspectionScopes: z.string().nullish(), maintenanceScopes: z.string().nullish(),
 }).passthrough();
-// Quotation header returned by GET marketing/quotation-references/:id. Tax and total
-// fields are validated but excluded from the persisted snapshot by toQuotationSnapshot.
+// Quotation header returned by GET marketing/quotation-references/:id. The tax
+// rate is validated and persisted in the Work Order snapshot; the total fields
+// stay excluded from the persisted snapshot by toQuotationSnapshot.
 export const quotationSchema = z.object({
   id: z.string().uuid(), officeBranchId: z.string().uuid(), version: z.number().int().nonnegative(),
   // Boolean (not literal true) so lifecycle snapshots such as REVISED can also be stored.
@@ -64,7 +65,7 @@ export const quotationSchema = z.object({
   supplyAkura: z.string(), supplyCustomer: z.string(), location: z.string(), accomplished: z.string(),
   deliveryReports: z.string(), deliveryInvoice: z.string(), staffId: z.string().uuid(),
   customerSnapshot: z.string(), companySnapshot: z.record(z.unknown()),
-  subTotal: money, taxAmount: money, total: money, createdAt: dateTime, updatedAt: dateTime,
+  subTotal: money, tax: money, taxAmount: money, total: money, createdAt: dateTime, updatedAt: dateTime,
   items: z.array(quotationItemSchema),
 }).passthrough();
 export type QuotationSnapshot = z.infer<typeof quotationSchema>;
@@ -79,6 +80,11 @@ const quotationSnapshotKeys = [
   'inquiryDate', 'subject', 'termOfPayment', 'validity', 'supplyAkura', 'supplyCustomer',
   'location', 'accomplished', 'deliveryReports', 'deliveryInvoice', 'customerSnapshot',
   'companySnapshot', 'staffId', 'status', 'isActive', 'version', 'createdAt', 'updatedAt',
+  // The tax rate approved on the quotation is part of the document identity and
+  // is kept so Finance can compare a billing request against the Work Order
+  // executed for the same quotation. Amounts (subTotal/taxAmount/total) and every
+  // item price stay excluded.
+  'tax',
 ] as const;
 export type WorkOrderQuotationSnapshot =
   Pick<QuotationSnapshot, typeof quotationSnapshotKeys[number]>
@@ -87,6 +93,7 @@ export type WorkOrderQuotationSnapshot =
  * Reduces a live Marketing quotation to what a Work Order stores: identity, lifecycle
  * and descriptive content plus its items, with every price excluded (header
  * subTotal/taxAmount/total, item priceInspection/priceMaintenance/subTotal/priceSelection).
+ * The approved tax rate is kept because it identifies the document, not a price.
  *
  * Keys are projected through an explicit allowlist rather than a rest-spread, so the
  * upstream passthrough() payload cannot leak an extra Marketing column into the column,

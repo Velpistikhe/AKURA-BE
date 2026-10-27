@@ -130,6 +130,31 @@ export const workOrderSchemas = {
     revision: { ...version, description: 'Revision counter of the approved quotation.' },
     approvedAt: { ...timestamp, nullable: true, description: 'Approval time of the quotation PDF document.' } } },
   QuotationOptionList: envelope({ type: 'object', required: ['quotations'], properties: { quotations: { type: 'array', items: ref('QuotationOption') } } }),
+  QuotationOptionItem: {
+    type: 'object', required: ['itemSizeId', 'itemName'], additionalProperties: false,
+    description: 'Active quotation line projected for the Work Order creation form. Price fields are excluded by construction.',
+    properties: {
+      itemSizeId: uuid,
+      serviceName: { type: 'string', description: 'Service name of the line; empty for a standalone item.' },
+      serviceType: { type: 'string', description: 'Upstream service type of the line.' },
+      itemName: { type: 'string' },
+      size: { type: 'string', nullable: true },
+      quantityInspection: { type: 'string', format: 'decimal', description: 'Quotation inspection quantity; reference default only, the client submits its own quantities.' },
+      quantityMaintenance: { type: 'string', format: 'decimal', description: 'Quotation maintenance quantity; reference default only.' },
+      inspectionScope: { type: 'string' },
+      maintenanceScope: { type: 'string' },
+    },
+  },
+  QuotationOptionDetail: envelope({
+    type: 'object', required: ['quotation'], properties: { quotation: {
+      type: 'object', required: ['id', 'subject', 'items'], additionalProperties: false,
+      properties: {
+        id: uuid, no: { ...version, nullable: true }, numberYear: { ...version, nullable: true },
+        subject: { type: 'string' }, company: { type: 'object', nullable: true, additionalProperties: true },
+        items: { type: 'array', items: ref('QuotationOptionItem') },
+      },
+    } },
+  }),
 };
 const id = { in: 'path', name: 'id', required: true, schema: uuid };
 const quotationId = { in: 'path', name: 'quotationId', required: true, schema: uuid };
@@ -210,6 +235,14 @@ export const workOrderPaths = {
       security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters: [],
       description: 'Resolved live from Marketing GET /api/v1/marketing/quotation-references in a single upstream request. Returns active APPROVED quotations of the authenticated branch, including contract-priced quotations. Marketing unavailability returns 503. Requires an active profile and current authenticated branch.',
       responses: { 200: { description: 'Branch-scoped quotation options', content: { 'application/json': { schema: ref('QuotationOptionList') } } }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 502: { description: 'Invalid upstream response or branch mismatch' }, 503: { description: 'Referenced service unavailable' } },
+    },
+  },
+  '/api/v1/fieldservice/options/quotations/{quotationId}': {
+    get: {
+      summary: 'List quotation item options for the Work Order creation form', tags: ['Work Order'],
+      security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters: [quotationId],
+      description: 'Returns the APPROVED active quotation of the authenticated branch with its active item lines for the Work Order creation form. Each line exposes itemSizeId, description and the quotation quantities as reference defaults only; every price field of the quotation is excluded by an explicit allowlist projection. The quotation is fetched live from Marketing GET /api/v1/marketing/quotation-references/{quotationId}, so an unknown, inactive, non-APPROVED or other-branch quotation returns 404 and Marketing unavailability returns 503. Work Order creation still re-validates the quotation and rejects sizes outside it with 409.',
+      responses: { 200: { description: 'Branch-scoped quotation detail with price-free item lines', content: { 'application/json': { schema: ref('QuotationOptionDetail') } } }, 400: { description: 'Invalid quotation ID' }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 404: { description: 'Quotation not found in this branch' }, 409: { description: 'Quotation is not an active APPROVED quotation' }, 502: { description: 'Invalid upstream response or branch mismatch' }, 503: { description: 'Referenced service unavailable' } },
     },
   },
 };

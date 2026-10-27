@@ -9,15 +9,14 @@ const {invoiceDate,nextInvoiceIdentity}=require('../dist/modules/invoices/invoic
 test('invoice numbering: concurrent creation, annual reset, branch isolation, rollback and recovery',async()=>{
  const actor={id:randomUUID(),name:'Number test',officeBranchId:randomUUID()};
  const rolloverBranch=randomUUID();
- const q={id:randomUUID(),officeBranchId:actor.officeBranchId,version:0,isActive:true,subTotal:'100',items:[]};
- const input={quotationId:q.id,quotationVersion:0,title:'Number test'};
+ const q={id:randomUUID(),officeBranchId:actor.officeBranchId,version:0,isActive:true,subTotal:'100',tax:'12',status:'APPROVED',subject:'Number test',items:[{id:randomUUID(),itemSizeId:randomUUID(),serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:null,note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,discount:'0',subTotal:'100'}]};
  const year=invoiceDate().getUTCFullYear();
  let failHistory=false;
  prisma.$use(async(params,next)=>{
   if(failHistory && params.model==='DocumentHistory' && params.action==='create' && params.args.data.createdById===actor.id) throw Error('Simulated history failure');
   return next(params);
  });
- const create=()=>repo.create('INVOICE',input,q,actor);
+ const create=()=>repo.createFromMarketing('INVOICE',q,new Date('2099-12-31'),null,actor,null);
  const last=async()=> (await prisma.$queryRaw`SELECT last_number FROM invoice_sequences WHERE office_branch_id=${actor.officeBranchId}::uuid AND year=${year}`)[0]?.last_number;
  const allocate=clock=>prisma.$transaction(tx=>nextInvoiceIdentity(tx,rolloverBranch,clock));
  try {
@@ -37,7 +36,7 @@ test('invoice numbering: concurrent creation, annual reset, branch isolation, ro
   failHistory=false;
   assert.equal(await last(),8);
   assert.equal(await prisma.document.count({where:{officeBranchId:actor.officeBranchId}}),8);
-  await assert.rejects(repo.create('INVOICE',{...input,dueDate:new Date('2000-01-01')},q,actor),e=>e.statusCode===400);
+  await assert.rejects(repo.createFromMarketing('INVOICE',q,new Date('2000-01-01'),null,actor,null),e=>e.statusCode===400);
   assert.equal(await last(),8);
   await repo.mutate('INVOICE',rows[0].id,{version:0},actor,true);
   assert.equal((await create()).number,`INV/${year}/000009`);
@@ -59,6 +58,7 @@ test('invoice numbering: concurrent creation, annual reset, branch isolation, ro
   failHistory=false;
   const where={officeBranchId:actor.officeBranchId};
   await prisma.documentHistory.deleteMany({where:{document:where}});
+  await prisma.documentItem.deleteMany({where:{document:where}});
   await prisma.document.deleteMany({where});
   await prisma.tax.deleteMany({where});
   await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id IN (${actor.officeBranchId}::uuid,${rolloverBranch}::uuid)`;

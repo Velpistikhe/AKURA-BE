@@ -14,14 +14,13 @@ const resolveActor = (allowedSections: readonly string[]) => async (req: Request
     if (!profile.isActive || !profile.officeBranchId) throw new HttpError('Active user and office branch assignment are required', 403);
     if ((req as AuthenticatedRequest).user?.officeBranchId !== profile.officeBranchId) throw new HttpError('Office branch assignment has changed; please sign in again', 401);
     if (!['ADMIN', 'APP_MANAGER'].includes(profile.role) && !allowedSections.includes(profile.section ?? '')) throw new HttpError('Access to this section is required', 403);
+    res.locals.financeAccessAllowed = ['ADMIN', 'APP_MANAGER'].includes(profile.role) || ['FINANCE', 'ACCOUNTING'].includes(profile.section ?? '');
     res.locals.taxWriteAllowed = profile.role === 'ADMIN' && profile.section === 'FINANCE';
     res.locals.documentActor = { id: profile.id, name: `${profile.firstName} ${profile.lastName}`.trim() || profile.username, officeBranchId: profile.officeBranchId } satisfies Actor;
     next();
   } catch (error) { next(error); }
 };
 export const requireActor = resolveActor(['FINANCE', 'ACCOUNTING']);
-// The /from-marketing route receives the end user's token forwarded by Marketing
-// Service, so its section is MARKETING. It is the only Finance route a Marketing
-// user may call; every other Finance route stays FINANCE/ACCOUNTING only. This
-// route still performs full branch ownership and quotation validity checks.
+// Quotation creation accepts Marketing's forwarded end-user token on the main
+// endpoint and its alias. Direct creation additionally requires finance access.
 export const requireMarketingForwardedActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);

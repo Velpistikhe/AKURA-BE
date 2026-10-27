@@ -23,3 +23,13 @@ export const requireWorkOrderSection = (...sections: string[]) => (_req: Request
   if (!sections.includes(res.locals.workOrderSection)) return next(new HttpError('Access to this section is required', 403));
   next();
 };
+/**
+ * Actor guard for the read-only Work Order lookup that Finance uses while
+ * billing a quotation. Finance and Accounting need the Work Order status and
+ * its stored quotation snapshot; no other Field Service route accepts them.
+ */
+export const requireWorkOrderReferenceSection = (_req: Request, res: Response, next: NextFunction) => {
+  const section = res.locals.workOrderSection;
+  if (section && !['FINANCE', 'ACCOUNTING'].includes(section)) return next(new HttpError('Access to this section is required', 403));
+  next();
+};

@@ -33,16 +33,38 @@ test('Inspector and quotation option endpoints are branch scoped and eligibility
       if (upstreamFails) throw Error('offline');
       return { ok: true, json: async () => ({ data: { quotations: options.headers.Authorization === 'Bearer other' ? [] : listRows } }) };
     }
+    // The detail route reuses the live basis read: branch, APPROVED and active.
+    if (/\/marketing\/quotation-references\/[^/]+$/.test(String(url))) {
+      detailCalls++;
+      if (upstreamFails) throw Error('offline');
+      const id = String(url).split('/').pop();
+      const row = detailRow;
+      if (options.headers.Authorization === 'Bearer other' || !row || row.id !== id) return { ok: false, status: 404, json: async () => ({ message: 'Referenced record not found' }) };
+      return { ok: true, json: async () => ({ data: row }) };
+    }
     throw new Error(`Unexpected upstream call ${url}`);
   };
 
   // Rows returned by Marketing's quotation-reference list (already eligibility filtered).
-  let listRows = [], listCalls = 0, upstreamFails = false;
+  let listRows = [], listCalls = 0, detailCalls = 0, upstreamFails = false, detailRow = null;
   const quotationRow = (id, changes = {}) => ({ id, officeBranchId: branch, no: 1, numberYear: 2026,
     status: 'APPROVED', subject: `Quote ${id}`, customerSnapshot: 'Buyer', companySnapshot: { name: 'Customer' },
     subTotal: '100', taxAmount: '11', total: '111', version: 1, revision: 0, isActive: true,
     createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
     approvedAt: '2026-10-01T00:00:00.000Z', ...changes });
+  // The detail read is the full Marketing quotation reference, prices included.
+  const quotationDetail = (id, itemSizeId) => ({ ...quotationRow(id), date: '2026-10-01T00:00:00.000Z',
+    jobStart: '2026-10-05', inquiryMethod: 'WALK_IN', inquiryDate: '2026-09-30T00:00:00.000Z',
+    termOfPayment: 'NET 30', validity: '30 days', supplyAkura: 'Yes', supplyCustomer: 'No', location: 'Jakarta',
+    accomplished: 'Pending', deliveryReports: 'Pending', deliveryInvoice: 'Pending', staffId: randomUUID(),
+    items: [{ id: randomUUID(), itemSizeId, position: 1, serviceName: 'Inspection', serviceType: 'TUBULAR',
+      itemName: 'Pipe', size: '2 inch', note: null, quantityInspection: '2', quantityMaintenance: '1',
+      priceInspection: '1000', priceMaintenance: '500', subTotal: '2500', priceSelection: null,
+      isActive: true, version: 1, inspectionScopes: 'Visual', maintenanceScopes: 'Tightening' },
+    { id: randomUUID(), itemSizeId: randomUUID(), position: 2, serviceName: 'Inspection', serviceType: 'TUBULAR',
+      itemName: 'Removed line', size: null, note: null, quantityInspection: '1', quantityMaintenance: '0',
+      priceInspection: '100', priceMaintenance: null, subTotal: '100', priceSelection: null,
+      isActive: false, version: 1 }] });
   const seedInspector = (id, branchId, patch = {}) => prisma.fieldServiceUser.upsert({
     where: { id }, create: { id, officeBranchId: branchId, user: { id, firstName: 'Budi', lastName: 'Tester',
       username: 'budi', ...patch }, sourceVersion: 1, sourceCreatedAt: new Date(),
@@ -101,6 +123,30 @@ test('Inspector and quotation option endpoints are branch scoped and eligibility
     upstreamFails = true;
     assert.equal((await get('/options/quotations')).status, 503, 'Marketing unavailability returns 503');
     upstreamFails = false;
+
+    // The item options of one quotation expose the active lines without any price.
+    const itemSizeId = randomUUID();
+    detailRow = quotationDetail(quotationId, itemSizeId);
+    const detail = await get(`/options/quotations/${quotationId}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detailCalls, 1, 'the item options use one live Marketing detail call');
+    assert.deepEqual(detail.body.data.quotation, {
+      id: quotationId, no: 1, numberYear: 2026, subject: `Quote ${quotationId}`,
+      company: { name: 'Customer' },
+      items: [{ itemSizeId, serviceName: 'Inspection', serviceType: 'TUBULAR', itemName: 'Pipe', size: '2 inch',
+        quantityInspection: '2', quantityMaintenance: '1', inspectionScope: 'Visual', maintenanceScope: 'Tightening' }],
+    }, 'only active lines are returned and no price reaches the client');
+    const serialized = JSON.stringify(detail.body);
+    for (const priceField of ['priceInspection', 'priceMaintenance', 'subTotal', 'total', 'taxAmount'])
+      assert.equal(serialized.includes(priceField), false, `${priceField} is never exposed`);
+
+    // Another branch and an unknown quotation never resolve a line.
+    assert.equal((await get(`/options/quotations/${quotationId}`, 'other')).status, 404, 'another branch gets no quotation detail');
+    assert.equal((await get(`/options/quotations/${randomUUID()}`)).status, 404, 'an unknown quotation returns 404');
+    upstreamFails = true;
+    assert.equal((await get(`/options/quotations/${quotationId}`)).status, 503, 'Marketing unavailability returns 503');
+    upstreamFails = false;
+    assert.equal((await get('/options/quotations/not-a-uuid')).status, 400, 'an invalid quotation ID is rejected');
 
     // Unauthenticated requests are rejected before any option is read.
     const anonymous = await originalFetch(`http://127.0.0.1:${server.address().port}/options/inspectors`);

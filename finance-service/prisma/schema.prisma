@@ -19,9 +19,12 @@ model Document {
   officeBranchId String @map("office_branch_id") @db.Uuid
   kind DocumentKind
   number String @db.VarChar(100)
-  quotationId String @map("quotation_id") @db.Uuid
-  quotationVersion Int @map("quotation_version")
-  quotationSnapshot Json @map("quotation_snapshot") @db.JsonB
+  source String @default("QUOTATION") @db.VarChar(20)
+  companyId String? @map("company_id") @db.Uuid
+  companySnapshot Json? @map("company_snapshot") @db.JsonB
+  quotationId String? @map("quotation_id") @db.Uuid
+  quotationVersion Int? @map("quotation_version")
+  quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
   title String @db.VarChar(255)
   date DateTime @db.Date
   dueDate DateTime? @map("due_date") @db.Date
@@ -30,6 +33,9 @@ model Document {
   subTotal Decimal @map("sub_total") @db.Decimal(18,2)
   taxSourceId String? @map("tax_source_id") @db.Uuid
   tax Decimal? @db.Decimal(5,2)
+  /// Tax rate of the quotation snapshot stored by Field Service when the
+  /// billing request was accepted; null when no Work Order backs it.
+  workOrderTax Decimal? @map("work_order_tax") @db.Decimal(5,2)
   taxAmount Decimal @map("tax_amount") @db.Decimal(18,2)
   total Decimal @db.Decimal(18,2)
   version Int @default(0)
@@ -51,6 +57,7 @@ model DocumentItem {
   id String @id @default(uuid()) @db.Uuid
   documentId String @map("document_id") @db.Uuid
   document Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  pricingSnapshot Json? @map("pricing_snapshot") @db.JsonB
   quotationItemId String? @map("quotation_item_id") @db.Uuid
   position Int
   itemSizeId String? @map("item_size_id") @db.Uuid

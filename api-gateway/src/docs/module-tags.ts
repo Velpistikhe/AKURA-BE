@@ -45,6 +45,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/inspection/scopes')) return 'Inspection Scopes';
   if (path.includes('/maintenance/scopes')) return 'Maintenance Scopes';
   if (path.includes('/services')) return 'Services';
+  if (path.endsWith('/billing-price-references')) return 'Item Prices';
   if (path.endsWith('/items/sizes/prices')) return 'Quotation Options';
   if (/\/items\/sizes\/[^/]+\/price(?:\/history)?$/.test(path)) return 'Item Prices';
   if (path.includes('/items/sizes')) return 'Item Sizes';

@@ -11,13 +11,14 @@ require('../dist/utils/logger.js').logger.silent=true;
 test('HTTP CRUD, module separation, profile/branch enforcement and input validation',async()=>{
  const branch=randomUUID(),otherBranch=randomUUID(),user=randomUUID(),quoteId=randomUUID();
  const profile={id:user,officeBranchId:branch,isActive:true,role:'USER',section:'FINANCE',firstName:'Test',lastName:'User',username:'test'};
- const quotation={id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,subject:'Work',companySnapshot:{name:'Company'},customerSnapshot:'Buyer',subTotal:'100',taxAmount:'11',total:'111',items:[]};
+ const quotation={tax:'12',status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,subject:'Work',companySnapshot:{name:'Company'},customerSnapshot:'Buyer',subTotal:'100',taxAmount:'12',total:'112',items:[{id:randomUUID(),position:0,itemSizeId:randomUUID(),serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:null,note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,discount:'0',subTotal:'100'}]};
  const originalFetch=global.fetch;
  global.fetch=async(url,options)=>{
   if(!String(url).startsWith(env.API_GATEWAY_URL+'/api/v1/')) return originalFetch(url,options);
   const token=options.headers.Authorization;
   if(String(url).endsWith('/auth/me')) return {ok:true,json:async()=>({data:{...profile,...(token==='Bearer other'?{officeBranchId:otherBranch}:{}),...(token==='Bearer inactive'?{isActive:false}:{}),...(token==='Bearer wrong-section'?{section:'HRD_MANAGEMENT'}:{})}})};
   if(String(url).endsWith('/quotation-references/'+quoteId)) return {ok:true,json:async()=>({data:quotation})};
+  if(String(url).includes('/fieldservice/work-orders/by-quotation/')) return {ok:true,json:async()=>({data:null})};
   throw Error('Unexpected upstream call');
  };
  const app=express();app.use(express.json());
@@ -38,13 +39,13 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
   const modules=['/proforma-invoices','/invoices'];
   let first;
   for(const module of modules){
-   const raw={quotationId:quoteId,quotationVersion:0,title:'HTTP Document',...(module==='/invoices'?{}:{date:'2026-09-12',dueDate:'2026-10-12'})};
+   const raw={source:'QUOTATION',quotation,dueDate:'2099-12-31'};
    await request('POST',module,{...raw,number:'CUSTOM'},400);
    if(module==='/invoices') {
     await request('POST',module,{...raw,date:'2020-01-01'},400);
    }
    await request('POST',module,{...raw,officeBranchId:otherBranch},400);
-   await request('POST',module,{...raw,quotationVersion:1},409);
+   await request('POST',module,{...raw,quotation:{...quotation,version:1}},409);
    await request('POST',module,raw,404,'other');
    const row=await request('POST',module,raw,201);
    assert.equal(row.officeBranchId,branch);assert.equal(row.createdByName,'Test User');
@@ -77,6 +78,6 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
   }
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
-  const where={officeBranchId:branch};await prisma.documentHistory.deleteMany({where:{document:where}});await prisma.document.deleteMany({where});await prisma.$executeRaw`DELETE FROM proforma_invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.taxDelivery.deleteMany({where:{event:where}});await prisma.taxEvent.deleteMany({where});await prisma.taxRevision.deleteMany({where});await prisma.tax.deleteMany({where});await prisma.$disconnect();
+  const where={officeBranchId:branch};await prisma.documentHistory.deleteMany({where:{document:where}});await prisma.documentItem.deleteMany({where:{document:where}});await prisma.document.deleteMany({where});await prisma.$executeRaw`DELETE FROM proforma_invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.taxDelivery.deleteMany({where:{event:where}});await prisma.taxEvent.deleteMany({where});await prisma.taxRevision.deleteMany({where});await prisma.tax.deleteMany({where});await prisma.$disconnect();
  }
 });

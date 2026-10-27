@@ -195,9 +195,9 @@ export const quotationController = {
     const token = getAccessToken(req);
     if (!token) throw new HttpError('Access token is required', 401);
     const kind = res.locals.body.kind as 'INVOICE' | 'PROFORMA_INVOICE';
-    const path = kind === 'INVOICE' ? 'finance/invoices/from-marketing' : 'finance/proforma-invoices/from-marketing';
+    const path = kind === 'INVOICE' ? 'finance/invoices' : 'finance/proforma-invoices';
     let response: globalThis.Response;
-    try { response = await fetch(serviceUrl(path), {method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',authorization:'Bearer '+token,...serviceHeaders(path),...(typeof req.headers['x-request-id']==='string'?{'x-request-id':req.headers['x-request-id']}:{})},body:JSON.stringify({quotation,dueDate:res.locals.body.dueDate,notes:res.locals.body.notes})}); }
+    try { response = await fetch(serviceUrl(path), {method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',authorization:'Bearer '+token,...serviceHeaders(path),...(typeof req.headers['x-request-id']==='string'?{'x-request-id':req.headers['x-request-id']}:{})},body:JSON.stringify({source: 'QUOTATION',quotation,dueDate:res.locals.body.dueDate,notes:res.locals.body.notes})}); }
     catch { throw new HttpError('Finance Service is unavailable; retry later',503); }
     if (!response.ok) { const upstream=await response.json().catch(()=>null) as {message?:string}|null; throw new HttpError(upstream?.message||'Unable to create finance document',[400,401,403,404,409].includes(response.status)?response.status:502); }
     const payload=await response.json().catch(()=>null) as {data?:unknown}|null;

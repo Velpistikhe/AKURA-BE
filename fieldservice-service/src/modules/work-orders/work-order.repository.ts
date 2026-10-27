@@ -296,7 +296,10 @@ export const workOrderRepository = {
   },
   async findActiveByQuotation(quotationId: string, actor: Actor) {
     return prisma.workOrder.findFirst({ where: { quotationId, officeBranchId: actor.officeBranchId, revoked: false },
-      select: { id: true, quotationId: true, officeBranchId: true, revoked: true, number: true, status: true, version: true } });
+      select: { id: true, quotationId: true, officeBranchId: true, revoked: true, number: true, status: true, version: true,
+        // The tax rate approved on the quotation is part of the stored snapshot and
+        // is exposed so a billing service can compare it against its own record.
+        quotationSnapshot: true } });
   },
   async get(id: string, actor: Actor) {
     const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });

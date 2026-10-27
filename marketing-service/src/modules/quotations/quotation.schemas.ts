@@ -87,7 +87,7 @@ export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFr
 // document kind, the payment deadline and optional notes.
 export const createFinanceDocumentSchema = z.object({
   kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']),
-  dueDate: isoDate.nullable().optional(),
+  dueDate: isoDate,
   notes: z.string().trim().max(20000).nullable().optional(),
 }).strict();
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
