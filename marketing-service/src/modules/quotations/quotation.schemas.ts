@@ -82,6 +82,14 @@ export const createWorkOrderFromQuotationSchema = z.object({
 }).strict()
   .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
 export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;
+// Invoice or proforma invoice created from an approved quotation. The quotation
+// snapshot itself is resolved by Marketing, so the client only chooses the
+// document kind, the payment deadline and optional notes.
+export const createFinanceDocumentSchema = z.object({
+  kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']),
+  dueDate: isoDate.nullable().optional(),
+  notes: z.string().trim().max(20000).nullable().optional(),
+}).strict();
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;

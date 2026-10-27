@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 
 const validatePath = (path: string) => {
-  if (!/^(auth|marketing|fieldservice)\//.test(path) || path.includes('..') || path.includes('://')) throw new Error('Unsupported service path');
+  if (!/^(auth|marketing|fieldservice|finance)\//.test(path) || path.includes('..') || path.includes('://')) throw new Error('Unsupported service path');
 };
 
 export const serviceUrl = (path: string): string => {

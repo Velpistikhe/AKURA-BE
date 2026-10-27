@@ -327,6 +327,13 @@ Marketing is the single source of truth for quotation content. Field Service res
 
 Snapshot drift is detected by re-validation rather than by republishing state: revising, deactivating or restoring a quotation changes Marketing immediately, and Field Service rejects a start that no longer matches with 409.
 
+## Pembuatan invoice/proforma invoice dari quotation
+
+Endpoint `POST /api/v1/marketing/quotations/{quotationId}/invoices` menerima `kind` (`INVOICE` atau `PROFORMA_INVOICE`), `dueDate` sebagai tenggat pembayaran (opsional/null), dan `notes`. Marketing mengirim semua item quotation secara utuh, termasuk harga satuan, kuantitas, diskon dan subtotal.
+
+Finance memvalidasi ulang branch, status `APPROVED`, versi dan isi item melalui Marketing dengan token pengguna. Dokumen memiliki header dan detail item berharga, dibuat berstatus `DRAFT`, dan approval Finance/Accounting lewat `POST /api/v1/finance/invoices/{id}/approve` atau `/proforma-invoices/{id}/approve` dengan `{ "version": 0 }` mengubah status menjadi `ON_PROGRESS`. Section MARKETING hanya dapat mengakses route pembuatan; data dan approval Finance tetap terlindungi.
+
+
 ## Endpoint and Swagger verification
 
 Build Marketing and API Gateway before running `npm run test:contract`. The contract harness derives the endpoint inventory from route source and compares it with Swagger in both directions. It executes successful and rejected HTTP requests for every operation and validates JSON request/response schemas, PDF/Excel routes, JWT verification, role/section restrictions, branch ownership, optimistic concurrency, contract lifecycle, quotation lifecycle and internal callbacks.

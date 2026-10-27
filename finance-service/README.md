@@ -18,6 +18,22 @@ Commands: `npm run build`, `npm start`, `npm run typecheck`, `npm test`.
 Domain routes belong in `src/modules` and are registered in `src/routes/index.ts`. Authentication is applied before the router. The service owns its PostgreSQL database. Set DATABASE_URL to its own database, run npm run db:push, then npm run build. Never point DATABASE_URL at another service database. Swagger is maintained in `api-gateway/src/docs/operational-documents.ts` and `openapi.ts`.
 
 
+### Create invoice or proforma invoice from an approved quotation
+
+Marketing can create a Finance document from the full approved quotation. The quotation snapshot is resolved server-side; clients choose the document kind, optional payment deadline, and notes:
+
+`POST /api/v1/marketing/quotations/{quotationId}/invoices`
+
+```json
+{"kind":"INVOICE","dueDate":"2026-12-31","notes":"Payment due in 30 days"}
+```
+
+`kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate` is nullable/optional and represents the payment deadline. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards all quotation lines with quantities, unit prices, discounts and subtotals to Finance.
+
+Finance exposes `POST /api/v1/finance/invoices/from-marketing` and `POST /api/v1/finance/proforma-invoices/from-marketing`. These endpoints accept the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. Marketing-section users may call only the `from-marketing` creation routes; Finance document reads, changes, approval and tax administration remain restricted to FINANCE/ACCOUNTING users (tax writes retain the existing ADMIN + FINANCE restriction).
+
+Finance users approve a draft with `POST /api/v1/finance/{invoices|proforma-invoices}/{id}/approve` and body `{"version":0}`. This atomically changes `DRAFT` to `ON_PROGRESS` and appends an `APPROVE` history entry. Stale versions or non-draft documents return 409.
+
 ## Quotation-linked documents
 
 `/proforma-invoices` and `/invoices` share the billing_documents table, distinguished by DocumentKind; each record owns its history.
@@ -62,6 +78,10 @@ Long-lived servers also run the timer worker and recover pending entries on star
 Run `npm run test:tax-serverless` in Finance and `npm run test:tax-events-http` in Marketing for HTTP regression tests without production database writes. The existing `test:tax-delivery` and `test:tax-events` suites cover real database transaction behavior using isolated schemas.
 
 Invoice/proforma creation reads Finance master tax effective on document date, serializes with branch tax writes, computes tax with Decimal half-up rounding to two decimals and saves taxSourceId/tax alongside amounts. A missing period returns 409. Proforma draft date changes and document finalization revalidate tax. Final documents cannot be edited; existing documents are not automatically repriced. Legacy tax snapshots remain null rather than guessing from historical amounts.
+
+14. `POST /invoices/from-marketing` — create a DRAFT invoice from a Marketing-approved full quotation snapshot. Finance revalidates the branch, approval status, version and priced detail lines with Marketing using the forwarded token, and accepts an optional payment `dueDate`.
+15. `POST /invoices/:id/approve` — Finance/Accounting approval transition from DRAFT to ON_PROGRESS. It requires the current `{version}` and records history atomically.
+16. Equivalent endpoints exist under `/proforma-invoices/from-marketing` and `/proforma-invoices/:id/approve`. A MARKETING-section user may call only the `from-marketing` creation routes; every other Finance operation stays limited to FINANCE/ACCOUNTING.
 
 ### Cutover from App Manager
 

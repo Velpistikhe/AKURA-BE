@@ -22,6 +22,42 @@ function checkDates(value: { date: Date; dueDate?: Date | null }) {
   if (value.dueDate && value.dueDate < value.date) throw new HttpError('Due date cannot precede document date', 400);
 }
 export const documentRepository = {
+  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date | null | undefined, notes: string | null | undefined, actor: Actor) {
+
+    if (quotation.officeBranchId !== actor.officeBranchId || !quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Quotation is invalid or does not belong to this branch', 409);
+    const lines = quotation.items.map((item, position) => ({
+      quotationItemId: item.id, position, itemSizeId: item.itemSizeId, serviceName: item.serviceName, serviceType: item.serviceType, itemName: item.itemName,
+      size: item.size, note: item.note, quantityInspection: new Prisma.Decimal(item.quantityInspection), quantityMaintenance: new Prisma.Decimal(item.quantityMaintenance),
+      priceInspection: new Prisma.Decimal(item.priceInspection), priceMaintenance: item.priceMaintenance === null ? null : new Prisma.Decimal(item.priceMaintenance),
+      discount: new Prisma.Decimal(item.discount), subTotal: new Prisma.Decimal(item.subTotal), quotationSnapshot: json(item),
+    }));
+    const sum = lines.reduce((total, item) => total.plus(item.subTotal), new Prisma.Decimal(0)).toDecimalPlaces(2);
+    if (sum.toString() !== new Prisma.Decimal(quotation.subTotal).toDecimalPlaces(2).toString()) throw new HttpError('Quotation item totals do not match subtotal', 409);
+    return prisma.$transaction(async tx => {
+      const identity = kind === 'INVOICE' ? await nextInvoiceIdentity(tx, actor.officeBranchId) : await nextProformaIdentity(tx, actor.officeBranchId);
+      const date = identity.date; checkDates({ date, dueDate });
+      const tax = await applicableTax(tx, actor.officeBranchId, date), subTotal = new Prisma.Decimal(quotation.subTotal);
+      const taxAmount = subTotal.mul(tax.percentage).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      const row = await tx.document.create({ data: {
+        quotationId: quotation.id, quotationVersion: quotation.version, quotationSnapshot: json(quotation), title: quotation.subject,
+        date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
+        subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), status: 'DRAFT',
+        createdById: actor.id, createdByName: actor.name, items: { create: lines },
+      } });
+      return saveHistory(tx, row, null, actor, 'CREATE');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+  async approve(kind: DocumentKind, id: string, version: number, actor: Actor) {
+    return prisma.$transaction(async tx => {
+      const before = await tx.document.findFirst({ where: { id, kind, officeBranchId: actor.officeBranchId, isActive: true } });
+      if (!before) throw new HttpError('Document not found', 404);
+      if (before.version !== version || before.status !== 'DRAFT') throw new HttpError('Document has changed or is not DRAFT', 409);
+      const claimed = await tx.document.updateMany({ where: { id, kind, officeBranchId: actor.officeBranchId, isActive: true, version, status: 'DRAFT' }, data: { status: 'ON_PROGRESS', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      if (!claimed.count) throw new HttpError('Document has changed or is not DRAFT', 409);
+      const row = await tx.document.findUniqueOrThrow({ where: { id } });
+      return saveHistory(tx, row, before, actor, 'APPROVE');
+    });
+  },
   async create(kind: DocumentKind, input: z.infer<typeof createProformaSchema> | z.infer<typeof createInvoiceSchema>, quotation: QuotationSnapshot, actor: Actor) {
     if ('number' in input || (kind === 'INVOICE' && 'date' in input)) throw new HttpError('Document number is server-generated; invoice date is also server-generated', 400);
     if (quotation.id !== input.quotationId || quotation.officeBranchId !== actor.officeBranchId || quotation.version !== input.quotationVersion || !quotation.isActive) throw new HttpError('Quotation reference does not match', 409);
@@ -45,7 +81,7 @@ export const documentRepository = {
     return {documents,pagination:pagination(page,limit,total)};
   },
   async get(kind: DocumentKind, id: string, actor: Actor, includeDeleted = false) {
-    const row = await prisma.document.findFirst({where:{id,kind,officeBranchId:actor.officeBranchId,...(includeDeleted ? {} : {isActive:true})}});
+    const row = await prisma.document.findFirst({where:{id,kind,officeBranchId:actor.officeBranchId,...(includeDeleted ? {} : {isActive:true})}, include:{items:{orderBy:{position:'asc'}}}});
     if (!row) throw new HttpError('Document not found',404);
     return row;
   },
@@ -74,7 +110,7 @@ export const documentRepository = {
     await this.get(kind,id,actor,true);
     const where = { documentId:id };
     const [rows,total] = await prisma.$transaction([prisma.documentHistory.findMany({where,orderBy:{version:'desc'},skip:(page-1)*limit,take:limit}),prisma.documentHistory.count({where})], {isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead});
-    const actions: Record<string,string> = {CREATE:'Document created',UPDATE:'Document updated',DEACTIVATE:'Document deleted'};
+    const actions: Record<string,string> = {CREATE:'Document created',UPDATE:'Document updated',APPROVE:'Document approved',DEACTIVATE:'Document deleted'};
     return { history: rows.map(({createdById,createdByName,createdAt,...row}) => ({...row,actionLabel:actions[row.action] ?? row.action,changedBy:{id:createdById,name:createdByName},changedAt:createdAt})),pagination:pagination(page,limit,total) };
   },
 };

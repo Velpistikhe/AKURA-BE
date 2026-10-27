@@ -25,6 +25,19 @@ async function main() {
   boundary.post('/api/v1/fieldservice/work-orders', (req, res) => res.status(201).json({ data: {
     id: randomUUID(), quotationId: req.body.quotationId, officeBranchId: branch, revoked: false, number: 'WO-CONTRACT-TEST', status: 'DRAFT', version: 0,
   } }));
+  // Finance owns the billing documents. It answers the forwarded creation
+  // request with the DRAFT document it generated for the quotation.
+  const financeDocument = (kind, number, body) => ({
+    id: randomUUID(), kind, number, title: body.quotation.subject,
+    date: '2026-10-26', dueDate: body.dueDate ?? null, notes: body.notes ?? null, status: 'DRAFT',
+    officeBranchId: branch, quotationId: body.quotation.id, quotationVersion: body.quotation.version,
+    quotationSnapshot: body.quotation, subTotal: '100.00', tax: '11', taxSourceId: randomUUID(),
+    taxAmount: '11.00', total: '111.00', version: 0, isActive: true,
+    createdById: randomUUID(), createdByName: 'Finance Test', updatedById: null, updatedByName: null,
+    createdAt: '2026-10-26T00:00:00.000Z', updatedAt: '2026-10-26T00:00:00.000Z',
+  });
+  boundary.post('/api/v1/finance/invoices/from-marketing', (req, res) => res.status(201).json({ data: financeDocument('INVOICE', 'INV/2026/000001', req.body) }));
+  boundary.post('/api/v1/finance/proforma-invoices/from-marketing', (req, res) => res.status(201).json({ data: financeDocument('PROFORMA_INVOICE', 'PI/2026/000001', req.body) }));
   const listen = app => new Promise(resolve => { const server = app.listen(0, '127.0.0.1', () => resolve(server)); });
   const dependencyServer = await listen(boundary);
   process.env.API_GATEWAY_URL = `http://127.0.0.1:${dependencyServer.address().port}`;
@@ -202,6 +215,11 @@ async function main() {
     quotation = await request('POST', `/quotations/${quotation.id}/reject`, 200, { version: quotation.version });
     quotation = await request('POST', `/quotations/${quotation.id}/submit`, 200, { version: quotation.version });
     quotation = await request('POST', `/quotations/${quotation.id}/approve`, 200, { version: quotation.version });
+    // Create one of Finance's documents using the same end-user token and the
+    // full approved quotation, including the server-resolved line prices.
+    const financeDocument = await request('POST', `/quotations/${quotation.id}/invoices`, 201, { kind: 'INVOICE', dueDate: '2026-12-31', notes: 'Contract test' });
+    assert.equal(financeDocument.status, 'DRAFT');
+    assert.equal(financeDocument.quotationId, quotation.id);
     assert.ok(stored.size > 0);
     const quoteRevision = await request('POST', `/quotations/${quotation.id}/revise`, 201, { version: quotation.version });
     await request('DELETE', `/quotations/${quoteRevision.id}`, 200, { version: quoteRevision.version });

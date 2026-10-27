@@ -48,7 +48,7 @@ test('documents: branch isolation, snapshots, atomic history, unique numbers and
   assert.equal(updateSchema.safeParse({version:0,quotationId:randomUUID()}).success,false);
   assert.equal(updateSchema.safeParse({title:'No version'}).success,false);
   const originalFetch=global.fetch;
-  const req={headers:{authorization:'Bearer fixture-token','x-request-id':'fixture'}};
+  const req={headers:{authorization:'Bearer fixture-token','x-request-id':'fixture'},user:{sub:randomUUID(),type:'access',officeBranchId:actor.officeBranchId}};
   try {
    global.fetch=async(url,options)=> {assert.ok(String(url).endsWith('/marketing/quotation-references/'+q.id));assert.equal(options.headers.Authorization,'Bearer fixture-token');return {ok:true,json:async()=>({data:q})};};
    assert.equal((await loadQuotation(req,q.id,2,actor.officeBranchId)).id,q.id);

@@ -11,6 +11,7 @@ enum DocumentKind {
 }
 enum DocumentStatus {
   DRAFT
+  ON_PROGRESS
   FINAL
 }
 model Document {
@@ -40,11 +41,35 @@ model Document {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   history DocumentHistory[]
+  items DocumentItem[]
   @@unique([officeBranchId, kind, number])
   @@index([officeBranchId, kind, isActive, createdAt, id])
   @@index([quotationId])
   @@map("billing_documents")
 }
+model DocumentItem {
+  id String @id @default(uuid()) @db.Uuid
+  documentId String @map("document_id") @db.Uuid
+  document Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  quotationItemId String? @map("quotation_item_id") @db.Uuid
+  position Int
+  itemSizeId String? @map("item_size_id") @db.Uuid
+  serviceName String @map("service_name")
+  serviceType String @map("service_type")
+  itemName String @map("item_name")
+  size String?
+  note String? @db.Text
+  quantityInspection Decimal @map("quantity_inspection") @db.Decimal(18,3)
+  quantityMaintenance Decimal @map("quantity_maintenance") @db.Decimal(18,3)
+  priceInspection Decimal @map("price_inspection") @db.Decimal(18,2)
+  priceMaintenance Decimal? @map("price_maintenance") @db.Decimal(18,2)
+  discount Decimal @db.Decimal(18,2)
+  subTotal Decimal @map("sub_total") @db.Decimal(18,2)
+  quotationSnapshot Json @map("quotation_snapshot") @db.JsonB
+  @@index([documentId, position])
+  @@map("billing_document_items")
+}
+
 model InvoiceSequence {
   officeBranchId String @map("office_branch_id") @db.Uuid
   year Int

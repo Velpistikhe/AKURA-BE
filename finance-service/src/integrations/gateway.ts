@@ -33,6 +33,28 @@ export const quotationSchema = z.object({
   subTotal: money, taxAmount: money, total: money, items: z.array(z.record(z.unknown())),
 }).passthrough();
 export type QuotationSnapshot = z.infer<typeof quotationSchema>;
+export const marketingQuotationSchema = z.object({
+  id: z.string().uuid(), officeBranchId: z.string().uuid(), version: z.number().int().nonnegative(),
+  isActive: z.boolean(), status: z.string(), subject: z.string(),
+  subTotal: money, taxAmount: money, total: money,
+  items: z.array(z.object({
+    id: z.string().uuid(), position: z.number().int(), itemSizeId: z.string().uuid(),
+    serviceName: z.string(), serviceType: z.string(), itemName: z.string(), size: z.string().nullable(), note: z.string().nullable(),
+    quantityInspection: z.string(), quantityMaintenance: z.string(), priceInspection: money, priceMaintenance: money.nullable(),
+    discount: money, subTotal: money,
+  }).passthrough()),
+}).passthrough();
+export type MarketingQuotation = z.infer<typeof marketingQuotationSchema>;
+/** Re-fetches quotation from Marketing: never trust client-provided branch or status claims. */
+export async function validateMarketingQuotation(req: Request, id: string, branch: string): Promise<MarketingQuotation> {
+  const result = await gatewayGet(`marketing/quotation-references/${id}`, req);
+  const parsed = marketingQuotationSchema.safeParse(result);
+  if (!parsed.success) throw new HttpError('Invalid quotation response', 502);
+  const quotation = parsed.data;
+  if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError('Quotation not found in this branch', 404);
+  if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Quotation must be active and APPROVED', 409);
+  return quotation;
+}
 export async function loadQuotation(req: Request, id: string, version: number, branch: string): Promise<QuotationSnapshot> {
   const parsed = quotationSchema.safeParse(await gatewayGet(`marketing/quotation-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid quotation response', 502);

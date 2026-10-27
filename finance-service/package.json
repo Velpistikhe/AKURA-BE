@@ -11,7 +11,7 @@
                     "test":  "npm run build \u0026\u0026 node --test tests/service.test.cjs",
                     "db:generate":  "prisma generate",
                     "db:push":  "prisma db push",
-                    "test:documents":  "npm run build \u0026\u0026 node --test tests/documents.test.cjs tests/documents-http.test.cjs tests/invoice-number.test.cjs tests/proforma-number.test.cjs",
+                    "test:documents":  "npm run build \u0026\u0026 node --test tests/documents.test.cjs tests/documents-http.test.cjs tests/finance-from-marketing.test.cjs tests/invoice-number.test.cjs tests/proforma-number.test.cjs",
                     "tax:import":  "node scripts/import-app-manager-taxes.cjs",
                     "test:tax-delivery":  "tsc \u0026\u0026 node --test tests/tax-delivery.test.cjs",
                     "test:tax-serverless":  "tsc \u0026\u0026 node --test tests/tax-serverless.test.cjs"
