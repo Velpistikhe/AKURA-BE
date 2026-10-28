@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { Actor, requireActor, requireWorkOrderReferenceSection, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
 import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
@@ -19,20 +19,20 @@ const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => res.status(status).json({ status, success: true, message: 'Request completed successfully', data, requestId: req.headers['x-request-id'] });
-router.use(requireActor);
-router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
 // Read-only reference used by Finance while billing a quotation. It exposes
 // the Work Order status and the stored quotation snapshot (tax rate only).
-router.get('/by-quotation/:quotationId', requireWorkOrderReferenceSection, asyncHandler(async (req, res) => {
+router.get('/by-quotation/:quotationId', requireWorkOrderReferenceActor, asyncHandler(async (req, res) => {
   const quotationId = z.string().uuid().parse(req.params.quotationId);
   send(req, res, await repository.findActiveByQuotation(quotationId, actor(res)));
 }));
+router.use(requireActor);
+router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
 router.get('/:id/history', asyncHandler(async (req, res) => {
   const { page, limit } = workOrderHistorySchema.parse(req.query);
   send(req, res, await repository.history(workOrderIdSchema.parse(req.params.id), page, limit, actor(res)));
 }));
 router.get('/:id', asyncHandler(async (req, res) => { send(req, res, await repository.get(workOrderIdSchema.parse(req.params.id), actor(res))); }));
-router.post('/', asyncHandler(async (req, res) => {
+router.post('/', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const input = createWorkOrderSchema.parse(req.body);
   const quotation = await resolveBasis(req, input, actor(res).officeBranchId);
   const itemSnapshots = !input.quotationId

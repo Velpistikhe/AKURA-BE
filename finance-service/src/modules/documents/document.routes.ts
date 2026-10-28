@@ -2,7 +2,7 @@ import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
 import { DocumentKind, Prisma } from '@prisma/client';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { Actor, requireActor, requireMarketingForwardedActor } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor } from '../../middlewares/actor.middleware.js';
 import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { documentRepository as repository } from './document.repository.js';
@@ -54,7 +54,7 @@ export function documentRoutes(kind: DocumentKind) {
 }
 
 export const marketingDocumentRoutes = Router();
-marketingDocumentRoutes.post('/from-marketing', requireMarketingForwardedActor, asyncHandler(async (req, res) => {
+marketingDocumentRoutes.post('/from-marketing', requireMarketingCreateActor, asyncHandler(async (req, res) => {
   const input = marketingDocumentReferenceSchema.parse(req.body);
   const quotation = await validateMarketingQuotation(req, input.quotationId, actor(res).officeBranchId);
   const workOrder = await loadWorkOrderForQuotation(req, quotation.id, actor(res).officeBranchId);

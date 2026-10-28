@@ -184,7 +184,7 @@ export const workOrderPaths = {
   '/api/v1/fieldservice/work-orders/by-quotation/{quotationId}': {
     get: {
       ...operation('Find active Work Order by quotation', 'WorkOrderResponse', [quotationId]),
-      description: 'Returns the non-revoked Work Order of the given quotation in the authenticated branch, or null data when the quotation has no live Work Order. Used by Marketing before allowing a quotation revision so a quotation with a live Work Order cannot be revised. Revoked Work Orders are never returned. Requires an active profile with a matching authenticated branch.',
+      description: 'Read-only lookup scoped to the authenticated actor branch. Allowed sections: MARKETING, FIELD_SERVICE, FINANCE and ACCOUNTING; existing ADMIN and APP_MANAGER access also applies. Finance and Accounting access is limited to this lookup and does not grant other Work Order operations.',
       responses: { 200: { description: 'Active Work Order found, or null when none exists', content: { 'application/json': { schema: ref('WorkOrderLookupResponse') } } }, 400: { description: 'Invalid quotation ID' }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 502: { description: 'Invalid Auth profile response' }, 503: { description: 'Referenced service unavailable' } },
     },
   },
@@ -194,7 +194,7 @@ export const workOrderPaths = {
   },
   '/api/v1/fieldservice/work-orders': {
     get: operation('List Work Order', 'WorkOrderList', [query('page', { type: 'integer', minimum: 1, maximum: 1000000, default: 1 }), query('limit', { type: 'integer', minimum: 1, maximum: 100, default: 20 }), query('status', status), query('quotationId', uuid), query('contractId', uuid), query('revoked', { type: 'boolean', default: false }), query('search', { type: 'string', maxLength: 100 })]),
-    post: operation('Create Work Order', 'WorkOrderResponse', [], 'WorkOrderCreate', 201),
+    post: {...operation('Create Work Order', 'WorkOrderResponse', [], 'WorkOrderCreate', 201), description: 'Requires actor section MARKETING, including ADMIN and APP_MANAGER actors. Other sections are rejected with 403. ' + operation('Create Work Order', 'WorkOrderResponse', [], 'WorkOrderCreate', 201).description},
   },
   '/api/v1/fieldservice/work-orders/{id}': {
     get: operation('Get Work Order', 'WorkOrderResponse', [id]),
