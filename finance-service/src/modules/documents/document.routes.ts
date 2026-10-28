@@ -2,7 +2,7 @@ import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
 import { DocumentKind, Prisma } from '@prisma/client';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor, requireInvoiceListActor } from '../../middlewares/actor.middleware.js';
 import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { documentRepository as repository } from './document.repository.js';
@@ -40,12 +40,12 @@ export function documentRoutes(kind: DocumentKind) {
     send(req, res, await repository.createFromMarketing(kind, quotation, input.dueDate, input.notes, actor(res), workOrder), 201);
   });
   router.post('/', requireMarketingForwardedActor, createDocument());
+  router.get('/', kind === 'INVOICE' ? requireInvoiceListActor : requireActor, asyncHandler(async (req,res) => send(req,res,await repository.list(kind,listSchema.parse(req.query),actor(res)))));
   router.use(requireActor);
   router.post('/:id/approve',asyncHandler(async(req,res)=>{
     const version=approveSchema.parse(req.body).version;
     const data=await repository.approve(kind,idSchema.parse(req.params.id),version,actor(res)); send(req,res,data);
   }));
-  router.get('/',asyncHandler(async (req,res) => send(req,res,await repository.list(kind,listSchema.parse(req.query),actor(res)))));
   router.get('/:id/history',asyncHandler(async (req,res) => { const {page,limit}=historySchema.parse(req.query); send(req,res,await repository.history(kind,idSchema.parse(req.params.id),actor(res),page,limit)); }));
   router.get('/:id',asyncHandler(async (req,res) => send(req,res,await repository.get(kind,idSchema.parse(req.params.id),actor(res)))));
   router.patch('/:id',asyncHandler(async (req,res) => send(req,res,await repository.mutate(kind,idSchema.parse(req.params.id),updateInput.parse(req.body),actor(res)))));

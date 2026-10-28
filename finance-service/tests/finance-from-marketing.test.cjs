@@ -30,7 +30,8 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
  try{
   // A Finance master tax must be effective on the document date for the branch.
   await prisma.tax.create({data:{officeBranchId:branch,percentage:'12',effectiveFrom:new Date('2026-01-01'),createdById:user,createdByName:'Tax Seed'}});
-  assert.equal((await call('GET','/invoices')).status,403,'Marketing cannot list Finance documents');
+  assert.equal((await call('GET','/invoices')).status,200,'Marketing can list invoices');
+  assert.equal((await call('GET','/proforma-invoices')).status,403,'Marketing cannot list proforma invoices');
   assert.equal((await call('POST','/taxes',{percentage:'12',effectiveFrom:'2026-01-01'})).status,403,'Marketing cannot administer taxes');
   for(const body of [{},{quotationId:quoteId,kind:'INVOICE',location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:null,location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:'2099-12-31',location:''}])
     assert.equal((await call('POST','/documents/from-marketing',body)).status,400);

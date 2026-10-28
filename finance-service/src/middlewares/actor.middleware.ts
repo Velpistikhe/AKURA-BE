@@ -26,3 +26,5 @@ export const requireActor = resolveActor(['FINANCE', 'ACCOUNTING']);
 export const requireMarketingForwardedActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
 
 export const requireMarketingCreateActor = resolveActor(['MARKETING'], false);
+
+export const requireInvoiceListActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
