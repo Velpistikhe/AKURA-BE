@@ -27,4 +27,4 @@ export const requireMarketingForwardedActor = resolveActor(['FINANCE', 'ACCOUNTI
 
 export const requireMarketingCreateActor = resolveActor(['MARKETING'], false);
 
-export const requireInvoiceListActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
+export const requireDocumentListActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);

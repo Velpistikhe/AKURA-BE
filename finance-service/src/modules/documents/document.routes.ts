@@ -2,7 +2,7 @@ import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
 import { DocumentKind, Prisma } from '@prisma/client';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor, requireInvoiceListActor } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor, requireDocumentListActor } from '../../middlewares/actor.middleware.js';
 import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { documentRepository as repository } from './document.repository.js';
@@ -40,7 +40,7 @@ export function documentRoutes(kind: DocumentKind) {
     send(req, res, await repository.createFromMarketing(kind, quotation, input.dueDate, input.notes, actor(res), workOrder), 201);
   });
   router.post('/', requireMarketingForwardedActor, createDocument());
-  router.get('/', kind === 'INVOICE' ? requireInvoiceListActor : requireActor, asyncHandler(async (req,res) => send(req,res,await repository.list(kind,listSchema.parse(req.query),actor(res)))));
+  router.get('/', requireDocumentListActor, asyncHandler(async (req,res) => send(req,res,await repository.list(kind,listSchema.parse(req.query),actor(res)))));
   router.use(requireActor);
   router.post('/:id/approve',asyncHandler(async(req,res)=>{
     const version=approveSchema.parse(req.body).version;
