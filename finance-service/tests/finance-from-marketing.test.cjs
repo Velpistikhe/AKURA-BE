@@ -49,8 +49,8 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
    assert.equal(new Date(invoice.dueDate).toISOString(),'2026-12-31T00:00:00.000Z');
    assert.equal((await call('POST','/invoices/from-marketing',{quotation,dueDate:'2026-01-01'})).status,400,'payment deadline cannot precede the generated document date');
   assert.match(proforma.number,/^PI\/\d{4}\/000001$/);
-  assert.equal((await call('POST','/invoices/'+invoice.id+'/approve',{version:0})).status,403);
-  assert.equal((await call('GET','/invoices/'+invoice.id)).status,403);
+  assert.equal((await call('POST','/invoices/'+invoice.id+'/approve',{version:999})).status,409);
+  assert.equal((await call('GET','/invoices/'+invoice.id)).status,200);
   marketingQuote={...quotation,officeBranchId:randomUUID()};assert.equal((await call('POST','/invoices/from-marketing',{quotation})).status,404);marketingQuote=quotation;
   marketingQuote={...quotation,status:'REVISED'};
   assert.equal((await call('POST','/invoices/from-marketing',{quotation})).status,409);
@@ -81,7 +81,7 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
   workOrderRow=null;
   third=await expect('POST','/invoices/from-marketing',{quotation},201);
   assert.equal(third.status,'DRAFT');
-  profile.section='FINANCE';
+  profile.section='MARKETING';
   const detail=await expect('GET','/invoices/'+invoice.id,undefined,200);
   assert.equal(detail.items.length,1);assert.equal(detail.items[0].priceInspection.toString(),'30');
   assert.equal(detail.items[0].priceMaintenance.toString(),'40');assert.equal(detail.items[0].quantityInspection.toString(),'2');

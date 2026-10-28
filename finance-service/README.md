@@ -30,7 +30,7 @@ Marketing can create a Finance document from the full approved quotation. The qu
 
 `kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate` is nullable/optional and represents the payment deadline. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards all quotation lines with quantities, unit prices, discounts and subtotals to Finance.
 
-Finance exposes `POST /api/v1/finance/invoices/from-marketing` and `POST /api/v1/finance/proforma-invoices/from-marketing`. These endpoints accept the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. Marketing-section users may call only the `from-marketing` creation routes; Finance document reads, changes, approval and tax administration remain restricted to FINANCE/ACCOUNTING users (tax writes retain the existing ADMIN + FINANCE restriction).
+Finance exposes `POST /api/v1/finance/invoices/from-marketing` and `POST /api/v1/finance/proforma-invoices/from-marketing`. These endpoints accept the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
 
 Finance users approve a draft with `POST /api/v1/finance/{invoices|proforma-invoices}/{id}/approve` and body `{"version":0}`. This atomically changes `DRAFT` to `ON_PROGRESS` and appends an `APPROVE` history entry. Stale versions or non-draft documents return 409.
 
@@ -54,7 +54,7 @@ The invoice and proforma sequence tables are already applied to existing databas
 
 Run `npm test` and `npm run test:documents` after setting up the database. Document tests use isolated random branches and remove only their fixtures. They exercise cross-branch rejection, snapshot persistence, 12 competing updates, atomic history, soft deletion and upstream validation.
 
-Access is limited to ADMIN/APP_MANAGER or FINANCE/ACCOUNTING users. The JWT branch must match the current Auth profile; a changed assignment requires a fresh login. Quotation references use the read-only Marketing endpoint `/quotation-references/:quotationId`, accessible to relevant document sections within the same branch.
+Access is available to MARKETING, FINANCE and ACCOUNTING users, plus existing ADMIN/APP_MANAGER access. The JWT branch must match the current Auth profile; a changed assignment requires a fresh login. Quotation references use the read-only Marketing endpoint `/quotation-references/:quotationId`, accessible to relevant document sections within the same branch.
 
 HTTP tests mount the real module routes with an injected token identity and mock Auth/Marketing responses. Persistence and concurrency tests use the local PostgreSQL database; they do not constitute a live end-to-end test across all running services.
 
@@ -81,7 +81,7 @@ Invoice/proforma creation reads Finance master tax effective on document date, s
 
 14. `POST /invoices/from-marketing` — create a DRAFT invoice from a Marketing-approved full quotation snapshot. Finance revalidates the branch, approval status, version and priced detail lines with Marketing using the forwarded token, and accepts an optional payment `dueDate`.
 15. `POST /invoices/:id/approve` — Finance/Accounting approval transition from DRAFT to ON_PROGRESS. It requires the current `{version}` and records history atomically.
-16. Equivalent endpoints exist under `/proforma-invoices/from-marketing` and `/proforma-invoices/:id/approve`. A MARKETING-section user may call only the `from-marketing` creation routes; every other Finance operation stays limited to FINANCE/ACCOUNTING.
+16. Equivalent endpoints exist under `/proforma-invoices/from-marketing` and `/proforma-invoices/:id/approve`. MARKETING-section users may access all Finance modules; tax writes and resync still require ADMIN in FINANCE or MARKETING.
 
 ### Cutover from App Manager
 

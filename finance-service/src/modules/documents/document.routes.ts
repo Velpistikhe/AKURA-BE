@@ -2,7 +2,7 @@ import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
 import { DocumentKind, Prisma } from '@prisma/client';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor, requireDocumentListActor } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingForwardedActor, requireMarketingCreateActor, requireDocumentReadActor } from '../../middlewares/actor.middleware.js';
 import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { documentRepository as repository } from './document.repository.js';
@@ -24,7 +24,7 @@ export function documentRoutes(kind: DocumentKind) {
   const createDocument = () => asyncHandler(async (req, res) => {
     const input = documentCreateSchema.parse(req.body);
     if (input.source === 'DIRECT') {
-      if (!res.locals.financeAccessAllowed) throw new HttpError('Finance or Accounting access is required', 403);
+      if (!res.locals.financeAccessAllowed) throw new HttpError('Finance, Accounting or Marketing access is required', 403);
       const prices = await loadBillingPrices(req, input.companyId, input.items.map(item => item.itemSizeId), actor(res).officeBranchId);
       send(req, res, await repository.createDirect(kind, input, prices, actor(res)), 201);
       return;
@@ -40,14 +40,14 @@ export function documentRoutes(kind: DocumentKind) {
     send(req, res, await repository.createFromMarketing(kind, quotation, input.dueDate, input.notes, actor(res), workOrder), 201);
   });
   router.post('/', requireMarketingForwardedActor, createDocument());
-  router.get('/', requireDocumentListActor, asyncHandler(async (req,res) => send(req,res,await repository.list(kind,listSchema.parse(req.query),actor(res)))));
+  router.get('/', requireDocumentReadActor, asyncHandler(async (req,res) => send(req,res,await repository.list(kind,listSchema.parse(req.query),actor(res)))));
+  router.get('/:id', requireDocumentReadActor, asyncHandler(async (req,res) => send(req,res,await repository.get(kind,idSchema.parse(req.params.id),actor(res)))));
   router.use(requireActor);
   router.post('/:id/approve',asyncHandler(async(req,res)=>{
     const version=approveSchema.parse(req.body).version;
     const data=await repository.approve(kind,idSchema.parse(req.params.id),version,actor(res)); send(req,res,data);
   }));
   router.get('/:id/history',asyncHandler(async (req,res) => { const {page,limit}=historySchema.parse(req.query); send(req,res,await repository.history(kind,idSchema.parse(req.params.id),actor(res),page,limit)); }));
-  router.get('/:id',asyncHandler(async (req,res) => send(req,res,await repository.get(kind,idSchema.parse(req.params.id),actor(res)))));
   router.patch('/:id',asyncHandler(async (req,res) => send(req,res,await repository.mutate(kind,idSchema.parse(req.params.id),updateInput.parse(req.body),actor(res)))));
   router.delete('/:id',asyncHandler(async (req,res) => send(req,res,await repository.mutate(kind,idSchema.parse(req.params.id),deleteSchema.parse(req.body),actor(res),true))));
   return router;

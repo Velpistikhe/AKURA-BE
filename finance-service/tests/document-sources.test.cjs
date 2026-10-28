@@ -12,7 +12,7 @@ require('../dist/utils/logger.js').logger.silent=true;
 
 test('source contracts: live prices, deadline, branch isolation, atomic items and concurrent approval',async()=>{
  const branch=randomUUID(),user=randomUUID(),companyId=randomUUID(),sizeId=randomUUID();
- const profile={id:user,officeBranchId:branch,isActive:true,role:'USER',section:'FINANCE',firstName:'Finance',lastName:'User',username:'user'};
+ const profile={id:user,officeBranchId:branch,isActive:true,role:'USER',section:'MARKETING',firstName:'Finance',lastName:'User',username:'user'};
  const price={itemSizeId:sizeId,priceInspection:'30',priceMaintenance:'40',priceSource:'PRIMARY',priceId:randomUUID(),priceVersion:1,catalogSnapshot:{serviceName:'Inspect',serviceType:'INSPECTION',itemName:'Tank',size:null,hasMaintenance:true}};
  let reference={officeBranchId:branch,company:{id:companyId,name:'Company',isSisterCompany:false},items:[price]},offline=false;
  const quotation={id:randomUUID(),officeBranchId:branch,version:1,isActive:true,status:'APPROVED',subject:'Quotation',tax:'12',subTotal:'100',taxAmount:'12',total:'112',items:[{id:randomUUID(),position:0,itemSizeId:sizeId,...price.catalogSnapshot,note:null,quantityInspection:'2',quantityMaintenance:'1',priceInspection:'30',priceMaintenance:'40',discount:'0',subTotal:'100'}]};
@@ -64,7 +64,11 @@ test('source contracts: live prices, deadline, branch isolation, atomic items an
   reference={...reference,officeBranchId:randomUUID()};await expect('POST','/invoices',input,502);reference={...reference,officeBranchId:branch};
   price.catalogSnapshot.hasMaintenance=false;await expect('POST','/invoices',input,409);price.catalogSnapshot.hasMaintenance=true;
   offline=true;await expect('POST','/invoices',input,503);offline=false;
-  profile.section='MARKETING';await expect('POST','/invoices',input,403);
+  profile.section='MARKETING';
+  const editable=await expect('POST','/invoices',input,201);
+  const edited=await expect('PATCH','/invoices/'+editable.id,{version:0,notes:'Marketing update'},200);assert.equal(edited.version,1);
+  await expect('DELETE','/invoices/'+editable.id,{version:1},200);
+  await expect('GET','/invoices/'+editable.id,undefined,404);
   profile.section='FINANCE';
   const before=await prisma.document.count({where:{officeBranchId:branch}});
   await expect('POST','/invoices',{...input,items:[{...input.items[0],quantityInspection:'999999999999999'}]},400);

@@ -25,7 +25,7 @@ router.get('/deliveries', asyncHandler(async (req, res) => {
   res.json({ success: true, status: 200, data });
 }));
 router.use((_req, res, next) => {
-  if (!res.locals.taxWriteAllowed) return next(new HttpError('ADMIN role and FINANCE section are required', 403));
+  if (!res.locals.taxWriteAllowed) return next(new HttpError('ADMIN role and FINANCE or MARKETING section are required', 403));
   next();
 });
 router.post('/', asyncHandler(async (req, res) => {

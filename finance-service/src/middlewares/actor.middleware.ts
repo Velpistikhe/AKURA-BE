@@ -14,17 +14,17 @@ const resolveActor = (allowedSections: readonly string[], allowAdministrativeRol
     if (!profile.isActive || !profile.officeBranchId) throw new HttpError('Active user and office branch assignment are required', 403);
     if ((req as AuthenticatedRequest).user?.officeBranchId !== profile.officeBranchId) throw new HttpError('Office branch assignment has changed; please sign in again', 401);
     if (!(allowAdministrativeRoles && ['ADMIN', 'APP_MANAGER'].includes(profile.role)) && !allowedSections.includes(profile.section ?? '')) throw new HttpError('Access to this section is required', 403);
-    res.locals.financeAccessAllowed = ['ADMIN', 'APP_MANAGER'].includes(profile.role) || ['FINANCE', 'ACCOUNTING'].includes(profile.section ?? '');
-    res.locals.taxWriteAllowed = profile.role === 'ADMIN' && profile.section === 'FINANCE';
+    res.locals.financeAccessAllowed = ['ADMIN', 'APP_MANAGER'].includes(profile.role) || ['FINANCE', 'ACCOUNTING', 'MARKETING'].includes(profile.section ?? '');
+    res.locals.taxWriteAllowed = profile.role === 'ADMIN' && ['FINANCE', 'MARKETING'].includes(profile.section ?? '');
     res.locals.documentActor = { id: profile.id, name: `${profile.firstName} ${profile.lastName}`.trim() || profile.username, officeBranchId: profile.officeBranchId } satisfies Actor;
     next();
   } catch (error) { next(error); }
 };
-export const requireActor = resolveActor(['FINANCE', 'ACCOUNTING']);
-// Quotation creation accepts Marketing's forwarded end-user token on the main
-// endpoint and its alias. Direct creation additionally requires finance access.
-export const requireMarketingForwardedActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
+export const requireActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
+// Shared Finance operations allow Marketing, Finance and Accounting actors.
+// The dedicated Marketing creation endpoint keeps its section-only restriction.
+export const requireMarketingForwardedActor = requireActor;
 
 export const requireMarketingCreateActor = resolveActor(['MARKETING'], false);
 
-export const requireDocumentListActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
+export const requireDocumentReadActor = requireActor;
