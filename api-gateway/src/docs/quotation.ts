@@ -97,10 +97,10 @@ export const quotationSchemas = {
     ], items: [{ itemSizeId: '00000000-0000-4000-8000-000000000002' }] },
   },
   CreateFinanceDocumentFromQuotationRequest: {
-    type:'object',additionalProperties:false,required:['kind','dueDate'],
-    description:'Marketing creates a Finance document from the complete approved quotation. Finance re-fetches Marketing with the forwarded user token to verify branch ownership, active APPROVED status, quotation version and all billed lines. The client selects the document kind and must supply payment deadline and may supply notes.',
-    properties:{kind:{type:'string',enum:['INVOICE','PROFORMA_INVOICE']},dueDate:{type:'string',format:'date',description:'Required payment deadline. Must not precede the document date.'},notes:{type:'string',maxLength:20000,nullable:true}},
-    example:{kind:'INVOICE',dueDate:'2026-12-31',notes:'Payment due in 30 days'},
+    type:'object',additionalProperties:false,required:['quotationId','kind','dueDate','location'],
+    description:'Quotation ID must match the URL. Requires MARKETING section, same branch, active APPROVED quotation and COMPLETED status when an active Work Order exists. Finance fetches the quotation using the forwarded token.',
+    properties:{quotationId:uuid,kind:{type:'string',enum:['INVOICE','PROFORMA_INVOICE']},dueDate:{type:'string',format:'date'},location:{type:'string',minLength:1,maxLength:255}},
+    example:{quotationId:'00000000-0000-4000-8000-000000000001',kind:'INVOICE',dueDate:'2026-12-31',location:'Jakarta'},
   },
   CreateQuotationRequest: {
     type: 'object', additionalProperties: false, required: [...requiredHeader, 'items'],
@@ -255,7 +255,7 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/invoices': {
     post: {
       ...common, summary: 'Create a DRAFT invoice or proforma invoice from an approved quotation', parameters: [idParameter],
-      description: 'Requires section MARKETING and an active quotation in the authenticated branch with status APPROVED. The client selects kind, must supply the payment deadline dueDate and may supply optional notes, and cannot select or alter billed lines and prices: Marketing forwards the entire quotation snapshot with each item quantity, price, discount and subtotal. Finance re-fetches the quotation using the forwarded user token and verifies branch ownership, APPROVED status, version and every billed item value before creating the document as DRAFT. Finance generates number, date, tax and totals and stores header plus detail rows. dueDate cannot precede the document date. Finance unavailability returns 503.',
+      description: 'Requires MARKETING section and an active APPROVED quotation in the actor branch. Body quotationId must match the URL. Validates live Work Order status: if present it must be COMPLETED. Forwards only quotationId, kind, dueDate and location to POST /finance/documents/from-marketing with the user token. Finance fetches and validates the quotation again. dueDate and location are required; dueDate cannot precede the document date. Creates DRAFT header and priced items.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateFinanceDocumentFromQuotationRequest') } } },
       responses: { ...commonErrors, 201: response('DRAFT invoice or proforma invoice created by Finance', 'FinanceDocumentResponse'), 400: response('Invalid document kind, deadline or request body', 'ErrorResponse'), 404: response('Active quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation is not APPROVED or its version and items no longer match Marketing', 'ErrorResponse'), 503: response('Finance Service is unavailable', 'ErrorResponse') },
     },

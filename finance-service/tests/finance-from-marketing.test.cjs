@@ -9,7 +9,7 @@ const routes=require('../dist/routes/index.js').default;
 const {errorHandler}=require('../dist/middlewares/error.middleware.js');
 require('../dist/utils/logger.js').logger.silent=true;
 
-test('Marketing creates full-price draft invoices; Finance revalidates quotation and approves draft',async()=>{
+test('Unified Marketing reference endpoint fetches quotation, validates ownership and completed Work Order, and stores location',async()=>{
  const branch=randomUUID(),user=randomUUID(),quoteId=randomUUID(),itemId=randomUUID(),sizeId=randomUUID();
  const profile={id:user,officeBranchId:branch,isActive:true,role:'USER',section:'MARKETING',firstName:'Marketing',lastName:'User',username:'user'};
  const quotation={id:quoteId,officeBranchId:branch,version:2,isActive:true,status:'APPROVED',subject:'Service',tax:'12',subTotal:'100.00',taxAmount:'12.00',total:'112.00',items:[{id:itemId,position:0,itemSizeId:sizeId,serviceName:'Inspect',serviceType:'INSPECTION',itemName:'Tank',size:'Large',note:null,quantityInspection:'2',quantityMaintenance:'1',priceInspection:'30.00',priceMaintenance:'40.00',discount:'0',subTotal:'100.00'}]};
@@ -24,7 +24,7 @@ test('Marketing creates full-price draft invoices; Finance revalidates quotation
  };
  const app=express();app.use(express.json());app.use((req,res,next)=>{req.user={sub:user,type:'access',officeBranchId:branch};next();});app.use(routes);app.use(errorHandler);
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
- const call=async(method,path,body)=>{const r=await originalFetch(`http://127.0.0.1:${server.address().port}${path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer valid'},...(body===undefined?{}:{body:JSON.stringify(body?.quotation ? {dueDate:'2099-12-31',...body}:body)})});return {status:r.status,body:await r.json()};};
+ const call=async(method,path,body)=>{const r=await originalFetch(`http://127.0.0.1:${server.address().port}${path.endsWith('/from-marketing')?'/documents/from-marketing':path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer valid'},...(body===undefined?{}:{body:JSON.stringify(body?.quotation ? {quotationId:body.quotation.id,kind:path.includes('proforma')?'PROFORMA_INVOICE':'INVOICE',dueDate:'2099-12-31',location:'Jakarta',...(body.dueDate?{dueDate:body.dueDate}:{})}:body)})});return {status:r.status,body:await r.json()};};
  const expect=async(method,path,body,status)=>{const result=await call(method,path,body);assert.equal(result.status,status,JSON.stringify(result.body));return result.body.data;};
  let invoice,proforma,second,third;
  try{
@@ -32,6 +32,8 @@ test('Marketing creates full-price draft invoices; Finance revalidates quotation
   await prisma.tax.create({data:{officeBranchId:branch,percentage:'12',effectiveFrom:new Date('2026-01-01'),createdById:user,createdByName:'Tax Seed'}});
   assert.equal((await call('GET','/invoices')).status,403,'Marketing cannot list Finance documents');
   assert.equal((await call('POST','/taxes',{percentage:'12',effectiveFrom:'2026-01-01'})).status,403,'Marketing cannot administer taxes');
+  for(const body of [{},{quotationId:quoteId,kind:'INVOICE',location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:null,location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:'2099-12-31',location:''}])
+    assert.equal((await call('POST','/documents/from-marketing',body)).status,400);
   invoice=await expect('POST','/invoices/from-marketing',{quotation,dueDate:'2026-12-31',notes:'30 days'},201);
   assert.equal(invoice.status,'DRAFT');assert.equal(invoice.kind,'INVOICE');assert.equal(invoice.officeBranchId,branch);
   assert.equal(invoice.quotationId,quoteId);assert.equal(invoice.quotationVersion,2);
@@ -48,14 +50,14 @@ test('Marketing creates full-price draft invoices; Finance revalidates quotation
   assert.match(proforma.number,/^PI\/\d{4}\/000001$/);
   assert.equal((await call('POST','/invoices/'+invoice.id+'/approve',{version:0})).status,403);
   assert.equal((await call('GET','/invoices/'+invoice.id)).status,403);
-  assert.equal((await call('POST','/invoices/from-marketing',{quotation:{...quotation,officeBranchId:randomUUID()}})).status,404);
+  marketingQuote={...quotation,officeBranchId:randomUUID()};assert.equal((await call('POST','/invoices/from-marketing',{quotation})).status,404);marketingQuote=quotation;
   marketingQuote={...quotation,status:'REVISED'};
   assert.equal((await call('POST','/invoices/from-marketing',{quotation})).status,409);
-  marketingQuote={...quotation,version:4};
+  marketingQuote={...quotation,status:'REJECTED'};
   assert.equal((await call('POST','/invoices/from-marketing',{quotation})).status,409);
   marketingQuote=quotation;
-  assert.equal((await call('POST','/invoices/from-marketing',{quotation:{...quotation,items:[{...quotation.items[0],priceInspection:'1.00'}]}})).status,409);
-  assert.equal((await call('POST','/invoices/from-marketing',{quotation:{...quotation,items:[]}})).status,400);
+  assert.equal(invoice.location,'Jakarta');
+
   // A quotation whose tax differs from Finance's active tax is refused.
   workOrderRow={id:randomUUID(),quotationId:quoteId,officeBranchId:branch,revoked:false,number:'WO/2026/000001',status:'COMPLETED',version:1,quotationSnapshot:{tax:'13'}};
   marketingQuote={...quotation,tax:'13',taxAmount:'13.00',total:'113.00'};

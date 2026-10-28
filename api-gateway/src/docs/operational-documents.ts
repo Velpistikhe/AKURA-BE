@@ -14,11 +14,11 @@ for (const [prefix,module,name,kind,finance] of [
   ['finance','proforma-invoices','ProformaInvoice','PROFORMA_INVOICE',true],
   ['finance','invoices','Invoice','INVOICE',true],
 ] as const) {
-  const fields = {number:{...text,minLength:1,maxLength:100,readOnly:true,description:'Server-generated number, unique per branch and document kind, including deleted records.'},title:{...text,minLength:1,maxLength:255},date,
+  const fields = {number:{...text,minLength:1,maxLength:100,readOnly:true,description:'Server-generated number, unique per branch and document kind, including deleted records.'},title:{...text,minLength:1,maxLength:255},location:{...text,nullable:true,readOnly:true},date,
     ...(finance ? {dueDate:{...date,nullable:true}} : {content:{...text,minLength:1,maxLength:100000}}),
     notes:{...text,maxLength:20000,nullable:true},status:{type:'string',enum:['DRAFT','ON_PROGRESS','FINAL'],default:'DRAFT'}};
   const invoice = kind === 'INVOICE';
-  const excluded = ['number', 'date'];
+  const excluded = ['number', 'date', 'location'];
   const requestFields = Object.fromEntries(Object.entries(fields).filter(([key]) => !excluded.includes(key)));
   const required=['number','title','date',...(!finance?['content']:[])];
   const invoiceFields = invoice ? {
@@ -37,7 +37,6 @@ for (const [prefix,module,name,kind,finance] of [
   operationalSchemas[name+'LineItems']={...object({id:uuid,quotationItemId:{...uuid,nullable:true},position:{type:'integer'},itemSizeId:{...uuid,nullable:true},serviceName:text,serviceType:text,itemName:text,size:{...text,nullable:true},note:{...text,nullable:true},quantityInspection:{type:'string',format:'decimal'},quantityMaintenance:{type:'string',format:'decimal'},priceInspection:money,priceMaintenance:{...money,nullable:true},discount:money,subTotal:money,pricingSnapshot:{type:'object',nullable:true,additionalProperties:true},quotationSnapshot:{type:'object',additionalProperties:true}},['id','position','serviceName','serviceType','itemName','quantityInspection','quantityMaintenance','priceInspection','discount','subTotal']),additionalProperties:true};
   operationalSchemas['MarketingFinanceQuotationLine']={...object({id:uuid,position:{type:'integer',minimum:0},itemSizeId:uuid,serviceName:text,serviceType:text,itemName:text,size:{...text,nullable:true},note:{...text,nullable:true},quantityInspection:money,quantityMaintenance:money,priceInspection:money,priceMaintenance:{...money,nullable:true},discount:money,subTotal:money},['id','position','itemSizeId','serviceName','serviceType','itemName','size','note','quantityInspection','quantityMaintenance','priceInspection','priceMaintenance','discount','subTotal']),additionalProperties:true};
   operationalSchemas['MarketingFinanceQuotation']={...object({id:uuid,officeBranchId:uuid,version,isActive:{type:'boolean'},status:{type:'string'},subject:text,tax:money,subTotal:money,taxAmount:money,total:money,items:{type:'array',minItems:1,maxItems:100,items:ref('MarketingFinanceQuotationLine')}},['id','officeBranchId','version','isActive','status','subject','tax','subTotal','taxAmount','total','items']),additionalProperties:true};
-  operationalSchemas[name+'CreateFromMarketing']=object({quotation:ref('MarketingFinanceQuotation'),dueDate:date,notes:{...text,maxLength:20000,nullable:true}},['quotation','dueDate']);
   operationalSchemas[name+'Approve']=object({version},['version']);
   operationalSchemas[name+'Response']=envelope(ref(name));
   operationalSchemas[name+'List']=envelope(object({documents:{type:'array',items:ref(name)},pagination:paging},['documents','pagination']));
@@ -51,10 +50,6 @@ for (const [prefix,module,name,kind,finance] of [
   const root=`/api/v1/${prefix}/${module}`;
   operationalPaths[root]={get:operation('List '+module,name+'List',[...pagination,query('quotationId',uuid),query('status',{type:'string',enum:['DRAFT','ON_PROGRESS','FINAL']}),query('search',{...text,maxLength:100})]),post:operation('Create '+name,name+'Response',[],name+'Create',201)};
   operationalPaths[root+'/{id}']={get:operation('Get '+name,name+'Response',[id]),patch:operation('Update '+name,name+'Response',[id],name+'Update'),delete:operation('Soft delete '+name,name+'Response',[id],name+'Delete')};
-  operationalPaths[root+'/from-marketing']={post:{summary:'Create '+name+' from an approved Marketing quotation',tags:[name],security,
-    description:'Creates a DRAFT document from the complete quotation, including all item prices. Finance re-reads Marketing using the forwarded user token and validates branch ownership, APPROVED status, quotation version and every billed line. dueDate is the required non-null payment deadline and cannot precede the server-generated document date. Alias for source QUOTATION on the main creation endpoint. Marketing users may create quotation documents only; direct creation and other Finance operations require FINANCE/ACCOUNTING or existing administrative access.',
-    requestBody:{required:true,content:{'application/json':{schema:ref(name+'CreateFromMarketing')}}},
-    responses:{201:{description:'DRAFT document created',content:{'application/json':{schema:ref(name+'Response')}}},400:{description:'Invalid request'},401:{description:'Unauthenticated'},403:{description:'Section access denied'},404:{description:'Quotation not found in branch'},409:{description:'Quotation invalid, stale, or item snapshot mismatch'},503:{description:'Marketing unavailable'}}}};
   operationalPaths[root+'/{id}/approve']={post:{summary:'Approve DRAFT '+name+' to ON_PROGRESS',tags:[name],security,parameters:[id],
     description:'Atomically transitions a DRAFT document to ON_PROGRESS and records history. Requires the current version; stale version or a non-DRAFT document returns 409.',
     requestBody:{required:true,content:{'application/json':{schema:ref(name+'Approve')}}},
@@ -63,8 +58,8 @@ for (const [prefix,module,name,kind,finance] of [
 
 }
 // The Marketing quotation-invoice endpoint may return either an invoice or a
-// proforma invoice, so its response envelope references the shared Invoice shape.
-operationalSchemas['FinanceDocumentResponse']=envelope(ref('Invoice'));
+// proforma invoice, so its response envelope supports both document kinds.
+operationalSchemas['FinanceDocumentResponse']=envelope({oneOf:[ref('Invoice'),ref('ProformaInvoice')]});
 
 operationalPaths['/api/v1/marketing/quotation-references/{quotationId}'] = { get: {
   tags:['Quotations'], summary:'Read a quotation reference for Finance or Field Service',security,
@@ -92,3 +87,6 @@ operationalPaths['/api/v1/marketing/item-size-references/{itemSizeId}'] = { get:
 operationalSchemas['BillingPriceRequest']=object({companyId:uuid,itemSizeIds:{type:'array',minItems:1,maxItems:100,uniqueItems:true,items:uuid}},['companyId','itemSizeIds']);
 operationalSchemas['BillingPriceResponse']=envelope(object({officeBranchId:uuid,company:object({id:uuid,name:text,isSisterCompany:{type:'boolean'}},['id','name','isSisterCompany']),items:{type:'array',items:{type:'object',properties:{itemSizeId:uuid,priceInspection:money,priceMaintenance:{...money,nullable:true},priceSource:{type:'string',enum:['PRIMARY','SISTER_COMPANY','CONTRACT']},priceId:uuid,priceVersion:version,catalogSnapshot:{type:'object',additionalProperties:true}},additionalProperties:true}}},['officeBranchId','company','items']));
 operationalPaths['/api/v1/marketing/billing-price-references']={post:{summary:'Resolve current billing prices for a company and selected sizes',tags:['Items'],security,description:'Branch-scoped batch lookup using the existing Marketing price resolver in a consistent read transaction. Automatically selects active contract prices or normal/sister prices. Duplicate sizes, unavailable prices and inactive catalog entries are rejected. Available to reference readers including FINANCE and ACCOUNTING.',requestBody:{required:true,content:{'application/json':{schema:ref('BillingPriceRequest')}}},responses:{200:{description:'Resolved prices and snapshots',content:{'application/json':{schema:ref('BillingPriceResponse')}}},400:{description:'Invalid request'},401:{description:'Unauthenticated'},403:{description:'Access denied'},404:{description:'Company or sizes not found in branch'},409:{description:'Unavailable prices or ambiguous current contract'}}}};
+
+operationalSchemas['MarketingDocumentReferenceCreate']=object({quotationId:uuid,kind:{type:'string',enum:['INVOICE','PROFORMA_INVOICE']},dueDate:date,location:{...text,minLength:1,maxLength:255}},['quotationId','kind','dueDate','location']);
+operationalPaths['/api/v1/finance/documents/from-marketing']={post:{summary:'Create a DRAFT invoice or proforma invoice from a quotation reference',tags:['Invoices'],security,description:'Unified Marketing creation endpoint. Fetches full priced quotation from Marketing using the actor token. Requires active APPROVED quotation in the actor branch and COMPLETED status when a Work Order exists. dueDate and location are required. Deadline cannot precede document date. Stores quotation prices and location atomically with header, items and history.',requestBody:{required:true,content:{'application/json':{schema:ref('MarketingDocumentReferenceCreate')}}},responses:{201:{description:'DRAFT invoice or proforma created',content:{'application/json':{schema:ref('FinanceDocumentResponse')}}},400:{description:'Invalid payload or deadline'},401:{description:'Unauthenticated'},403:{description:'Section access denied'},404:{description:'Quotation not found in actor branch'},409:{description:'Quotation not approved or Work Order not completed'},502:{description:'Invalid reference response'},503:{description:'Referenced service unavailable'}}}};

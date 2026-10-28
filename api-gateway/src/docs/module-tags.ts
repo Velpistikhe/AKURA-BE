@@ -50,6 +50,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (/\/items\/sizes\/[^/]+\/price(?:\/history)?$/.test(path)) return 'Item Prices';
   if (path.includes('/items/sizes')) return 'Item Sizes';
   if (path.includes('/items')) return 'Items';
+  if (path === '/api/v1/finance/documents/from-marketing') return 'Invoices';
   if (path.includes('/proforma-invoices')) return 'Proforma Invoices';
   if (path.startsWith('/api/v1/finance/invoices')) return 'Invoices';
   if (path.startsWith('/api/v1/fieldservice')) return 'Work Order';

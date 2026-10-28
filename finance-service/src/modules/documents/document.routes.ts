@@ -1,3 +1,4 @@
+import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
 import { DocumentKind, Prisma } from '@prisma/client';
 import { asyncHandler } from '../../utils/asyncHandler.js';
@@ -5,7 +6,7 @@ import { Actor, requireActor, requireMarketingForwardedActor } from '../../middl
 import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { documentRepository as repository } from './document.repository.js';
-import { documentCreateSchema, createFromMarketingSchema, approveSchema, updateProformaSchema, updateInvoiceSchema, deleteSchema, listSchema, historySchema, idSchema } from './document.schemas.js';
+import { documentCreateSchema, approveSchema, updateProformaSchema, updateInvoiceSchema, deleteSchema, listSchema, historySchema, idSchema } from './document.schemas.js';
 const actor = (res: Response): Actor => res.locals.documentActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => { res.status(status).json({status,success:true,message:'Request completed successfully',data,requestId:req.headers['x-request-id']}); };
 /**
@@ -20,8 +21,8 @@ const billedLines = (items: readonly Record<string, unknown>[]): string => JSON.
 export function documentRoutes(kind: DocumentKind) {
   const updateInput = kind === 'INVOICE' ? updateInvoiceSchema : updateProformaSchema;
   const router = Router();
-  const createDocument = (alias = false) => asyncHandler(async (req, res) => {
-    const input = alias ? { ...createFromMarketingSchema.parse(req.body), source: 'QUOTATION' as const } : documentCreateSchema.parse(req.body);
+  const createDocument = () => asyncHandler(async (req, res) => {
+    const input = documentCreateSchema.parse(req.body);
     if (input.source === 'DIRECT') {
       if (!res.locals.financeAccessAllowed) throw new HttpError('Finance or Accounting access is required', 403);
       const prices = await loadBillingPrices(req, input.companyId, input.items.map(item => item.itemSizeId), actor(res).officeBranchId);
@@ -38,7 +39,6 @@ export function documentRoutes(kind: DocumentKind) {
     const workOrder = await loadWorkOrderForQuotation(req, quotation.id, actor(res).officeBranchId);
     send(req, res, await repository.createFromMarketing(kind, quotation, input.dueDate, input.notes, actor(res), workOrder), 201);
   });
-  router.post('/from-marketing', requireMarketingForwardedActor, createDocument(true));
   router.post('/', requireMarketingForwardedActor, createDocument());
   router.use(requireActor);
   router.post('/:id/approve',asyncHandler(async(req,res)=>{
@@ -52,3 +52,13 @@ export function documentRoutes(kind: DocumentKind) {
   router.delete('/:id',asyncHandler(async (req,res) => send(req,res,await repository.mutate(kind,idSchema.parse(req.params.id),deleteSchema.parse(req.body),actor(res),true))));
   return router;
 }
+
+export const marketingDocumentRoutes = Router();
+marketingDocumentRoutes.post('/from-marketing', requireMarketingForwardedActor, asyncHandler(async (req, res) => {
+  const input = marketingDocumentReferenceSchema.parse(req.body);
+  const quotation = await validateMarketingQuotation(req, input.quotationId, actor(res).officeBranchId);
+  const workOrder = await loadWorkOrderForQuotation(req, quotation.id, actor(res).officeBranchId);
+  if ((workOrder && workOrder.status !== 'COMPLETED') || (quotation.workOrderStatus && quotation.workOrderStatus !== 'COMPLETED'))
+    throw new HttpError('Work Order must be COMPLETED before billing', 409);
+  send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, undefined, actor(res), workOrder, input.location), 201);
+}));

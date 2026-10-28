@@ -6,7 +6,7 @@ const routes = require('../dist/modules/quotations/quotation.routes.js').default
 const env = require('../dist/config/env.js').env;
 const { quotationRepository } = require('../dist/modules/quotations/quotation.repository.js');
 
-test('Create invoice from quotation forwards the full priced quotation to Finance', async (t) => {
+test('Create invoice from quotation forwards the quotation reference to Finance', async (t) => {
   const branch = randomUUID(), actor = { id: randomUUID(), name: 'Finance Test' };
   const itemSizeId = randomUUID();
   const originalFetch = global.fetch, originalFindActive = quotationRepository.findActive;
@@ -21,7 +21,7 @@ test('Create invoice from quotation forwards the full priced quotation to Financ
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const request = async (id, body, expected = 201, section, selectedBranch = branch) => {
-    const response = await originalFetch(`http://127.0.0.1:${server.address().port}/quotations/${id}/invoices`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer user-token', ...(section ? { 'x-test-section': section } : {}), 'x-test-branch': selectedBranch }, body: JSON.stringify(body) });
+    const response = await originalFetch(`http://127.0.0.1:${server.address().port}/quotations/${id}/invoices`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer user-token', ...(section ? { 'x-test-section': section } : {}), 'x-test-branch': selectedBranch }, body: JSON.stringify({quotationId:id,location:'Jakarta',...body}) });
     const payload = await response.json(); assert.equal(response.status, expected, JSON.stringify(payload)); return payload;
   };
   const rows = new Map();
@@ -36,7 +36,7 @@ test('Create invoice from quotation forwards the full priced quotation to Financ
     return rows.get(id);
   };
   rows.set(quotation.id, quotation);
-  let forwarded = null;
+  let forwarded = null, workOrder = null;
   try {
     assert.equal((await request(quotation.id, { kind: 'RECEIPT' }, 400)).message, 'Validation failed');
     assert.equal((await request(quotation.id, { kind: 'INVOICE', dueDate: 'not-a-date' }, 400)).message, 'Validation failed');
@@ -46,24 +46,26 @@ test('Create invoice from quotation forwards the full priced quotation to Financ
     quotation.status = 'CREATED';
     assert.equal((await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31' }, 409)).message, 'Invoice requires an APPROVED quotation');
     quotation.status = 'APPROVED';
-    global.fetch = async (url, options) => { forwarded = { url: String(url), options }; return { ok: true, status: 201, json: async () => ({ data: { id: randomUUID(), number: 'INV/2026/000001', status: 'DRAFT' } }) }; };
-    const created = await request(quotation.id, { kind: 'INVOICE', dueDate: '2026-12-31', notes: '30 days' });
+    global.fetch = async (url, options) => { if(String(url).includes('/fieldservice/')) return {ok:true,json:async()=>({data:workOrder})}; forwarded = { url: String(url), options }; return { ok: true, status: 201, json: async () => ({ data: { id: randomUUID(), number: 'INV/2026/000001', status: 'DRAFT' } }) }; };
+    const created = await request(quotation.id, { kind: 'INVOICE', dueDate: '2026-12-31', location: 'Jakarta' });
     assert.equal(created.message, 'Draft finance document created successfully');
-    assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/finance/invoices`);
+    assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/finance/documents/from-marketing`);
     assert.equal(forwarded.options.headers.authorization, 'Bearer user-token');
     const payload = JSON.parse(forwarded.options.body);
-    assert.equal(payload.source, 'QUOTATION');
-    assert.equal(payload.quotation.items[0].priceInspection, '30.00');
-    assert.equal(payload.quotation.items[0].priceMaintenance, '40.00');
-    assert.equal(payload.quotation.items[0].subTotal, '100.00');
-    assert.equal(payload.dueDate, '2026-12-31');
-    assert.equal(payload.notes, '30 days');
-    global.fetch = async (url, options) => { forwarded = { url: String(url), options }; return { ok: true, status: 201, json: async () => ({ data: { id: randomUUID(), number: 'PI/2026/000001', status: 'DRAFT' } }) }; };
+    assert.deepEqual(payload,{quotationId:quotation.id,kind:'INVOICE',dueDate:'2026-12-31',location:'Jakarta'});
+    global.fetch = async (url, options) => { if(String(url).includes('/fieldservice/')) return {ok:true,json:async()=>({data:workOrder})}; forwarded = { url: String(url), options }; return { ok: true, status: 201, json: async () => ({ data: { id: randomUUID(), number: 'PI/2026/000001', status: 'DRAFT' } }) }; };
     await request(quotation.id, { kind: 'PROFORMA_INVOICE', dueDate: '2099-12-31' });
-    assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/finance/proforma-invoices`);
-    global.fetch = async () => { throw Error('offline'); };
+    assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/finance/documents/from-marketing`);
+    workOrder={id:randomUUID(),quotationId:quotation.id,officeBranchId:branch,revoked:false,status:'IN_PROGRESS'};
+    await request(quotation.id,{kind:'INVOICE',dueDate:'2099-12-31'},409);
+    workOrder.status='COMPLETED';
+    await request(quotation.id,{kind:'INVOICE',dueDate:'2099-12-31'});
+    await request(quotation.id,{quotationId:randomUUID(),kind:'INVOICE',dueDate:'2099-12-31'},400);
+    quotation.officeBranchId=randomUUID();await request(quotation.id,{kind:'INVOICE',dueDate:'2099-12-31'},404);quotation.officeBranchId=branch;
+    workOrder=null;
+    global.fetch = async (url) => { if(String(url).includes('/fieldservice/'))return {ok:true,json:async()=>({data:null})}; throw Error('offline'); };
     assert.equal((await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31' }, 503)).message, 'Finance Service is unavailable; retry later');
-    console.log('PASS: quotation invoice creation forwards the full priced quotation to Finance and maps upstream failures.');
+    console.log('PASS: quotation invoice creation forwards the quotation reference to Finance and maps upstream failures.');
   } finally {
     global.fetch = originalFetch; quotationRepository.findActive = originalFindActive;
     await new Promise(resolve => server.close(resolve));

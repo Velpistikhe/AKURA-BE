@@ -73,3 +73,12 @@ export async function notifyFieldServiceWorkOrderRevoked(workOrderId: string, ve
   } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }
   if (!response.ok) throw new HttpError('Unable to revoke Work Order after quotation update failure', [404, 409].includes(response.status) ? response.status : 503);
 }
+
+export async function assertBillingWorkOrderCompleted(req: Request, quotationId: string, branch: string): Promise<void> {
+  const result = await requestFieldService(fieldServicePath(`work-orders/by-quotation/${quotationId}`), req);
+  if (!result) return;
+  const row = result as WorkOrderPayload & { status: string };
+  if (row.quotationId !== quotationId || row.officeBranchId !== branch || row.revoked !== false || !row.id
+    || !['DRAFT', 'IN_PROGRESS', 'COMPLETED'].includes(row.status)) throw new HttpError('Invalid Work Order reference', 502);
+  if (row.status !== 'COMPLETED') throw new HttpError('Work Order must be COMPLETED before billing', 409);
+}

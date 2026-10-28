@@ -8,7 +8,7 @@ import { HttpError } from '../../utils/httpError.js';
 import { directCreateSchema, updateSchema, deleteSchema, listSchema } from './document.schemas.js';
 import { nextInvoiceIdentity } from '../invoices/invoice-number.js';
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
-const labels: Record<string,string> = { number: 'Document number', title: 'Title', date: 'Document date', dueDate: 'Due date', notes: 'Notes', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
+const labels: Record<string,string> = { number: 'Document number', location: 'Location', title: 'Title', date: 'Document date', dueDate: 'Due date', notes: 'Notes', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
 const pagination = (page: number, limit: number, total: number) => ({ page, limit, total, totalPages: Math.ceil(total / limit) });
 async function saveHistory(tx: Prisma.TransactionClient, row: Document, before: Document | null, actor: Actor, action: string, reason?: string) {
   const after = json(row) as Record<string, unknown>;
@@ -35,13 +35,14 @@ async function assertBillingAllowed(tx: Prisma.TransactionClient, quotationId: s
   if (existing) throw new HttpError('Quotation already has an active invoice while its Work Order is not COMPLETED', 409);
 }
 export const documentRepository = {
-  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null) {
+  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location?: string) {
 
     if (!(dueDate instanceof Date) || !Number.isFinite(dueDate.getTime())) throw new HttpError('Payment deadline is required', 400);
     if (quotation.officeBranchId !== actor.officeBranchId || !quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Quotation is invalid or does not belong to this branch', 409);
     // The tax rate approved on the quotation must match the rate stored in the
     // Work Order snapshot, so a billing request can never price the quotation
     // under a different rate than the one the work was executed under.
+    if ((workOrder && workOrder.status !== 'COMPLETED') || (quotation.workOrderStatus && quotation.workOrderStatus !== 'COMPLETED')) throw new HttpError('Work Order must be COMPLETED before billing', 409);
     const workOrderTax = workOrder?.quotationSnapshot?.tax ?? null;
     if (workOrder && workOrderTax !== null && !new Prisma.Decimal(workOrderTax).equals(new Prisma.Decimal(quotation.tax)))
       throw new HttpError('Quotation tax does not match the tax of its Work Order', 409);
@@ -66,7 +67,7 @@ export const documentRepository = {
       const row = await tx.document.create({ data: {
         source: 'QUOTATION', companyId: typeof quotation.companyId === 'string' ? quotation.companyId : null, companySnapshot: quotation.companySnapshot ? json(quotation.companySnapshot) : Prisma.JsonNull,
         quotationId: quotation.id, quotationVersion: quotation.version, quotationSnapshot: json(quotation), title: quotation.subject,
-        date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
+        location: location ?? null, date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
         subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), status: 'DRAFT',
         workOrderTax: workOrderTax === null ? null : new Prisma.Decimal(workOrderTax),
         createdById: actor.id, createdByName: actor.name, items: { create: lines },

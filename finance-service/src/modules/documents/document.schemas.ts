@@ -60,3 +60,8 @@ export const deleteSchema = z.object({ version: versionSchema, reason: z.string(
 export const idSchema = z.string().uuid();
 export const listSchema = z.object({ page: z.coerce.number().int().min(1).max(1000000).default(1), limit: z.coerce.number().int().min(1).max(100).default(20), quotationId: z.string().uuid().optional(), status: z.enum(['DRAFT','ON_PROGRESS','FINAL']).optional(), search: z.string().trim().max(100).optional() }).strict();
 export const historySchema = listSchema.pick({ page: true, limit: true });
+
+export const marketingDocumentReferenceSchema = z.object({
+  quotationId: z.string().uuid(), kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']),
+  dueDate: date, location: z.string().trim().min(1).max(255),
+}).strict();

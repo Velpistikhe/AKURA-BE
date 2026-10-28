@@ -30,7 +30,7 @@ test('source contracts: live prices, deadline, branch isolation, atomic items an
   if(String(url).includes('/work-orders/by-quotation/'))return {ok:true,json:async()=>({data:null})};
   throw Error('Unexpected upstream '+url);
  };
- const app=express();app.use(express.json());app.use((req,res,next)=>{req.user={sub:user,type:'access',officeBranchId:branch};next();});app.use(routes);app.use(errorHandler);
+ const app=express();app.use(express.json());app.use((req,res,next)=>{req.user={sub:user,type:'access',officeBranchId:branch};next();});app.use(routes);app.use(errorHandler);app.use((_req,res)=>res.status(404).json({message:'Not found'}));
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
  const call=async(method,path,body)=>{const r=await originalFetch(`http://127.0.0.1:${server.address().port}${path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer valid'},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,body:await r.json()};};
  const expect=async(method,path,body,status)=>{const r=await call(method,path,body);assert.equal(r.status,status,JSON.stringify(r.body));return r.body.data;};
@@ -58,8 +58,8 @@ test('source contracts: live prices, deadline, branch isolation, atomic items an
    const row=await expect('POST',root,{source:'QUOTATION',quotation,dueDate:invoiceDate().toISOString().slice(0,10)},201);
    assert.equal(row.source,'QUOTATION');assert.equal(row.total,'112');
    await expect('PATCH',root+'/'+row.id,{version:0,dueDate:null},400);
-   await expect('POST',root+'/from-marketing',{quotation},400);
-   await expect('POST',root+'/from-marketing',{quotation,dueDate:null},400);
+   await expect('POST',root+'/from-marketing',{quotation},404);
+   await expect('POST',root+'/from-marketing',{quotation,dueDate:null},404);
   }
   reference={...reference,officeBranchId:randomUUID()};await expect('POST','/invoices',input,502);reference={...reference,officeBranchId:branch};
   price.catalogSnapshot.hasMaintenance=false;await expect('POST','/invoices',input,409);price.catalogSnapshot.hasMaintenance=true;

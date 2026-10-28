@@ -1,3 +1,4 @@
+import { assertBillingWorkOrderCompleted } from './work-order.integration.js';
 import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
@@ -189,15 +190,19 @@ export const quotationController = {
     }
   },
   async createFinanceDocument(req: Request, res: Response) {
+    if (res.locals.body.quotationId !== res.locals.params.quotationId) throw new HttpError('quotationId must match the quotation in the URL', 400);
     const branch = getOfficeBranchId(res);
     const quotation = await quotationRepository.findActive(res.locals.params.quotationId, branch);
     if (quotation.status !== 'APPROVED') throw new HttpError('Invoice requires an APPROVED quotation', 409);
+    if (quotation.officeBranchId !== branch) throw new HttpError('Quotation not found in this branch', 404);
+    if (quotation.workOrderStatus && quotation.workOrderStatus !== 'COMPLETED') throw new HttpError('Work Order must be COMPLETED before billing', 409);
+    await assertBillingWorkOrderCompleted(req, quotation.id, branch);
     const token = getAccessToken(req);
     if (!token) throw new HttpError('Access token is required', 401);
     const kind = res.locals.body.kind as 'INVOICE' | 'PROFORMA_INVOICE';
-    const path = kind === 'INVOICE' ? 'finance/invoices' : 'finance/proforma-invoices';
+    const path = 'finance/documents/from-marketing';
     let response: globalThis.Response;
-    try { response = await fetch(serviceUrl(path), {method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',authorization:'Bearer '+token,...serviceHeaders(path),...(typeof req.headers['x-request-id']==='string'?{'x-request-id':req.headers['x-request-id']}:{})},body:JSON.stringify({source: 'QUOTATION',quotation,dueDate:res.locals.body.dueDate,notes:res.locals.body.notes})}); }
+    try { response = await fetch(serviceUrl(path), {method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json',authorization:'Bearer '+token,...serviceHeaders(path),...(typeof req.headers['x-request-id']==='string'?{'x-request-id':req.headers['x-request-id']}:{})},body:JSON.stringify({quotationId:quotation.id,kind,dueDate:res.locals.body.dueDate,location:res.locals.body.location})}); }
     catch { throw new HttpError('Finance Service is unavailable; retry later',503); }
     if (!response.ok) { const upstream=await response.json().catch(()=>null) as {message?:string}|null; throw new HttpError(upstream?.message||'Unable to create finance document',[400,401,403,404,409].includes(response.status)?response.status:502); }
     const payload=await response.json().catch(()=>null) as {data?:unknown}|null;

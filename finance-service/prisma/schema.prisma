@@ -25,6 +25,7 @@ model Document {
   quotationId String? @map("quotation_id") @db.Uuid
   quotationVersion Int? @map("quotation_version")
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
+  location String? @db.VarChar(255)
   title String @db.VarChar(255)
   date DateTime @db.Date
   dueDate DateTime? @map("due_date") @db.Date
