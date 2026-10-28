@@ -36,46 +36,45 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
   profile.role='USER';
   await request('POST','/taxes',{percentage:'13',effectiveFrom:'2027-01-01'},403);
   await request('GET','/taxes');
-  const modules=['/proforma-invoices','/invoices'];
-  let first;
-  for(const module of modules){
-   const raw={source:'QUOTATION',quotation,dueDate:'2099-12-31'};
-   await request('POST',module,{...raw,number:'CUSTOM'},400);
-   if(module==='/invoices') {
-    await request('POST',module,{...raw,date:'2020-01-01'},400);
+   const root='/documents';
+   const modules=[['PROFORMA_INVOICE',/^PI\/[0-9]{4}\/000001$/],['INVOICE',/^INV\/[0-9]{4}\/000001$/]];
+   let first;
+   for(const [kind,numberPattern] of modules){
+    const raw={source:'QUOTATION',kind,quotation,dueDate:'2099-12-31'};
+    await request('POST',root,{...raw,number:'CUSTOM'},400);
+    await request('POST',root,{...raw,date:'2020-01-01'},400);
+    await request('POST',root,{...raw,officeBranchId:otherBranch},400);
+    await request('POST',root,{...raw,quotation:{...quotation,version:1}},409);
+    await request('POST',root,raw,404,'other');
+    const row=await request('POST',root,raw,201);
+    assert.equal(row.officeBranchId,branch);assert.equal(row.createdByName,'Test User');
+    assert.equal(row.kind,kind);
+    if(first)await request('GET',root+'/'+first,undefined,404);
+    first=row.id;
+    await request('PATCH',root+'/'+row.id,{version:0,number:'CUSTOM'},400);
+    await request('PATCH',root+'/'+row.id,{version:0,date:'2020-01-01'},400);
+    assert.match(row.number,numberPattern);
+    // One collection holds both kinds; the document of the previous iteration
+    // was soft deleted, so only the active one remains for this quotation.
+    assert.equal((await request('GET',root+'?quotationId='+quoteId)).pagination.total,1);
+    assert.equal((await request('GET',root+'?kind='+kind)).pagination.total,1);
+    await request('GET',root+'/'+row.id,undefined,404,'other');
+    await request('GET',root+'/'+row.id+'/history',undefined,404,'other');
+    await request('PATCH',root+'/'+row.id,{version:0,title:'No'},404,'other');
+    await request('DELETE',root+'/'+row.id,{version:0},404,'other');
+    await request('PATCH',root+'/'+row.id,{title:'Missing version'},400);
+    const updated=await request('PATCH',root+'/'+row.id,{version:0,title:'Edited',reason:'Corrected title'});
+    assert.equal(updated.version,1);
+    await request('PATCH',root+'/'+row.id,{version:0,title:'Stale'},409);
+    const history=await request('GET',root+'/'+row.id+'/history');
+    assert.equal(history.history[0].changes.find(change=>change.field==='title').after,'Edited');
+    await request('DELETE',root+'/'+row.id,{version:1,reason:'Cancelled'});
+    await request('GET',root+'/'+row.id,undefined,404);
+    assert.equal((await request('GET',root+'/'+row.id+'/history')).pagination.total,3);
+    await request('GET',root,undefined,403,'inactive');
+    await request('GET',root,undefined,403,'wrong-section');
+    await request('GET',root,undefined,401,'stale');
    }
-   await request('POST',module,{...raw,officeBranchId:otherBranch},400);
-   await request('POST',module,{...raw,quotation:{...quotation,version:1}},409);
-   await request('POST',module,raw,404,'other');
-   const row=await request('POST',module,raw,201);
-   assert.equal(row.officeBranchId,branch);assert.equal(row.createdByName,'Test User');
-   if(first)await request('GET',module+'/'+first,undefined,404);
-   first=row.id;
-   await request('PATCH',module+'/'+row.id,{version:0,number:'CUSTOM'},400);
-   if(module==='/proforma-invoices') assert.match(row.number,/^PI\/\d{4}\/000001$/);
-   if(module==='/invoices') {
-    assert.match(row.number,/^INV\/\d{4}\/000001$/);
-    await request('PATCH',module+'/'+row.id,{version:0,number:'CUSTOM'},400);
-    await request('PATCH',module+'/'+row.id,{version:0,date:'2020-01-01'},400);
-   }
-   assert.equal((await request('GET',module+'?quotationId='+quoteId)).pagination.total,1);
-   await request('GET',module+'/'+row.id,undefined,404,'other');
-   await request('GET',module+'/'+row.id+'/history',undefined,404,'other');
-   await request('PATCH',module+'/'+row.id,{version:0,title:'No'},404,'other');
-   await request('DELETE',module+'/'+row.id,{version:0},404,'other');
-   await request('PATCH',module+'/'+row.id,{title:'Missing version'},400);
-   const updated=await request('PATCH',module+'/'+row.id,{version:0,title:'Edited',reason:'Corrected title'});
-   assert.equal(updated.version,1);
-   await request('PATCH',module+'/'+row.id,{version:0,title:'Stale'},409);
-   const history=await request('GET',module+'/'+row.id+'/history');
-   assert.equal(history.history[0].changes.find(change=>change.field==='title').after,'Edited');
-   await request('DELETE',module+'/'+row.id,{version:1,reason:'Cancelled'});
-   await request('GET',module+'/'+row.id,undefined,404);
-   assert.equal((await request('GET',module+'/'+row.id+'/history')).pagination.total,3);
-   await request('GET',module,undefined,403,'inactive');
-   await request('GET',module,undefined,403,'wrong-section');
-   await request('GET',module,undefined,401,'stale');
-  }
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));
   const where={officeBranchId:branch};await prisma.documentHistory.deleteMany({where:{document:where}});await prisma.documentItem.deleteMany({where:{document:where}});await prisma.document.deleteMany({where});await prisma.$executeRaw`DELETE FROM proforma_invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.$executeRaw`DELETE FROM invoice_sequences WHERE office_branch_id = ${branch}::uuid`;await prisma.taxDelivery.deleteMany({where:{event:where}});await prisma.taxEvent.deleteMany({where});await prisma.taxRevision.deleteMany({where});await prisma.tax.deleteMany({where});await prisma.$disconnect();

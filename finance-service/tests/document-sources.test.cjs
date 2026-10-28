@@ -37,16 +37,19 @@ test('source contracts: live prices, deadline, branch isolation, atomic items an
  const input={source:'DIRECT',companyId,title:'Direct document',items:[{itemSizeId:sizeId,quantityInspection:'2',quantityMaintenance:'1',priceInspection:'30.00',priceMaintenance:'40.00'}]};
  try{
   await prisma.tax.create({data:{officeBranchId:branch,percentage:'12',effectiveFrom:new Date('2020-01-01'),createdById:user,createdByName:'Seed'}});
-  for(const root of ['/invoices','/proforma-invoices']){
+  for(const kind of ['INVOICE','PROFORMA_INVOICE']){
+   const root='/documents';
+   // The kind travels in the payload, so it is required on every create.
    await expect('POST',root,{...input,status:'ON_PROGRESS'},400);
-   await expect('POST',root,{...input,items:[input.items[0],input.items[0]]},400);
-   await expect('POST',root,{...input,items:[{...input.items[0],priceInspection:'31'}]},409);
-   await expect('POST',root,{...input,items:[{...input.items[0],quantityInspection:'0',quantityMaintenance:'0'}]},400);
-   await expect('POST',root,{...input,dueDate:'2020-01-01'},400);
+   await expect('POST',root,{...input,kind,status:'ON_PROGRESS'},400);
+   await expect('POST',root,{...input,kind,items:[input.items[0],input.items[0]]},400);
+   await expect('POST',root,{...input,kind,items:[{...input.items[0],priceInspection:'31'}]},409);
+   await expect('POST',root,{...input,kind,items:[{...input.items[0],quantityInspection:'0',quantityMaintenance:'0'}]},400);
+   await expect('POST',root,{...input,kind,dueDate:'2020-01-01'},400);
    for(const source of ['PRIMARY','SISTER_COMPANY','CONTRACT']){
     price.priceSource=source;
-    const row=await expect('POST',root,{...input,dueDate:source==='PRIMARY'?null:invoiceDate().toISOString().slice(0,10)},201);
-    assert.equal(row.source,'DIRECT');assert.equal(row.quotationId,null);assert.equal(row.status,'DRAFT');assert.equal(row.total,'112');
+    const row=await expect('POST',root,{...input,kind,dueDate:source==='PRIMARY'?null:invoiceDate().toISOString().slice(0,10)},201);
+    assert.equal(row.source,'DIRECT');assert.equal(row.quotationId,null);assert.equal(row.status,'DRAFT');assert.equal(row.total,'112');assert.equal(row.kind,kind);
     const detail=await expect('GET',root+'/'+row.id,undefined,200);
     assert.equal(detail.items.length,1);assert.equal(detail.items[0].pricingSnapshot.priceSource,source);assert.equal(detail.items[0].subTotal,'100');
     await expect('PATCH',root+'/'+row.id,{version:0,status:'FINAL'},409);
@@ -54,26 +57,27 @@ test('source contracts: live prices, deadline, branch isolation, atomic items an
     assert.equal(approvals.filter(r=>r.status===200).length,1);assert.ok(approvals.filter(r=>r.status!==200).every(r=>r.status===409));
     assert.equal((await expect('GET',root+'/'+row.id+'/history',undefined,200)).pagination.total,2);
    }
-   for(const dueDate of [undefined,null,'bad','2020-01-01'])await expect('POST',root,{source:'QUOTATION',quotation,dueDate},400);
-   const row=await expect('POST',root,{source:'QUOTATION',quotation,dueDate:invoiceDate().toISOString().slice(0,10)},201);
+   // A document can be created without any price: Finance resolves it from Marketing.
+   const resolved=await expect('POST',root,{source:'DIRECT',kind,companyId,title:'Resolved prices',items:[{itemSizeId:sizeId,quantityInspection:'2',quantityMaintenance:'1'}]},201);
+   assert.equal(resolved.total,'112');
+   for(const dueDate of [undefined,null,'bad','2020-01-01'])await expect('POST',root,{source:'QUOTATION',kind,quotation,dueDate},400);
+   const row=await expect('POST',root,{source:'QUOTATION',kind,quotation,dueDate:invoiceDate().toISOString().slice(0,10)},201);
    assert.equal(row.source,'QUOTATION');assert.equal(row.total,'112');
    await expect('PATCH',root+'/'+row.id,{version:0,dueDate:null},400);
-   await expect('POST',root+'/from-marketing',{quotation},404);
-   await expect('POST',root+'/from-marketing',{quotation,dueDate:null},404);
   }
-  reference={...reference,officeBranchId:randomUUID()};await expect('POST','/invoices',input,502);reference={...reference,officeBranchId:branch};
-  price.catalogSnapshot.hasMaintenance=false;await expect('POST','/invoices',input,409);price.catalogSnapshot.hasMaintenance=true;
-  offline=true;await expect('POST','/invoices',input,503);offline=false;
+  reference={...reference,officeBranchId:randomUUID()};await expect('POST','/documents',{...input,kind:'INVOICE'},502);reference={...reference,officeBranchId:branch};
+  price.catalogSnapshot.hasMaintenance=false;await expect('POST','/documents',{...input,kind:'INVOICE'},409);price.catalogSnapshot.hasMaintenance=true;
+  offline=true;await expect('POST','/documents',{...input,kind:'INVOICE'},503);offline=false;
   profile.section='MARKETING';
-  const editable=await expect('POST','/invoices',input,201);
-  const edited=await expect('PATCH','/invoices/'+editable.id,{version:0,notes:'Marketing update'},200);assert.equal(edited.version,1);
-  await expect('DELETE','/invoices/'+editable.id,{version:1},200);
-  await expect('GET','/invoices/'+editable.id,undefined,404);
+  const editable=await expect('POST','/documents',{...input,kind:'INVOICE'},201);
+  const edited=await expect('PATCH','/documents/'+editable.id,{version:0,notes:'Marketing update'},200);assert.equal(edited.version,1);
+  await expect('DELETE','/documents/'+editable.id,{version:1},200);
+  await expect('GET','/documents/'+editable.id,undefined,404);
   profile.section='FINANCE';
   const before=await prisma.document.count({where:{officeBranchId:branch}});
-  await expect('POST','/invoices',{...input,items:[{...input.items[0],quantityInspection:'999999999999999'}]},400);
+  await expect('POST','/documents',{...input,kind:'INVOICE',items:[{...input.items[0],quantityInspection:'999999999999999'}]},400);
   assert.equal(await prisma.document.count({where:{officeBranchId:branch}}),before);
-  const concurrent=await Promise.all(Array.from({length:5},()=>call('POST','/invoices',input)));
+  const concurrent=await Promise.all(Array.from({length:5},()=>call('POST','/documents',{...input,kind:'INVOICE'})));
   assert.ok(concurrent.every(r=>r.status===201),JSON.stringify(concurrent));assert.equal(new Set(concurrent.map(r=>r.body.data.number)).size,5);
  }finally{
   global.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));

@@ -38,7 +38,7 @@ test('proforma numbering: concurrent creation, annual reset, branch isolation, r
   assert.equal(await prisma.document.count({where:{officeBranchId:actor.officeBranchId}}),8);
   await assert.rejects(repo.createFromMarketing('PROFORMA_INVOICE',q,new Date('2000-01-01'),null,actor,null),e=>e.statusCode===400);
   assert.equal(await last(),8);
-  await repo.mutate('PROFORMA_INVOICE',rows[0].id,{version:0},actor,true);
+  await repo.mutate(rows[0].id,{version:0},actor,true);
   assert.equal((await create()).number,`PI/${year}/000009`);
   // Seed a missing counter from a deleted historical invoice.
   await prisma.document.update({where:{id:rows[0].id},data:{number:`PI/${year}/000040`}});

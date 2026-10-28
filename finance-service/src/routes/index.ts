@@ -1,11 +1,10 @@
-import { marketingDocumentRoutes } from '../modules/documents/document.routes.js';
+import { documentRoutes, marketingDocumentRoutes } from '../modules/documents/document.routes.js';
 import { Router } from 'express';
-import proformainvoicesRoutes from '../modules/proforma-invoices/proforma-invoices.routes.js';
-import invoicesRoutes from '../modules/invoices/invoices.routes.js';
 import taxRoutes from '../modules/taxes/tax.routes.js';
 const router = Router();
+// One collection serves invoices and proforma invoices; the kind travels in the
+// payload so a document can be created without any source document.
+router.use('/documents', documentRoutes());
 router.use('/documents', marketingDocumentRoutes);
 router.use('/taxes', taxRoutes);
-router.use('/proforma-invoices',proformainvoicesRoutes);
-router.use('/invoices',invoicesRoutes);
 export default router;

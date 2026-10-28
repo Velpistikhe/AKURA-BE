@@ -18,8 +18,7 @@ const modules = [
   ['Company Contracts', 'Contracts, approval, revision, and termination.'],
   ['Company Contract Prices', 'Contract prices, history, and Excel import.'],
   ['Quotation Options', 'Company-specific size options and resolved prices.'],
-  ['Proforma Invoices', 'Proforma invoices linked to quotations.'],
-  ['Invoices', 'Invoices linked to quotations.'],
+  ['Invoices', 'Invoices and proforma invoices, with or without a source document.'],
   ['Taxes', 'Finance master tax and cache delivery status.'],
   ['Work Order', 'Field service work orders, inspectors, and change history.'],
   ['Quotations', 'Quotation documents and item lists.'],
@@ -50,9 +49,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (/\/items\/sizes\/[^/]+\/price(?:\/history)?$/.test(path)) return 'Item Prices';
   if (path.includes('/items/sizes')) return 'Item Sizes';
   if (path.includes('/items')) return 'Items';
-  if (path === '/api/v1/finance/documents/from-marketing') return 'Invoices';
-  if (path.includes('/proforma-invoices')) return 'Proforma Invoices';
-  if (path.startsWith('/api/v1/finance/invoices')) return 'Invoices';
+  if (path.startsWith('/api/v1/finance/documents')) return 'Invoices';
   if (path.startsWith('/api/v1/fieldservice')) return 'Work Order';
   if (path.includes('/item-size-references')) return 'Item Sizes';
   if (path.includes('/quotation-references')) return 'Quotations';

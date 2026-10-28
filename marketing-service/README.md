@@ -331,7 +331,7 @@ Snapshot drift is detected by re-validation rather than by republishing state: r
 
 Endpoint `POST /api/v1/marketing/quotations/{quotationId}/invoices` menerima `kind` (`INVOICE` atau `PROFORMA_INVOICE`), `dueDate` sebagai tenggat pembayaran (opsional/null), dan `notes`. Marketing mengirim semua item quotation secara utuh, termasuk harga satuan, kuantitas, diskon dan subtotal.
 
-Finance memvalidasi ulang branch, status `APPROVED`, versi dan isi item melalui Marketing dengan token pengguna. Dokumen memiliki header dan detail item berharga, dibuat berstatus `DRAFT`, dan approval Finance/Accounting lewat `POST /api/v1/finance/invoices/{id}/approve` atau `/proforma-invoices/{id}/approve` dengan `{ "version": 0 }` mengubah status menjadi `ON_PROGRESS`. Section MARKETING hanya dapat mengakses route pembuatan; data dan approval Finance tetap terlindungi.
+Finance memvalidasi ulang branch, status `APPROVED`, versi dan isi item melalui Marketing dengan token pengguna. Dokumen memiliki header dan detail item berharga, dibuat berstatus `DRAFT`, dan approval Finance/Accounting lewat `POST /api/v1/finance/documents/{id}/approve` dengan `{ "version": 0 }` mengubah status menjadi `ON_PROGRESS`. Finance menyimpan invoice dan proforma invoice dalam satu koleksi `/api/v1/finance/documents`; `kind` menentukan jenis dokumen dan penomoran (`INV/YYYY/000001` atau `PI/YYYY/000001`). Section MARKETING hanya dapat mengakses route pembuatan; data dan approval Finance tetap terlindungi.
 
 
 ## Endpoint and Swagger verification

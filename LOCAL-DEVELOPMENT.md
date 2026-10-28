@@ -14,7 +14,7 @@ Untuk mengembangkan Marketing, Field Service, atau Finance secara lokal dengan A
 - MFE lokal mengirim request data langsung ke service lokal: Marketing `http://localhost:5003`, Finance `http://localhost:5004`, dan Field Service `http://localhost:5005`, memakai `Authorization: Bearer <accessToken>`.
 - Route Auth (`/auth/*`) tetap menuju gateway Vercel agar refresh token cookie httpOnly berasal dari host yang sama. Finance juga tetap meneruskan referensi Marketing (`/marketing/*`) melalui gateway.
 - Set `DIRECT_MFE_ACCESS=true` hanya pada `.env` lokal tiap service dan `DIRECT_MFE_ORIGIN=http://localhost:4173` (origin browser Shell, bukan port remote MFE). Akses langsung hanya berlaku di `NODE_ENV=development` dan tidak pernah di Vercel. Secret gateway yang salah tetap ditolak.
-- Bypass secret hanya untuk route data Marketing, Finance (`/finance/*`, `/taxes/*`, `/invoices/*`, `/proforma-invoices/*`) dan Field Service (`/fieldservice/*`, `/work-orders/*`). Health dan endpoint internal tetap gateway-only. JWT, profil aktif, role/section, dan branch tetap diverifikasi.
+- Bypass secret hanya untuk route data Marketing, Finance (`/finance/*`, `/taxes/*`, `/documents/*`) dan Field Service (`/fieldservice/*`, `/work-orders/*`). Health dan endpoint internal tetap gateway-only. JWT, profil aktif, role/section, dan branch tetap diverifikasi.
 - Jalankan Marketing (5003), Finance (5004), Field Service (5005), MFE remote (4175/4176/4177), Shell (4173), dan Auth/API Gateway Vercel Development. Restart Vite setelah mengubah `.env.development`.
 
 Mode topologi penuh lokal tetap tersedia: arahkan MFE ke gateway `http://localhost:5000/api/v1` dan set `DIRECT_MFE_ACCESS=false` pada semua service.

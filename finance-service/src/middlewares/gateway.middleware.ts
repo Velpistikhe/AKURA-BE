@@ -8,10 +8,8 @@ export const verifyGatewaySecret = (req: Request, res: Response, next: NextFunct
     || req.path.startsWith('/finance/')
     || req.path === '/taxes'
     || req.path.startsWith('/taxes/')
-    || req.path === '/invoices'
-    || req.path.startsWith('/invoices/')
-    || req.path === '/proforma-invoices'
-    || req.path.startsWith('/proforma-invoices/');
+    || req.path === '/documents'
+    || req.path.startsWith('/documents/');
 
   // Direct development access applies only to user-facing Finance routes.
   // Internal tax delivery and health checks remain gateway-only.

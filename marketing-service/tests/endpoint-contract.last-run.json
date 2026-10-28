@@ -1,11 +1,19 @@
 {
-  "operations": 81,
-  "checks": 266,
+  "operations": 82,
+  "checks": 269,
   "externalDependencies": "Auth JWKS/profile, Field Service and PDF object storage are local test doubles; real Marketing HTTP app, JWT verification, PDF generation, Excel processing and PostgreSQL",
   "coverage": [
     {
       "operation": "GET /health",
       "statuses": [
+        200
+      ]
+    },
+    {
+      "operation": "POST /billing-price-references",
+      "statuses": [
+        401,
+        400,
         200
       ]
     },

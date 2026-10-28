@@ -35,7 +35,7 @@ async function assertBillingAllowed(tx: Prisma.TransactionClient, quotationId: s
   if (existing) throw new HttpError('Quotation already has an active invoice while its Work Order is not COMPLETED', 409);
 }
 export const documentRepository = {
-  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location?: string) {
+  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location?: string | null) {
 
     if (!(dueDate instanceof Date) || !Number.isFinite(dueDate.getTime())) throw new HttpError('Payment deadline is required', 400);
     if (quotation.officeBranchId !== actor.officeBranchId || !quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Quotation is invalid or does not belong to this branch', 409);
@@ -75,12 +75,12 @@ export const documentRepository = {
       return saveHistory(tx, row, null, actor, 'CREATE');
     }, { maxWait: 10000, timeout: 20000 });
   },
-  async approve(kind: DocumentKind, id: string, version: number, actor: Actor) {
+  async approve(id: string, version: number, actor: Actor) {
     return prisma.$transaction(async tx => {
-      const before = await tx.document.findFirst({ where: { id, kind, officeBranchId: actor.officeBranchId, isActive: true } });
+      const before = await tx.document.findFirst({ where: { id, officeBranchId: actor.officeBranchId, isActive: true } });
       if (!before) throw new HttpError('Document not found', 404);
       if (before.version !== version || before.status !== 'DRAFT') throw new HttpError('Document has changed or is not DRAFT', 409);
-      const claimed = await tx.document.updateMany({ where: { id, kind, officeBranchId: actor.officeBranchId, isActive: true, version, status: 'DRAFT' }, data: { status: 'ON_PROGRESS', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
+      const claimed = await tx.document.updateMany({ where: { id, officeBranchId: actor.officeBranchId, isActive: true, version, status: 'DRAFT' }, data: { status: 'ON_PROGRESS', version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       if (!claimed.count) throw new HttpError('Document has changed or is not DRAFT', 409);
       const row = await tx.document.findUniqueOrThrow({ where: { id } });
       return saveHistory(tx, row, before, actor, 'APPROVE');
@@ -91,9 +91,12 @@ export const documentRepository = {
     const byId = new Map(prices.items.map(item => [item.itemSizeId, item]));
     const lines = input.items.map((item, position) => {
       const price = byId.get(item.itemSizeId);
-      if (!price || !new Prisma.Decimal(item.priceInspection).equals(price.priceInspection)
-        || (item.priceMaintenance === null) !== (price.priceMaintenance === null)
-        || (item.priceMaintenance !== null && !new Prisma.Decimal(item.priceMaintenance).equals(price.priceMaintenance!)))
+      // Supplied prices must match the resolved Marketing price exactly, so a
+      // stale client cannot bill an old rate. Prices may be omitted entirely:
+      // the document then simply uses the current resolved Marketing price.
+      if (!price || (item.priceInspection !== undefined && !new Prisma.Decimal(item.priceInspection).equals(price.priceInspection))
+        || (item.priceMaintenance !== undefined && price.priceMaintenance === null)
+        || (item.priceMaintenance !== undefined && item.priceMaintenance !== null && !new Prisma.Decimal(item.priceMaintenance).equals(price.priceMaintenance!)))
         throw new HttpError('Item price has changed; reload Marketing prices', 409);
       const inspection = new Prisma.Decimal(item.quantityInspection), maintenance = new Prisma.Decimal(item.quantityMaintenance);
       if (maintenance.gt(0) && (!price.catalogSnapshot.hasMaintenance || price.priceMaintenance === null)) throw new HttpError('Maintenance price is unavailable', 409);
@@ -113,28 +116,28 @@ export const documentRepository = {
       const taxAmount = subTotal.mul(tax.percentage).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
       if (subTotal.plus(taxAmount).gte('10000000000000000')) throw new HttpError('Document total exceeds supported amount', 400);
       const row = await tx.document.create({ data: { source: 'DIRECT', companyId: input.companyId, companySnapshot: json(prices.company),
-        kind, officeBranchId: actor.officeBranchId, title: input.title, number: identity.number, date: identity.date,
+        kind, officeBranchId: actor.officeBranchId, title: input.title, location: input.location ?? null, number: identity.number, date: identity.date,
         dueDate: input.dueDate ?? null, notes: input.notes ?? null, status: 'DRAFT', subTotal, taxSourceId: tax.id,
         tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), items: { create: lines }, createdById: actor.id, createdByName: actor.name } });
       return saveHistory(tx, row, null, actor, 'CREATE');
     }, { maxWait: 10000, timeout: 20000 });
   },
-  async list(kind: DocumentKind, input: z.infer<typeof listSchema>, actor: Actor) {
+  async list(input: z.infer<typeof listSchema>, actor: Actor) {
     const {page,limit,search, ...filters} = input;
-    const where: Prisma.DocumentWhereInput = { ...filters, kind, officeBranchId: actor.officeBranchId, isActive: true, ...(search ? { OR: [{number: {contains: search, mode:'insensitive'}}, {title: {contains: search, mode:'insensitive'}}] } : {}) };
+    const where: Prisma.DocumentWhereInput = { ...filters, officeBranchId: actor.officeBranchId, isActive: true, ...(search ? { OR: [{number: {contains: search, mode:'insensitive'}}, {title: {contains: search, mode:'insensitive'}}] } : {}) };
     const [documents, total] = await prisma.$transaction([prisma.document.findMany({where, orderBy:[{createdAt:'desc'},{id:'desc'}], skip:(page-1)*limit,take:limit}),prisma.document.count({where})], {isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead});
     return {documents,pagination:pagination(page,limit,total)};
   },
-  async get(kind: DocumentKind, id: string, actor: Actor, includeDeleted = false) {
-    const row = await prisma.document.findFirst({where:{id,kind,officeBranchId:actor.officeBranchId,...(includeDeleted ? {} : {isActive:true})}, include:{items:{orderBy:{position:'asc'}}}});
+  async get(id: string, actor: Actor, includeDeleted = false) {
+    const row = await prisma.document.findFirst({where:{id,officeBranchId:actor.officeBranchId,...(includeDeleted ? {} : {isActive:true})}, include:{items:{orderBy:{position:'asc'}}}});
     if (!row) throw new HttpError('Document not found',404);
     return row;
   },
-  async mutate(kind: DocumentKind, id: string, input: z.infer<typeof updateSchema> | z.infer<typeof deleteSchema>, actor: Actor, deleting = false) {
+  async mutate(id: string, input: z.infer<typeof updateSchema> | z.infer<typeof deleteSchema>, actor: Actor, deleting = false) {
     const { version, reason, ...fields } = input;
     if ('number' in fields || 'date' in fields) throw new HttpError('Document number and date cannot be changed', 400);
     return prisma.$transaction(async tx => {
-      const before = await tx.document.findFirst({where:{id,kind,officeBranchId:actor.officeBranchId}});
+      const before = await tx.document.findFirst({where:{id,officeBranchId:actor.officeBranchId}});
       if (!before) throw new HttpError('Document not found',404);
       if (!before.isActive || before.version !== version) throw new HttpError('Document has changed or is inactive; reload before retrying',409);
       checkDates({...before,...fields});
@@ -142,19 +145,21 @@ export const documentRepository = {
       if (!deleting && before.status === 'DRAFT' && 'status' in fields && fields.status !== 'DRAFT') throw new HttpError('Use the approval endpoint to approve a draft', 409);
       if (!deleting && before.status === 'FINAL') throw new HttpError('Final documents cannot be edited', 409);
       let taxFields = {};
-      if (!deleting && ('date' in fields || ('status' in fields && fields.status === 'FINAL'))) {
-        const tax = await applicableTax(tx, actor.officeBranchId, 'date' in fields && fields.date ? fields.date : before.date);
+      // The date is server-generated and rejected above, so only finalization
+      // can move the document into a different tax period.
+      if (!deleting && 'status' in fields && fields.status === 'FINAL') {
+        const tax = await applicableTax(tx, actor.officeBranchId, before.date);
         const taxAmount = before.subTotal.mul(tax.percentage).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
         taxFields = { taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: before.subTotal.plus(taxAmount) };
       }
-      const claimed = await tx.document.updateMany({where:{id,kind,officeBranchId:actor.officeBranchId,version,isActive:true},data:{...(deleting ? {isActive:false} : fields),...taxFields,version:{increment:1},updatedById:actor.id,updatedByName:actor.name}});
+      const claimed = await tx.document.updateMany({where:{id,officeBranchId:actor.officeBranchId,version,isActive:true},data:{...(deleting ? {isActive:false} : fields),...taxFields,version:{increment:1},updatedById:actor.id,updatedByName:actor.name}});
       if (!claimed.count) throw new HttpError('Document has changed; reload before retrying',409);
       const row = await tx.document.findUniqueOrThrow({where:{id}});
       return saveHistory(tx,row,before,actor,deleting ? 'DEACTIVATE' : 'UPDATE',reason);
     });
   },
-  async history(kind: DocumentKind, id: string, actor: Actor, page: number, limit: number) {
-    await this.get(kind,id,actor,true);
+  async history(id: string, actor: Actor, page: number, limit: number) {
+    await this.get(id,actor,true);
     const where = { documentId:id };
     const [rows,total] = await prisma.$transaction([prisma.documentHistory.findMany({where,orderBy:{version:'desc'},skip:(page-1)*limit,take:limit}),prisma.documentHistory.count({where})], {isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead});
     const actions: Record<string,string> = {CREATE:'Document created',UPDATE:'Document updated',APPROVE:'Document approved',DEACTIVATE:'Document deleted'};

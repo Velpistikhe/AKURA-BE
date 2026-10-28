@@ -30,19 +30,30 @@ Marketing can create a Finance document from the full approved quotation. The qu
 
 `kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate` is nullable/optional and represents the payment deadline. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards all quotation lines with quantities, unit prices, discounts and subtotals to Finance.
 
-Finance exposes `POST /api/v1/finance/invoices/from-marketing` and `POST /api/v1/finance/proforma-invoices/from-marketing`. These endpoints accept the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
+Finance exposes `POST /api/v1/finance/documents/from-marketing`. This endpoint accepts the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
 
-Finance users approve a draft with `POST /api/v1/finance/{invoices|proforma-invoices}/{id}/approve` and body `{"version":0}`. This atomically changes `DRAFT` to `ON_PROGRESS` and appends an `APPROVE` history entry. Stale versions or non-draft documents return 409.
+Finance users approve a draft with `POST /api/v1/finance/documents/{id}/approve` and body `{"version":0}`. This atomically changes `DRAFT` to `ON_PROGRESS` and appends an `APPROVE` history entry. Stale versions or non-draft documents return 409.
+
+## Unified invoice and proforma invoice collection
+
+Invoices and proforma invoices share one collection, `/api/v1/finance/documents`, and one table, `billing_documents`, distinguished by `DocumentKind`. The kind travels in the request payload instead of the URL, so one endpoint creates either kind and one endpoint lists, reads, updates, deletes, approves and audits both kinds.
+
+`POST /api/v1/finance/documents` accepts `kind` (`INVOICE` or `PROFORMA_INVOICE`) and `source`:
+
+- `source` `QUOTATION` bills an approved Marketing quotation. It requires the full quotation snapshot and a `dueDate`, and Finance re-validates the quotation against Marketing.
+- `source` `DIRECT` creates a document without any source document at all. It requires `companyId`, `title` and `items`, and accepts an optional `dueDate`, `notes` and `location`.
+
+```json
+{"source":"DIRECT","kind":"PROFORMA_INVOICE","companyId":"00000000-0000-4000-8000-000000000001","title":"Standalone proforma","items":[{"itemSizeId":"00000000-0000-4000-8000-000000000002","quantityInspection":"2","quantityMaintenance":"1"}],"dueDate":null}
+```
+
+DIRECT item prices are optional. When a price is omitted, Finance resolves the current price from Marketing (normal, sister-company or contract price) and bills it. When a price is supplied it must match the resolved Marketing price exactly, otherwise the request returns 409. Direct documents never carry a discount; the discount is always zero.
+
+The collection supports `GET /documents` (page, limit, kind, quotationId, status and search over number and title), `GET /documents/{id}`, `PATCH /documents/{id}`, `DELETE /documents/{id}`, `POST /documents/{id}/approve` and `GET /documents/{id}/history`. The list filter `kind` is optional: an omitted kind lists both kinds together.
 
 ## Quotation-linked documents
 
-`/proforma-invoices` and `/invoices` share the billing_documents table, distinguished by DocumentKind; each record owns its history.
-
-Each module supports GET/POST at its collection, GET/PATCH/DELETE at `/:id`, and GET `/:id/history`. Lists support page, limit, quotationId, status and search (number/title). History supports page and limit, newest first, and remains accessible after soft deletion.
-
-Invoice create fields: `quotationId`, `quotationVersion`, `title`, optional `notes` and `status` (DRAFT default or FINAL). Finance additionally accepts optional nullable `dueDate`; totals come from the quotation and cannot be supplied by clients.
-
-The quotation ID and snapshot are immutable after creation. One quotation may have multiple documents. Finance uses the full quotation amount, not partial billing. Invoice numbers and dates are server-generated and rejected in POST/PATCH bodies. Numbers use `INV/YYYY/000001`, with an atomic `invoice_sequences` counter keyed by officeBranchId and year. The sequence restarts at 1 each January 1 in Asia/Jakarta. Invoice date uses the same Jakarta calendar day, captured after acquiring the counter lock. Counter, document, and history commit together; failures roll back allocation and soft deletion never frees a number. A missing counter is seeded from existing invoice numbers matching `INV/YYYY/<digits>`, including deleted invoices. Other legacy number formats are preserved. Proforma invoices require client-supplied `date`, while `number` is generated as `PI/YYYY/000001` using the separate `proforma_invoice_sequences` table keyed by officeBranchId and year. POST/PATCH reject number. The counter uses the Jakarta calendar year at creation, resets annually, and is independent of invoice; changing the proforma date does not change its number. Allocation, document and history share one transaction. Existing documents keep their numbers. FINAL is a document label in this CRUD module, not an accounting posting or approval workflow.
+Each document owns its history. The quotation ID and snapshot are immutable after creation. One quotation may have multiple documents. Finance uses the full quotation amount, not partial billing. Invoice numbers and dates are server-generated and rejected in POST/PATCH bodies. Numbers use `INV/YYYY/000001`, with an atomic `invoice_sequences` counter keyed by officeBranchId and year. The sequence restarts at 1 each January 1 in Asia/Jakarta. The document date uses the same Jakarta calendar day, captured after acquiring the counter lock. Counter, document, and history commit together; failures roll back allocation and soft deletion never frees a number. A missing counter is seeded from existing invoice numbers matching `INV/YYYY/<digits>`, including deleted invoices. Other legacy number formats are preserved. Proforma invoice numbers are generated as `PI/YYYY/000001` using the separate `proforma_invoice_sequences` table keyed by officeBranchId and year, with an independent annual reset. POST/PATCH reject number and date for both kinds. Allocation, document and history share one transaction. Existing documents keep their numbers. FINAL is a document label in this CRUD module, not an accounting posting or approval workflow.
 
 PATCH and DELETE require the latest `version`; stale or competing mutations return 409. Both accept an optional `reason`. Writes and append-only history share a local transaction. History contains English action labels, actor ID/name, timestamps, field labels, before/after values, reason and full snapshots.
 
@@ -79,9 +90,9 @@ Run `npm run test:tax-serverless` in Finance and `npm run test:tax-events-http` 
 
 Invoice/proforma creation reads Finance master tax effective on document date, serializes with branch tax writes, computes tax with Decimal half-up rounding to two decimals and saves taxSourceId/tax alongside amounts. A missing period returns 409. Proforma draft date changes and document finalization revalidate tax. Final documents cannot be edited; existing documents are not automatically repriced. Legacy tax snapshots remain null rather than guessing from historical amounts.
 
-14. `POST /invoices/from-marketing` — create a DRAFT invoice from a Marketing-approved full quotation snapshot. Finance revalidates the branch, approval status, version and priced detail lines with Marketing using the forwarded token, and accepts an optional payment `dueDate`.
-15. `POST /invoices/:id/approve` — Finance/Accounting approval transition from DRAFT to ON_PROGRESS. It requires the current `{version}` and records history atomically.
-16. Equivalent endpoints exist under `/proforma-invoices/from-marketing` and `/proforma-invoices/:id/approve`. MARKETING-section users may access all Finance modules; tax writes and resync still require ADMIN in FINANCE or MARKETING.
+14. `POST /documents/from-marketing` — create a DRAFT invoice or proforma invoice from a Marketing-approved full quotation snapshot. Finance revalidates the branch, approval status, version and priced detail lines with Marketing using the forwarded token, and accepts an optional payment `dueDate`.
+15. `POST /documents/:id/approve` — Finance/Accounting approval transition from DRAFT to ON_PROGRESS. It requires the current `{version}` and records history atomically.
+16. `POST /documents` — one endpoint creates either kind. `kind` and `source` travel in the payload; `source` `DIRECT` bills without any source document. MARKETING-section users may access all Finance modules; tax writes and resync still require ADMIN in FINANCE or MARKETING.
 
 ### Cutover from App Manager
 
