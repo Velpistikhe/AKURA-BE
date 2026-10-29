@@ -62,6 +62,7 @@ async function main() {
 
     const normal = list.sizes.find(row => row.id === normalSize.id);
     assert.equal(normal.priceService, '100'); assert.equal(normal.priceMaintenance, '20');
+    assert.equal(normal.item.uom, 'JOINT');
     assert.equal(normal.priceSource, 'PRIMARY'); assert.equal(normal.item.service.name, 'Original Service'); assert.equal(list.company.id, company.id);
     const contractOption = list.sizes.find(row => row.id === contractSize.id);
     assert.equal(contractOption.priceService, '50'); assert.equal(contractOption.priceMaintenance, '5');

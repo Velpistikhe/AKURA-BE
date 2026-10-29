@@ -9,7 +9,7 @@ const header = {
   inquiryDate: { type: 'string', format: 'date' },
   jobStart: { type: 'string', minLength: 1, maxLength: 255, description: 'Planned job start value.' },
   subject: text, termOfPayment: text, validity: text,
-  supplyAkura: supplyText, supplyCustomer: supplyText, location: text, accomplished: text, deliveryReports: text, deliveryInvoice: text,
+  supplyAkura: supplyText, supplyCustomer: supplyText, location: text, accomplished: supplyText, deliveryReports: supplyText, deliveryInvoice: supplyText,
   companyId: { ...uuid, description: 'Optional company filter. The staff must belong to this company when supplied.' },
   staffId: { ...uuid, nullable: false, description: 'Required contact belonging to the selected company and branch.' },
 };

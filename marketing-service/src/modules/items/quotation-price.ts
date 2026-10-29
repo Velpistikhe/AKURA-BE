@@ -91,7 +91,7 @@ export const quotationOptions = async (tx: Prisma.TransactionClient, input: List
       id: row.id, itemId: row.itemId, size: identity.size, version: row.version,
       isActive: row.isActive, createdAt: row.createdAt, updatedAt: row.updatedAt,
       ...selected,
-      item: { id: row.item.id, name: identity.itemName, version: row.item.version,
+      item: { id: row.item.id, name: identity.itemName, uom: row.item.uom, version: row.item.version,
         service: row.item.service ? { id: row.item.service.id, name: identity.serviceName, type: identity.serviceType, hasMaintenance: identity.hasMaintenance, version: row.item.service.version } : null },
     };
   });

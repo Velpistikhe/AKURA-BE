@@ -18,7 +18,7 @@ export const listQuotationsSchema = z.object({
 export type ListQuotationsInput = z.infer<typeof listQuotationsSchema>;
 
 const text = z.string().trim().min(1).max(255);
-// Supply descriptions are stored as PostgreSQL TEXT so internal newlines are preserved.
+// Long free-text fields are stored as PostgreSQL TEXT so internal newlines are preserved.
 const supplyText = z.string().trim().min(1).max(5000);
 const date = z.string().date().transform((value) => new Date(`${value}T00:00:00.000Z`));
 // Accept decimal strings without passing through floating-point arithmetic.
@@ -58,8 +58,8 @@ const fields = {
   inquiryDate: date,
   subject: text, termOfPayment: text, validity: text,
   supplyAkura: supplyText, supplyCustomer: supplyText, location: text,
-  accomplished: text, deliveryReports: text,
-  deliveryInvoice: text,
+  accomplished: supplyText, deliveryReports: supplyText,
+  deliveryInvoice: supplyText,
   companyId: z.string().uuid().optional(),
   staffId: z.string().uuid(),
   items,

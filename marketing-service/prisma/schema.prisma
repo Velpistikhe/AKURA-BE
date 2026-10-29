@@ -412,9 +412,9 @@ model Quotation {
   supplyAkura         String             @map("supply_akura") @db.Text
   supplyCustomer      String             @map("supply_customer") @db.Text
   location            String             @db.VarChar(255)
-  accomplished        String             @db.VarChar(255)
-  deliveryReports     String             @map("delivery_reports") @db.VarChar(255)
-  deliveryInvoice     String             @map("delivery_invoice") @db.VarChar(255)
+  accomplished        String             @db.Text
+  deliveryReports     String             @map("delivery_reports") @db.Text
+  deliveryInvoice     String             @map("delivery_invoice") @db.Text
   staffId             String             @map("staff_id") @db.Uuid
   staff               CompanyStaff       @relation(fields: [staffId], references: [id], onDelete: Restrict)
   /// Company staff name captured independently of later staff edits.

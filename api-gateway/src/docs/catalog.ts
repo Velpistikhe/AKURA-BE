@@ -116,7 +116,7 @@ export const catalogSchemas = {
   CatalogItemMutationResponse: envelope(object({ id: uuid, officeBranchId: uuid, serviceId: { ...uuid, nullable: true, description: 'Owning service. Null means the item is standalone.' }, name: { type: 'string' }, uom: { type: 'string', example: 'JOINT' }, isActive: { type: 'boolean' }, ...audit }, ['id', 'name', 'uom', 'version'])),
   QuotationSizeOption: object({
     id: uuid, itemId: uuid, size: {type:'string',nullable:true}, version, isActive:{type:'boolean'}, createdAt:timestamp, updatedAt:timestamp,
-    item: object({id:uuid,name:{type:'string'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
+    item: object({id:uuid,name:{type:'string'},uom:{type:'string',example:'JOINT'},version,service:object({id:uuid,name:{type:'string'},type:ref('ServiceType'),hasMaintenance:{type:'boolean'},version})}),
     catalogSnapshot:ref('ContractCatalogSnapshot'),catalogActive:{type:'boolean'},
     priceSource:{type:'string',enum:['PRIMARY','SISTER_COMPANY','CONTRACT']},
     priceStatus:{type:'string',enum:['AVAILABLE','UNAVAILABLE']},priceMessage:{type:'string',nullable:true},

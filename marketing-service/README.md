@@ -151,7 +151,7 @@ Company memiliki `isSisterCompany` (default false). Field `hasContract` sudah di
 
 Contoh endpoint harga: `/api/v1/marketing/items/sizes/prices?companyId=<UUID>&itemName=pipe&sortBy=size&sortOrder=asc`.
 
-Quotation options (`GET /items/sizes/prices?companyId=...`) menampilkan seluruh size aktif pada branch pengguna. Jika company memiliki contract APPROVED yang sedang berlaku, size yang memiliki contract price aktif dan berlaku memakai harga contract; size aktif lain memakai harga normal. Jika tidak ada contract yang sedang berlaku, harga sister company dipakai bila `isSisterCompany=true`, selain itu harga primary. Response tetap berisi `company`, `sizes`, dan `pagination`; `priceInspection` adalah alias `priceService`. Parameter `exclude` tetap berlaku.
+Quotation options (`GET /items/sizes/prices?companyId=...`) menampilkan seluruh size aktif pada branch pengguna. Jika company memiliki contract APPROVED yang sedang berlaku, size yang memiliki contract price aktif dan berlaku memakai harga contract; size aktif lain memakai harga normal. Jika tidak ada contract yang sedang berlaku, harga sister company dipakai bila `isSisterCompany=true`, selain itu harga primary. Response tetap berisi `company`, `sizes`, dan `pagination`; setiap `size.item` menyertakan `uom` sesuai unit of measure item. `priceInspection` adalah alias `priceService`. Parameter `exclude` tetap berlaku.
 
 ### Status kontrak dan template Excel
 
@@ -266,7 +266,7 @@ Verifikasi katalog dilakukan melalui harness eksternal pada database PostgreSQL 
 
 `CompanyContractPrice.catalogSnapshot` adalah JSON wajib: `serviceName`, `serviceType`, `itemName`, `size`, dan `hasMaintenance`. POST harga kontrak maupun import Excel mengisinya dari katalog aktif dalam transaksi yang sama. PATCH harga tidak menyegarkan snapshot. Nominal tetap memakai kolom Decimal, dan `itemSizeId` tetap menjadi referensi.
 
-GET `/items/sizes/prices?companyId=<UUID>` memilih harga berdasarkan perusahaan dan branch pengguna: kontrak berlaku per size, lalu sister company atau primary untuk size di luar kontrak. Response tetap berisi `company`, `sizes`, dan `pagination`. Size menampilkan `priceInspection` (alias `priceService`) serta `priceMaintenance`. Harga maintenance null berarti tidak tersedia. Metadata dan snapshot katalog tetap tersedia; frontend tidak perlu mengirimnya kembali. Parameter `exclude` tetap berlaku.
+GET `/items/sizes/prices?companyId=<UUID>` memilih harga berdasarkan perusahaan dan branch pengguna: kontrak berlaku per size, lalu sister company atau primary untuk size di luar kontrak. Response tetap berisi `company`, `sizes`, dan `pagination`. Size menampilkan `item.uom`, `priceInspection` (alias `priceService`) serta `priceMaintenance`. Harga maintenance null berarti tidak tersedia. Metadata dan snapshot katalog tetap tersedia; frontend tidak perlu mengirimnya kembali. Parameter `exclude` tetap berlaku.
 
 Create quotation dapat mengirim `companyId` tanpa kontak. `staffId` opsional; jika dikirim bersama companyId, kontak harus berasal dari perusahaan yang dipilih. StaffId saja masih diterima untuk kompatibilitas pemilihan perusahaan melalui kontak. Company/contact harus aktif dan dalam branch pengguna.
 
