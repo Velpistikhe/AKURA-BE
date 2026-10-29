@@ -39,7 +39,7 @@ export const quotationApproval = {
     if (!(approvableStatuses as readonly string[]).includes(quote.status)) throw new HttpError('Quotation status cannot be approved', 409);
     if (!quote.items.length) throw new HttpError('Quotation must contain active items before approval', 409);
     const bucket = quotationStorage.bucket();
-    const key = `quotation/${officeBranchId}/${id}/r${quote.revision}/${randomUUID()}.pdf`;
+    const key = `quotation/${id}-r${quote.revision}-${randomUUID()}.pdf`;
     let uploaded = false;
     let download: Awaited<ReturnType<typeof quotationStorage.downloadUrl>> | undefined;
     try {

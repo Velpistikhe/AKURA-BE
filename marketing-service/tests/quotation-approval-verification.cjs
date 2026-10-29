@@ -78,7 +78,7 @@ async function main() {
     await prisma.serviceScope.updateMany({ where: { serviceId: service.id, type: 'INSPECTION', revoked: false }, data: { scope: 'Changed Scope' } });
     assert.equal(approved.status, 'APPROVED'); assert.equal(approved.version, 1); assert.equal(approved.revision, 0);
     assert.equal(approved.pdfDocument.quotationId, quote.id);
-    assert.equal(approved.no, 1); assert.match(approved.pdf.key, /^quotation\//);
+    assert.equal(approved.no, 1); assert.match(approved.pdf.key, new RegExp('^quotation/' + quote.id + '-r0-[0-9a-f-]+\.pdf$'));
     assert.equal(approved.pdfDocument.approvedById, actor.id);
     assert.equal(approved.pdfDocument.approvedByName, actor.name);
     const buffer = objects.get(approved.pdf.key);
