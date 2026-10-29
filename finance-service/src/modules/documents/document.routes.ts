@@ -1,6 +1,5 @@
 import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { Actor, requireActor, requireMarketingCreateActor, requireDocumentReadActor } from '../../middlewares/actor.middleware.js';
 import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
@@ -9,36 +8,18 @@ import { documentRepository as repository } from './document.repository.js';
 import { documentCreateSchema, approveSchema, updateSchema, deleteSchema, listSchema, historySchema, idSchema } from './document.schemas.js';
 const actor = (res: Response): Actor => res.locals.documentActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => { res.status(status).json({status,success:true,message:'Request completed successfully',data,requestId:req.headers['x-request-id']}); };
-/**
- * Canonical projection of the billed quotation lines. Only the fields that end up
- * on the invoice are compared, so Marketing-internal bookkeeping on a line can
- * never make an otherwise identical request look different.
- */
-const billedLines = (items: readonly Record<string, unknown>[]): string => JSON.stringify(items.map(item =>
-  ['id', 'position', 'itemSizeId', 'serviceName', 'serviceType', 'itemName', 'size', 'note', 'quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'discount', 'subTotal']
-    .map(key => ['quantityInspection', 'quantityMaintenance', 'priceInspection', 'priceMaintenance', 'discount', 'subTotal'].includes(key) && item[key] !== null
-      ? new Prisma.Decimal(String(item[key])).toString() : item[key])));
 // One collection serves both document kinds, so the kind travels in the payload
 // and decides the number series: INV for invoices, PI for proforma invoices.
 export function documentRoutes() {
   const router = Router();
   const createDocument = () => asyncHandler(async (req, res) => {
     const input = documentCreateSchema.parse(req.body);
-    if (input.source === 'DIRECT') {
-      if (!res.locals.financeAccessAllowed) throw new HttpError('Finance, Accounting or Marketing access is required', 403);
-      const prices = await loadBillingPrices(req, input.companyId, input.items.map(item => item.itemSizeId), actor(res).officeBranchId);
-      send(req, res, await repository.createDirect(input.kind, input, prices, actor(res)), 201);
-      return;
-    }
-    if (input.quotation.officeBranchId !== actor(res).officeBranchId) throw new HttpError('Quotation not found in this branch', 404);
-    const quotation = await validateMarketingQuotation(req, input.quotation.id, actor(res).officeBranchId);
-    if (quotation.version !== input.quotation.version) throw new HttpError('Quotation has changed; retry from Marketing', 409);
-    if (billedLines(quotation.items) !== billedLines(input.quotation.items)
-      || quotation.subject !== input.quotation.subject
-      || ['tax', 'subTotal', 'taxAmount', 'total'].some(key => !new Prisma.Decimal(String(quotation[key])).equals(String(input.quotation[key]))))
-      throw new HttpError('Quotation items or totals do not match Marketing data', 409);
-    const workOrder = await loadWorkOrderForQuotation(req, quotation.id, actor(res).officeBranchId);
-    send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, input.notes, actor(res), workOrder, input.location), 201);
+    if (!res.locals.financeAccessAllowed) throw new HttpError('Finance, Accounting or Marketing access is required', 403);
+    // The payload carries only the item size UUIDs, so the catalog data and the
+    // current prices of every line are resolved from Marketing for the company
+    // of the document before anything is written.
+    const prices = await loadBillingPrices(req, input.companyId, input.items, actor(res).officeBranchId);
+    send(req, res, await repository.createFromPurchaseOrder(input.kind, input, prices, actor(res)), 201);
   });
   router.post('/', requireActor, createDocument());
   router.get('/', requireDocumentReadActor, asyncHandler(async (req,res) => send(req,res,await repository.list(listSchema.parse(req.query),actor(res)))));

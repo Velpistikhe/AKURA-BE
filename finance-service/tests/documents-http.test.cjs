@@ -9,16 +9,21 @@ const routes=require('../dist/routes/index.js').default;
 const {errorHandler}=require('../dist/middlewares/error.middleware.js');
 require('../dist/utils/logger.js').logger.silent=true;
 test('HTTP CRUD, module separation, profile/branch enforcement and input validation',async()=>{
- const branch=randomUUID(),otherBranch=randomUUID(),user=randomUUID(),quoteId=randomUUID();
+ const branch=randomUUID(),otherBranch=randomUUID(),user=randomUUID(),companyId=randomUUID(),sizeId=randomUUID();
  const profile={id:user,officeBranchId:branch,isActive:true,role:'USER',section:'FINANCE',firstName:'Test',lastName:'User',username:'test'};
- const quotation={tax:'12',status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,subject:'Work',companySnapshot:{name:'Company'},customerSnapshot:'Buyer',subTotal:'100',taxAmount:'12',total:'112',items:[{id:randomUUID(),position:0,itemSizeId:randomUUID(),serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:null,note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,discount:'0',subTotal:'100'}]};
+ const price={itemSizeId:sizeId,priceInspection:'100',priceMaintenance:null,priceSource:'PRIMARY',priceId:randomUUID(),priceVersion:1,catalogSnapshot:{serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:null,hasMaintenance:false}};
+ let reference={officeBranchId:branch,company:{id:companyId,name:'Company',isSisterCompany:false},items:[price]};
  const originalFetch=global.fetch;
  global.fetch=async(url,options)=>{
   if(!String(url).startsWith(env.API_GATEWAY_URL+'/api/v1/')) return originalFetch(url,options);
   const token=options.headers.Authorization;
   if(String(url).endsWith('/auth/me')) return {ok:true,json:async()=>({data:{...profile,...(token==='Bearer other'?{officeBranchId:otherBranch}:{}),...(token==='Bearer inactive'?{isActive:false}:{}),...(token==='Bearer wrong-section'?{section:'HRD_MANAGEMENT'}:{})}})};
-  if(String(url).endsWith('/quotation-references/'+quoteId)) return {ok:true,json:async()=>({data:quotation})};
-  if(String(url).includes('/fieldservice/work-orders/by-quotation/')) return {ok:true,json:async()=>({data:null})};
+  if(String(url).endsWith('/marketing/billing-price-references')){
+   // Marketing resolves the prices in the branch of the caller, so a company of
+   // another branch is not found there.
+   if(token==='Bearer other')return {ok:false,status:404,json:async()=>({message:'Company not found'})};
+   return {ok:true,json:async()=>({data:reference})};
+  }
   throw Error('Unexpected upstream call');
  };
  const app=express();app.use(express.json());
@@ -40,23 +45,35 @@ test('HTTP CRUD, module separation, profile/branch enforcement and input validat
    const modules=[['PROFORMA_INVOICE',/^PI\/[0-9]{4}\/000001$/],['INVOICE',/^INV\/[0-9]{4}\/000001$/]];
    let first;
    for(const [kind,numberPattern] of modules){
-    const raw={source:'QUOTATION',kind,quotation,dueDate:'2099-12-31'};
+    // The payload carries the purchase order and the item size UUIDs only.
+    const raw={kind,companyId,title:'Purchase order document',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15',items:[sizeId],dueDate:'2099-12-31'};
     await request('POST',root,{...raw,number:'CUSTOM'},400);
     await request('POST',root,{...raw,date:'2020-01-01'},400);
     await request('POST',root,{...raw,officeBranchId:otherBranch},400);
-    await request('POST',root,{...raw,quotation:{...quotation,version:1}},409);
+    // A purchase order number and date are required, and the items are UUIDs.
+    await request('POST',root,{...raw,purchaseOrderNumber:undefined},400);
+    await request('POST',root,{...raw,purchaseOrderDate:undefined},400);
+    await request('POST',root,{...raw,items:['not-a-uuid']},400);
+    await request('POST',root,{...raw,items:[sizeId,sizeId]},400);
     await request('POST',root,raw,404,'other');
     const row=await request('POST',root,raw,201);
     assert.equal(row.officeBranchId,branch);assert.equal(row.createdByName,'Test User');
     assert.equal(row.kind,kind);
+    // The purchase order of the request is stored on the document.
+    assert.equal(row.purchaseOrderNumber,'PO/2026/000001');
+    assert.equal(row.purchaseOrderDate,'2026-01-15T00:00:00.000Z');
+    const detail=await request('GET',root+'/'+row.id);
+    assert.equal(detail.items.length,1);
+    assert.equal(detail.items[0].quantityInspection,'1');
+    assert.equal(detail.items[0].quantityMaintenance,'0');
+    assert.equal(detail.items[0].subTotal,'100');
     if(first)await request('GET',root+'/'+first,undefined,404);
     first=row.id;
     await request('PATCH',root+'/'+row.id,{version:0,number:'CUSTOM'},400);
     await request('PATCH',root+'/'+row.id,{version:0,date:'2020-01-01'},400);
     assert.match(row.number,numberPattern);
     // One collection holds both kinds; the document of the previous iteration
-    // was soft deleted, so only the active one remains for this quotation.
-    assert.equal((await request('GET',root+'?quotationId='+quoteId)).pagination.total,1);
+    // was soft deleted, so only the active one remains for this kind.
     assert.equal((await request('GET',root+'?kind='+kind)).pagination.total,1);
     await request('GET',root+'/'+row.id,undefined,404,'other');
     await request('GET',root+'/'+row.id+'/history',undefined,404,'other');

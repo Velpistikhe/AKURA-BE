@@ -5,10 +5,10 @@ import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
 import { HttpError } from '../../utils/httpError.js';
-import { directCreateSchema, updateSchema, deleteSchema, listSchema } from './document.schemas.js';
+import { documentCreateSchema, updateSchema, deleteSchema, listSchema } from './document.schemas.js';
 import { nextInvoiceIdentity } from '../invoices/invoice-number.js';
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
-const labels: Record<string,string> = { number: 'Document number', location: 'Location', title: 'Title', date: 'Document date', dueDate: 'Due date', notes: 'Notes', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
+const labels: Record<string,string> = { number: 'Document number', location: 'Location', title: 'Title', date: 'Document date', dueDate: 'Due date', notes: 'Notes', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', purchaseOrderNumber: 'Purchase order number', purchaseOrderDate: 'Purchase order date', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
 const pagination = (page: number, limit: number, total: number) => ({ page, limit, total, totalPages: Math.ceil(total / limit) });
 async function saveHistory(tx: Prisma.TransactionClient, row: Document, before: Document | null, actor: Actor, action: string, reason?: string) {
   const after = json(row) as Record<string, unknown>;
@@ -86,24 +86,23 @@ export const documentRepository = {
       return saveHistory(tx, row, before, actor, 'APPROVE');
     });
   },
-  async createDirect(kind: DocumentKind, input: z.infer<typeof directCreateSchema>, prices: import('../../integrations/gateway.js').BillingPrices, actor: Actor) {
+  async createFromPurchaseOrder(kind: DocumentKind, input: z.infer<typeof documentCreateSchema>, prices: import('../../integrations/gateway.js').BillingPrices, actor: Actor) {
     if (prices.officeBranchId !== actor.officeBranchId || prices.company.id !== input.companyId) throw new HttpError('Company not found in this branch', 404);
     const byId = new Map(prices.items.map(item => [item.itemSizeId, item]));
-    const lines = input.items.map((item, position) => {
-      const price = byId.get(item.itemSizeId);
-      // Supplied prices must match the resolved Marketing price exactly, so a
-      // stale client cannot bill an old rate. Prices may be omitted entirely:
-      // the document then simply uses the current resolved Marketing price.
-      if (!price || (item.priceInspection !== undefined && !new Prisma.Decimal(item.priceInspection).equals(price.priceInspection))
-        || (item.priceMaintenance !== undefined && price.priceMaintenance === null)
-        || (item.priceMaintenance !== undefined && item.priceMaintenance !== null && !new Prisma.Decimal(item.priceMaintenance).equals(price.priceMaintenance!)))
-        throw new HttpError('Item price has changed; reload Marketing prices', 409);
-      const inspection = new Prisma.Decimal(item.quantityInspection), maintenance = new Prisma.Decimal(item.quantityMaintenance);
-      if (maintenance.gt(0) && (!price.catalogSnapshot.hasMaintenance || price.priceMaintenance === null)) throw new HttpError('Maintenance price is unavailable', 409);
+    // Every requested item size becomes one billed line. The payload carries
+    // only the UUID, so the catalog data and the prices always come from the
+    // Marketing snapshot resolved for this company.
+    const lines = input.items.map((itemSizeId, position) => {
+      const price = byId.get(itemSizeId);
+      if (!price) throw new HttpError('Item price is unavailable', 409);
+      // A line bills one inspection and one maintenance unit. Maintenance is
+      // only billed when the service actually offers it and a price exists.
+      const inspection = new Prisma.Decimal(1);
+      const maintenance = price.catalogSnapshot.hasMaintenance && price.priceMaintenance !== null ? new Prisma.Decimal(1) : new Prisma.Decimal(0);
       const subTotal = inspection.mul(price.priceInspection).plus(maintenance.mul(price.priceMaintenance ?? 0)).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
       if (subTotal.gte('10000000000000000')) throw new HttpError('Item subtotal exceeds supported amount', 400);
-      return { position, itemSizeId: item.itemSizeId, serviceName: price.catalogSnapshot.serviceName, serviceType: price.catalogSnapshot.serviceType,
-        itemName: price.catalogSnapshot.itemName, size: price.catalogSnapshot.size, note: item.note ?? null,
+      return { position, itemSizeId, serviceName: price.catalogSnapshot.serviceName, serviceType: price.catalogSnapshot.serviceType,
+        itemName: price.catalogSnapshot.itemName, size: price.catalogSnapshot.size, note: null,
         quantityInspection: inspection, quantityMaintenance: maintenance, priceInspection: new Prisma.Decimal(price.priceInspection),
         priceMaintenance: price.priceMaintenance === null ? null : new Prisma.Decimal(price.priceMaintenance), discount: new Prisma.Decimal(0), subTotal,
         pricingSnapshot: json(price), quotationSnapshot: Prisma.JsonNull };
@@ -117,6 +116,7 @@ export const documentRepository = {
       if (subTotal.plus(taxAmount).gte('10000000000000000')) throw new HttpError('Document total exceeds supported amount', 400);
       const row = await tx.document.create({ data: { source: 'DIRECT', companyId: input.companyId, companySnapshot: json(prices.company),
         kind, officeBranchId: actor.officeBranchId, title: input.title, location: input.location ?? null, number: identity.number, date: identity.date,
+        purchaseOrderNumber: input.purchaseOrderNumber, purchaseOrderDate: input.purchaseOrderDate,
         dueDate: input.dueDate ?? null, notes: input.notes ?? null, status: 'DRAFT', subTotal, taxSourceId: tax.id,
         tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), items: { create: lines }, createdById: actor.id, createdByName: actor.name } });
       return saveHistory(tx, row, null, actor, 'CREATE');

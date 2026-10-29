@@ -38,16 +38,15 @@ Finance users approve a draft with `POST /api/v1/finance/documents/{id}/approve`
 
 Invoices and proforma invoices share one collection, `/api/v1/finance/documents`, and one table, `billing_documents`, distinguished by `DocumentKind`. The kind travels in the request payload instead of the URL, so one endpoint creates either kind and one endpoint lists, reads, updates, deletes, approves and audits both kinds.
 
-`POST /api/v1/finance/documents` accepts `kind` (`INVOICE` or `PROFORMA_INVOICE`) and `source`:
-
-- `source` `QUOTATION` bills an approved Marketing quotation. It requires the full quotation snapshot and a `dueDate`, and Finance re-validates the quotation against Marketing.
-- `source` `DIRECT` creates a document without any source document at all. It requires `companyId`, `title` and `items`, and accepts an optional `dueDate`, `notes` and `location`.
+`POST /api/v1/finance/documents` creates a document from a purchase order. It accepts `kind` (`INVOICE` or `PROFORMA_INVOICE`), `companyId`, `title`, `purchaseOrderNumber`, `purchaseOrderDate` and `items`, plus an optional `dueDate`, `notes` and `location`:
 
 ```json
-{"source":"DIRECT","kind":"PROFORMA_INVOICE","companyId":"00000000-0000-4000-8000-000000000001","title":"Standalone proforma","items":[{"itemSizeId":"00000000-0000-4000-8000-000000000002","quantityInspection":"2","quantityMaintenance":"1"}],"dueDate":null}
+{"kind":"PROFORMA_INVOICE","companyId":"00000000-0000-4000-8000-000000000001","title":"Purchase order invoice","purchaseOrderNumber":"PO/2026/000001","purchaseOrderDate":"2026-01-15","items":["00000000-0000-4000-8000-000000000002"],"dueDate":null}
 ```
 
-DIRECT item prices are optional. When a price is omitted, Finance resolves the current price from Marketing (normal, sister-company or contract price) and bills it. When a price is supplied it must match the resolved Marketing price exactly, otherwise the request returns 409. Direct documents never carry a discount; the discount is always zero.
+`items` is an array of 1-100 item size UUIDs; no quotation, contract or work order reference is accepted. Finance resolves the catalog data and the current price of every item from Marketing for the given company before the document is written, so a client can never bill a stale rate. One requested UUID becomes one billed line of exactly one inspection unit, plus one maintenance unit when the item offers maintenance and a maintenance price exists. Documents created this way never carry a discount; the discount is always zero.
+
+The purchase order number and date are stored on the document and are never changed afterwards.
 
 The collection supports `GET /documents` (page, limit, kind, quotationId, status and search over number and title), `GET /documents/{id}`, `PATCH /documents/{id}`, `DELETE /documents/{id}`, `POST /documents/{id}/approve` and `GET /documents/{id}/history`. The list filter `kind` is optional: an omitted kind lists both kinds together.
 
@@ -92,7 +91,7 @@ Invoice/proforma creation reads Finance master tax effective on document date, s
 
 14. `POST /documents/from-marketing` — create a DRAFT invoice or proforma invoice from a Marketing-approved full quotation snapshot. Finance revalidates the branch, approval status, version and priced detail lines with Marketing using the forwarded token, and accepts an optional payment `dueDate`.
 15. `POST /documents/:id/approve` — Finance/Accounting approval transition from DRAFT to ON_PROGRESS. It requires the current `{version}` and records history atomically.
-16. `POST /documents` — one endpoint creates either kind. `kind` and `source` travel in the payload; `source` `DIRECT` bills without any source document. MARKETING-section users may access all Finance modules; tax writes and resync still require ADMIN in FINANCE or MARKETING.
+16. `POST /documents` — one endpoint creates either kind. `kind` travels in the payload, together with the purchase order number, the purchase order date, the company and the item size UUIDs to bill. MARKETING-section users may access all Finance modules; tax writes and resync still require ADMIN in FINANCE or MARKETING.
 
 ### Cutover from App Manager
 

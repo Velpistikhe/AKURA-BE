@@ -37,7 +37,7 @@ test('master/outbox atomicity, HTTP retry, restart recovery, and proforma tax au
 
   const quotation = { id: randomUUID(), officeBranchId: branch, version: 1, isActive: true, status: 'APPROVED', subject: 'Tax test', tax: '12', subTotal: '100.25', taxAmount: '11.03', total: '111.28', items: [{ id: randomUUID(), position: 0, itemSizeId: randomUUID(), serviceName: 'Inspection', serviceType: 'INSPECTION', itemName: 'Tank', size: null, note: null, quantityInspection: '1', quantityMaintenance: '0', priceInspection: '100.25', priceMaintenance: null, discount: '0', subTotal: '100.25' }] };
   // The document date is the server day, so the deadline must not precede it.
-  const input = createSchema.parse({ source: 'QUOTATION', kind: 'PROFORMA_INVOICE', quotation, dueDate: '2099-12-31' });
+  const input = createSchema.parse({ kind: 'PROFORMA_INVOICE', companyId: randomUUID(), title: 'Tax test', purchaseOrderNumber: 'PO/2026/000001', purchaseOrderDate: '2026-01-15', items: [randomUUID()], dueDate: '2099-12-31' });
   const invoice = await documentRepository.createFromMarketing('PROFORMA_INVOICE', quotation, input.dueDate, undefined, actor, null);
   assert.equal(invoice.taxSourceId, newest.id);
   assert.equal(invoice.tax.toString(), '12');

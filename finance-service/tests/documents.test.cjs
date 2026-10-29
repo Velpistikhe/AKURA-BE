@@ -11,13 +11,16 @@ test('documents: branch isolation, snapshots, atomic history, unique numbers and
  const actor={id:randomUUID(),name:'Branch User',officeBranchId:randomUUID()};
  const outsider={...actor,officeBranchId:randomUUID()};
  const q={id:randomUUID(),officeBranchId:actor.officeBranchId,version:2,isActive:true,no:1,numberYear:2026,subject:'Test document',companySnapshot:{name:'Customer'},customerSnapshot:'Buyer',subTotal:'100.25',taxAmount:'10.03',total:'112.28',tax:'12',status:'APPROVED',items:[{id:randomUUID(),position:0,itemSizeId:randomUUID(),serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:null,note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100.25',priceMaintenance:null,discount:'0',subTotal:'100.25'}]};
- const raw={source:'QUOTATION',kind:'INVOICE',quotation:q,dueDate:'2099-12-31'};
+ const raw={kind:'INVOICE',companyId:randomUUID(),title:'Purchase order document',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15',items:[randomUUID()]};
  const {invoiceDate}=require('../dist/modules/invoices/invoice-number.js');
  const year=invoiceDate().getUTCFullYear();
  try {
   await prisma.tax.createMany({data:[actor,outsider].map(a=>({officeBranchId:a.officeBranchId,percentage:'12',effectiveFrom:new Date('2026-01-01'),createdById:a.id,createdByName:a.name}))});
   assert.equal(createSchema.safeParse({...raw,officeBranchId:outsider.officeBranchId}).success,false);
   assert.equal(createSchema.safeParse({...raw,total:'1'}).success,false);
+  assert.equal(createSchema.safeParse({...raw,purchaseOrderNumber:undefined}).success,false);
+  assert.equal(createSchema.safeParse({...raw,items:[raw.items[0],raw.items[0]]}).success,false);
+  assert.equal(createSchema.safeParse({...raw,items:['not-a-uuid']}).success,false);
   const row=await repo.createFromMarketing(kind,q,new Date('2099-12-31'),null,actor,null);
   assert.equal(row.tax.toString(),'12'); assert.equal(row.taxAmount.toString(),'12.03'); assert.equal(row.total.toString(),'112.28'); assert.equal(row.number,`INV/${year}/000001`); assert.equal(row.date.toISOString(),invoiceDate().toISOString()); assert.equal(row.version,0);
   assert.equal(row.quotationSnapshot.companySnapshot.name,'Customer');
