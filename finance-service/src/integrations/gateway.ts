@@ -60,6 +60,7 @@ export async function loadQuotation(req: Request, id: string, version: number, b
 // no price, so nothing billable is taken from it.
 export const workOrderReferenceSchema = z.object({
   id: z.string().uuid(), quotationId: z.string().uuid(), officeBranchId: z.string().uuid(),
+  contractId: z.string().uuid().nullable().optional(),
   revoked: z.boolean(), number: z.string(), status: z.enum(['DRAFT', 'IN_PROGRESS', 'COMPLETED']),
   version: z.number().int().nonnegative(),
   quotationSnapshot: z.object({ tax: money }).passthrough().nullable().optional(),

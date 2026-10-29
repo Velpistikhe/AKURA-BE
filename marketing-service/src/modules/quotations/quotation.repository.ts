@@ -273,11 +273,16 @@ export const quotationRepository = {
     // Expose the frozen scope snapshot of every line. It is read from the line
     // itself, so the scopes describe the approved document and not the current
     // catalog, which may have changed since the quotation was approved.
-    return { ...quote, items: quote.items.map(item => {
+    // The contract that priced the lines is the second billing identity of the
+    // quotation, so it is exposed on the header for the billing service.
+    const items = quote.items.map(item => {
       const scopes = item.priceSelection as Record<string, unknown> | null;
       const scope = (key: string) => typeof scopes?.[key] === 'string' ? scopes[key] as string : '';
       return { ...item, inspectionScopes: scope('inspectionScopes'), maintenanceScopes: scope('maintenanceScopes') };
-    }) };
+    });
+    const contractId = items.map(item => (item.priceSelection as Record<string, unknown> | null)?.contractId)
+      .find(value => typeof value === 'string') as string | undefined;
+    return { ...quote, ...(contractId ? { contractId } : {}), items };
   },
   /**
    * Cross-section list of APPROVED quotations as downstream document bases

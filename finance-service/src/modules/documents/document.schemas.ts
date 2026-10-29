@@ -30,6 +30,7 @@ export const financeQuotationSchema = z.object({
   id: z.string().uuid(), officeBranchId: z.string().uuid(), version: z.number().int().nonnegative(),
   isActive: z.boolean(), status: z.string(), subject: z.string(),
   tax: money, workOrderStatus: z.enum(['DRAFT', 'IN_PROGRESS', 'COMPLETED']).nullable().optional(),
+  contractId: z.string().uuid().nullable().optional(),
   subTotal: money, taxAmount: money, total: money,
   items: z.array(financeQuotationLineSchema).min(1, 'At least one quotation item is required').max(100).refine(items => new Set(items.map(item => item.id)).size === items.length && new Set(items.map(item => item.itemSizeId)).size === items.length, 'Duplicate quotation item'),
 }).passthrough();

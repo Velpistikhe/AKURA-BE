@@ -54,26 +54,49 @@ export const documentRepository = {
     }));
     const sum = lines.reduce((total, item) => total.plus(item.subTotal), new Prisma.Decimal(0)).toDecimalPlaces(2);
     if (sum.toString() !== new Prisma.Decimal(quotation.subTotal).toDecimalPlaces(2).toString()) throw new HttpError('Quotation item totals do not match subtotal', 409);
-    return prisma.$transaction(async tx => {
-      await assertBillingAllowed(tx, quotation.id, actor.officeBranchId, workOrder);
-      const identity = kind === 'INVOICE' ? await nextInvoiceIdentity(tx, actor.officeBranchId) : await nextProformaIdentity(tx, actor.officeBranchId);
-      const date = identity.date; checkDates({ date, dueDate });
-      const tax = await applicableTax(tx, actor.officeBranchId, date), subTotal = new Prisma.Decimal(quotation.subTotal);
-      // The rate billed must equal the rate the quotation promised; a newer
-      // Finance tax must never silently reprice an approved quotation.
-      if (!new Prisma.Decimal(quotation.tax).equals(tax.percentage))
-        throw new HttpError('Quotation tax does not match the active Finance tax', 409);
-      const taxAmount = subTotal.mul(tax.percentage).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-      const row = await tx.document.create({ data: {
-        source: 'QUOTATION', companyId: typeof quotation.companyId === 'string' ? quotation.companyId : null, companySnapshot: quotation.companySnapshot ? json(quotation.companySnapshot) : Prisma.JsonNull,
-        quotationId: quotation.id, quotationVersion: quotation.version, quotationSnapshot: json(quotation), title: quotation.subject,
-        location: location ?? null, date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
-        subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), status: 'DRAFT',
-        workOrderTax: workOrderTax === null ? null : new Prisma.Decimal(workOrderTax),
-        createdById: actor.id, createdByName: actor.name, items: { create: lines },
-      } });
-      return saveHistory(tx, row, null, actor, 'CREATE');
-    }, { maxWait: 10000, timeout: 20000 });
+    // The contract behind the quotation is the second billing identity. Prefer the
+    // Work Order, then the quotation header, then a single contract on billed lines.
+    const itemContracts = [...new Set(quotation.items.flatMap(item => {
+      const selection = (item as { priceSelection?: { contractId?: unknown } }).priceSelection;
+      return typeof selection?.contractId === 'string' ? [selection.contractId] : [];
+    }))];
+    const contractId = workOrder?.contractId ?? (typeof quotation.contractId === 'string' ? quotation.contractId : null) ?? (itemContracts.length === 1 ? itemContracts[0] : null);
+    try {
+      return await prisma.$transaction(async tx => {
+        // Serialize every billing attempt that touches this quotation or
+        // contract, then look for an existing document before a number is
+        // allocated. The unique constraints are the final guard against races.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'billing-quotation:' + quotation.id}))`;
+        if (contractId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'billing-contract:' + contractId}))`;
+        const existing = await tx.document.findFirst({ where: { officeBranchId: actor.officeBranchId, kind,
+          OR: [{ quotationId: quotation.id }, ...(contractId ? [{ contractId }] : [])] } });
+        if (existing) throw new HttpError(existing.quotationId === quotation.id ? 'An invoice or proforma invoice already exists for this quotation' : 'An invoice or proforma invoice already exists for this contract', 409);
+        await assertBillingAllowed(tx, quotation.id, actor.officeBranchId, workOrder);
+        const identity = kind === 'INVOICE' ? await nextInvoiceIdentity(tx, actor.officeBranchId) : await nextProformaIdentity(tx, actor.officeBranchId);
+        const date = identity.date; checkDates({ date, dueDate });
+        const tax = await applicableTax(tx, actor.officeBranchId, date), subTotal = new Prisma.Decimal(quotation.subTotal);
+        // The rate billed must equal the rate the quotation promised; a newer
+        // Finance tax must never silently reprice an approved quotation.
+        if (!new Prisma.Decimal(quotation.tax).equals(tax.percentage))
+          throw new HttpError('Quotation tax does not match the active Finance tax', 409);
+        const taxAmount = subTotal.mul(tax.percentage).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+        const row = await tx.document.create({ data: {
+          source: 'QUOTATION', companyId: typeof quotation.companyId === 'string' ? quotation.companyId : null, companySnapshot: quotation.companySnapshot ? json(quotation.companySnapshot) : Prisma.JsonNull,
+          quotationId: quotation.id, contractId, quotationVersion: quotation.version, quotationSnapshot: json(quotation), title: quotation.subject,
+          location: location ?? null, date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
+          subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), status: 'DRAFT',
+          workOrderTax: workOrderTax === null ? null : new Prisma.Decimal(workOrderTax),
+          createdById: actor.id, createdByName: actor.name, items: { create: lines },
+        } });
+        return saveHistory(tx, row, null, actor, 'CREATE');
+      }, { maxWait: 10000, timeout: 20000 });
+    } catch (error) {
+      // A concurrent request that slipped past the checks still hits the unique
+      // constraint. Report it as a conflict instead of an internal failure.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+        throw new HttpError('An invoice or proforma invoice already exists for this quotation', 409);
+      throw error;
+    }
   },
   async approve(id: string, version: number, actor: Actor) {
     return prisma.$transaction(async tx => {

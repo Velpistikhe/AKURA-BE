@@ -27,7 +27,16 @@ test('documents: branch isolation, snapshots, atomic history, unique numbers and
   for (const action of [()=>repo.get(row.id,outsider),()=>repo.history(row.id,outsider,1,20),()=>repo.mutate(row.id,{version:0,title:'Wrong'},outsider),()=>repo.mutate(row.id,{version:0},outsider,true)]) await assert.rejects(action,e=>e.statusCode===404);
   assert.equal((await repo.list({page:1,limit:20},outsider)).pagination.total,0);
   await assert.rejects(()=>repo.createFromMarketing(kind,q,new Date('2099-12-31'),null,outsider,null),e=>e.statusCode===409);
-  const second=await repo.createFromMarketing(kind,q,new Date('2099-12-31'),null,actor,null);
+  // A repeated request for the same quotation and kind is refused.
+  await assert.rejects(()=>repo.createFromMarketing(kind,q,new Date('2099-12-31'),null,actor,null),e=>e.statusCode===409);
+  // The other kind is still allowed for the same quotation.
+  const proforma=await repo.createFromMarketing('PROFORMA_INVOICE',q,new Date('2099-12-31'),null,actor,null);
+  assert.equal(proforma.kind,'PROFORMA_INVOICE');
+  await assert.rejects(()=>repo.createFromMarketing('PROFORMA_INVOICE',q,new Date('2099-12-31'),null,actor,null),e=>e.statusCode===409);
+  const secondQuotation={...q,id:randomUUID()};
+  const second=await repo.createFromMarketing(kind,secondQuotation,new Date('2099-12-31'),null,actor,null);
+  await assert.rejects(()=>repo.createFromMarketing(kind,secondQuotation,new Date('2099-12-31'),null,actor,null),e=>e.statusCode===409);
+  assert.equal(await prisma.documentHistory.count({where:{documentId:second.id}}),1);
   assert.equal(second.number,`INV/${year}/000002`);
   assert.equal(await prisma.documentHistory.count({where:{documentId:row.id}}),1);
   const sameNumberOtherBranch=await repo.createFromMarketing(kind,{...q,officeBranchId:outsider.officeBranchId},new Date('2099-12-31'),null,outsider,null);

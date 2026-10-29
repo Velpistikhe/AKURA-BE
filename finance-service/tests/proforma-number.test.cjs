@@ -16,7 +16,9 @@ test('proforma numbering: concurrent creation, annual reset, branch isolation, r
   if(failHistory && params.model==='DocumentHistory' && params.action==='create' && params.args.data.createdById===actor.id) throw Error('Simulated history failure');
   return next(params);
  });
- const create=()=>repo.createFromMarketing('PROFORMA_INVOICE',q,new Date('2099-12-31'),null,actor,null);
+ // Every document is billed from its own quotation, so a numbering run may
+ // create one document per quotation.
+ const create=()=>repo.createFromMarketing('PROFORMA_INVOICE',{...q,id:randomUUID()},new Date('2099-12-31'),null,actor,null);
  const last=async()=> (await prisma.$queryRaw`SELECT last_number FROM proforma_invoice_sequences WHERE office_branch_id=${actor.officeBranchId}::uuid AND year=${year}`)[0]?.last_number;
  const allocate=clock=>prisma.$transaction(tx=>nextProformaIdentity(tx,rolloverBranch,clock));
  try {

@@ -23,6 +23,7 @@ model Document {
   companyId String? @map("company_id") @db.Uuid
   companySnapshot Json? @map("company_snapshot") @db.JsonB
   quotationId String? @map("quotation_id") @db.Uuid
+  contractId String? @map("contract_id") @db.Uuid
   quotationVersion Int? @map("quotation_version")
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
   location String? @db.VarChar(255)
@@ -53,7 +54,10 @@ model Document {
   items DocumentItem[]
   @@unique([officeBranchId, kind, number])
   @@index([officeBranchId, kind, isActive, createdAt, id])
-  @@index([quotationId])
+  // One invoice and one proforma per quotation/contract in a branch. Nulls are
+  // allowed for direct purchase-order documents that have neither source id.
+  @@unique([officeBranchId, kind, quotationId])
+  @@unique([officeBranchId, kind, contractId])
   @@map("billing_documents")
 }
 model DocumentItem {
