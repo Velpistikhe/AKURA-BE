@@ -59,4 +59,5 @@ export const historySchema = listSchema.pick({ page: true, limit: true });
 export const marketingDocumentReferenceSchema = z.object({
   quotationId: z.string().uuid(), kind: documentKindSchema,
   dueDate: date, location: z.string().trim().min(1).max(255),
+  purchaseOrderNumber: z.string().trim().min(1).max(100), purchaseOrderDate: date,
 }).strict();

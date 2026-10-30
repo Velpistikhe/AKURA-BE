@@ -38,16 +38,16 @@ test('master/outbox atomicity, HTTP retry, restart recovery, and proforma tax au
   const quotation = { id: randomUUID(), officeBranchId: branch, version: 1, isActive: true, status: 'APPROVED', subject: 'Tax test', tax: '12', subTotal: '100.25', taxAmount: '11.03', total: '111.28', items: [{ id: randomUUID(), position: 0, itemSizeId: randomUUID(), serviceName: 'Inspection', serviceType: 'INSPECTION', itemName: 'Tank', size: null, note: null, quantityInspection: '1', quantityMaintenance: '0', priceInspection: '100.25', priceMaintenance: null, discount: '0', subTotal: '100.25' }] };
   // The document date is the server day, so the deadline must not precede it.
   const input = createSchema.parse({ kind: 'PROFORMA_INVOICE', companyId: randomUUID(), title: 'Tax test', purchaseOrderNumber: 'PO/2026/000001', purchaseOrderDate: '2026-01-15', items: [randomUUID()], dueDate: '2099-12-31' });
-  const invoice = await documentRepository.createFromMarketing('PROFORMA_INVOICE', quotation, input.dueDate, undefined, actor, null);
+  const invoice = await documentRepository.createFromMarketing('PROFORMA_INVOICE', quotation, input.dueDate, undefined, actor, null, null, input.purchaseOrderNumber, input.purchaseOrderDate);
   assert.equal(invoice.taxSourceId, newest.id);
   assert.equal(invoice.tax.toString(), '12');
   assert.equal(invoice.taxAmount.toString(), '12.03');
   assert.equal(invoice.total.toString(), '112.28');
   assert.equal(invoice.quotationSnapshot.taxAmount, '11.03');
   // A repeated request for the same quotation and kind is refused.
- await assert.rejects(documentRepository.createFromMarketing('PROFORMA_INVOICE', quotation, new Date('2099-12-31'), undefined, actor, null), e => e.statusCode === 409);
+ await assert.rejects(documentRepository.createFromMarketing('PROFORMA_INVOICE', quotation, new Date('2099-12-31'), undefined, actor, null, null, 'PO/2026/000001', new Date('2026-01-15')), e => e.statusCode === 409);
  // The deadline of another quotation is still validated.
- await assert.rejects(documentRepository.createFromMarketing('PROFORMA_INVOICE', { ...quotation, id: randomUUID() }, new Date('2025-01-01'), undefined, actor, null), e => e.statusCode === 400);
+ await assert.rejects(documentRepository.createFromMarketing('PROFORMA_INVOICE', { ...quotation, id: randomUUID() }, new Date('2025-01-01'), undefined, actor, null, null, 'PO/2026/000001', new Date('2026-01-15')), e => e.statusCode === 400);
   // The document date is server-generated, so a client cannot move the
   // document into another tax period.
   await assert.rejects(documentRepository.mutate(invoice.id, { version: 0, date: new Date('2026-08-01') }, actor), e => e.statusCode === 400);

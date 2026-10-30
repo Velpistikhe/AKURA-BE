@@ -34,6 +34,33 @@ export async function gatewayGet(path: string, req: Request): Promise<unknown> {
   try { return (await response.json() as { data: unknown }).data; }
   catch { throw new HttpError('Invalid response from referenced service', 502); }
 }
+
+/** Create a quotation-based invoice through Finance using the authenticated actor token. */
+type FinanceDocumentPayload = { quotationId: string; kind: 'INVOICE' | 'PROFORMA_INVOICE'; dueDate: string; location: string; purchaseOrderNumber: string; purchaseOrderDate: string };
+export async function createFinanceDocument(req: Request, body: FinanceDocumentPayload): Promise<unknown> {
+  const token = getAccessToken(req);
+  if (!token) throw new HttpError('Access token is required', 401);
+  if (!(req as AuthenticatedRequest).user) throw new HttpError('Verified user is required', 401);
+  let response: globalThis.Response;
+  try {
+    response = await fetch(serviceUrl('finance/documents/from-marketing'), {
+      method: 'POST', body: JSON.stringify(body), redirect: 'error',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}`, ...serviceHeaders('finance/documents/from-marketing'), 'x-request-id': String(req.headers['x-request-id'] ?? '') },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch { throw new HttpError('Finance Service is unavailable; retry later', 503); }
+  if (!response.ok) {
+    // Forward Finance's own message so the client sees the real validation
+    // failure (quotation not approved, Work Order not completed, deadline
+    // before document date) exactly as the Marketing route reports it.
+    const upstream = await response.json().catch(() => null) as { message?: string } | null;
+    throw new HttpError(upstream?.message || 'Unable to create finance document',
+      [400, 401, 403, 404, 409].includes(response.status) ? response.status : 502);
+  }
+  const payload = await response.json().catch(() => null) as { data?: unknown } | null;
+  if (!payload?.data) throw new HttpError('Invalid response from Finance Service', 502);
+  return payload.data;
+}
 const money = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/);
 const dateTime = z.string().datetime();
 // Item shape returned by GET marketing/quotation-references/:id. Price fields are

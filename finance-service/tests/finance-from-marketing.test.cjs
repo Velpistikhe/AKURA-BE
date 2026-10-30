@@ -24,7 +24,7 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
  };
  const app=express();app.use(express.json());app.use((req,res,next)=>{req.user={sub:user,type:'access',officeBranchId:branch};next();});app.use(routes);app.use(errorHandler);
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
-  const call=async(method,path,body)=>{const r=await originalFetch(`http://127.0.0.1:${server.address().port}${path.endsWith('/from-marketing')?'/documents/from-marketing':path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer valid'},...(body===undefined?{}:{body:JSON.stringify(body?.quotation ? {quotationId:body.quotation.id,kind:body.kind??'INVOICE',dueDate:'2099-12-31',location:'Jakarta',...(body.dueDate?{dueDate:body.dueDate}:{})}:body)})});return {status:r.status,body:await r.json()};};
+  const call=async(method,path,body)=>{const r=await originalFetch(`http://127.0.0.1:${server.address().port}${path.endsWith('/from-marketing')?'/documents/from-marketing':path}`,{method,headers:{'content-type':'application/json',authorization:'Bearer valid'},...(body===undefined?{}:{body:JSON.stringify(body?.quotation ? {quotationId:body.quotation.id,kind:body.kind??'INVOICE',dueDate:'2099-12-31',location:'Jakarta',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15',...(body.dueDate?{dueDate:body.dueDate}:{})}:body)})});return {status:r.status,body:await r.json()};};
  const expect=async(method,path,body,status)=>{const result=await call(method,path,body);assert.equal(result.status,status,JSON.stringify(result.body));return result.body.data;};
  let invoice,proforma,second;
  try{
@@ -33,9 +33,9 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
   assert.equal((await call('GET','/documents')).status,200,'Marketing can list documents');
   assert.equal((await call('GET','/documents?kind=PROFORMA_INVOICE')).status,200,'Marketing can list proforma invoices');
   assert.equal((await call('POST','/taxes',{percentage:'12',effectiveFrom:'2026-01-01'})).status,403,'Marketing cannot administer taxes');
-  for(const body of [{},{quotationId:quoteId,kind:'INVOICE',location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:null,location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:'2099-12-31',location:''},{quotation,dueDate:'2026-01-01'}])
+  for(const body of [{},{quotationId:quoteId,kind:'INVOICE',location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:null,location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:'2099-12-31',location:''},{quotation,dueDate:'2026-01-01',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'}])
     assert.equal((await call('POST','/documents/from-marketing',body)).status,400);
-  invoice=await expect('POST','/documents/from-marketing',{quotation,dueDate:'2026-12-31',notes:'30 days'},201);
+  invoice=await expect('POST','/documents/from-marketing',{quotation,dueDate:'2026-12-31',notes:'30 days',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'},201);
   assert.equal(invoice.status,'DRAFT');assert.equal(invoice.kind,'INVOICE');assert.equal(invoice.officeBranchId,branch);
   assert.equal(invoice.quotationId,quoteId);assert.equal(invoice.quotationVersion,2);
   assert.equal(new Date(invoice.dueDate).toISOString(),'2026-12-31T00:00:00.000Z');
@@ -45,19 +45,19 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
   assert.ok(reference,'Finance must re-read the quotation from Marketing');assert.equal(reference.token,'Bearer valid');
   workOrderRow={id:randomUUID(),quotationId:quoteId,officeBranchId:branch,revoked:false,number:'WO/2026/000001',status:'COMPLETED',version:1,quotationSnapshot:{tax:'12'}};
   // A duplicate request for the same quotation and kind is rejected.
-  assert.equal((await call('POST','/documents/from-marketing',{quotation,kind:'INVOICE',dueDate:'2099-12-31'})).status,409);
-  proforma=await expect('POST','/documents/from-marketing',{quotation,kind:'PROFORMA_INVOICE',dueDate:'2099-12-31'},201);
+  assert.equal((await call('POST','/documents/from-marketing',{quotation,kind:'INVOICE',dueDate:'2099-12-31',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,409);
+  proforma=await expect('POST','/documents/from-marketing',{quotation,kind:'PROFORMA_INVOICE',dueDate:'2099-12-31',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'},201);
   assert.equal(proforma.kind,'PROFORMA_INVOICE');
-  assert.equal((await call('POST','/documents/from-marketing',{quotation,kind:'PROFORMA_INVOICE',dueDate:'2099-12-31'})).status,409);
+  assert.equal((await call('POST','/documents/from-marketing',{quotation,kind:'PROFORMA_INVOICE',dueDate:'2099-12-31',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,409);
    assert.equal(new Date(invoice.dueDate).toISOString(),'2026-12-31T00:00:00.000Z');
   assert.match(proforma.number,/^PI\/\d{4}\/000001$/);
   assert.equal((await call('POST','/documents/'+invoice.id+'/approve',{version:999})).status,409);
   assert.equal((await call('GET','/documents/'+invoice.id)).status,200);
-  marketingQuote={...quotation,officeBranchId:randomUUID()};assert.equal((await call('POST','/documents/from-marketing',{quotation})).status,404);marketingQuote=quotation;
+  marketingQuote={...quotation,officeBranchId:randomUUID()};assert.equal((await call('POST','/documents/from-marketing',{quotation,purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,404);marketingQuote=quotation;
   marketingQuote={...quotation,status:'REVISED'};
-  assert.equal((await call('POST','/documents/from-marketing',{quotation})).status,409);
+  assert.equal((await call('POST','/documents/from-marketing',{quotation,purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,409);
   marketingQuote={...quotation,status:'REJECTED'};
-  assert.equal((await call('POST','/documents/from-marketing',{quotation})).status,409);
+  assert.equal((await call('POST','/documents/from-marketing',{quotation,purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,409);
   marketingQuote=quotation;
   assert.equal(invoice.location,'Jakarta');
 
@@ -68,10 +68,10 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
   // A quotation whose tax differs from the Work Order snapshot is refused.
   workOrderRow={...workOrderRow,quotationSnapshot:{tax:'11'}};
   marketingQuote=quotation;
-  assert.equal((await call('POST','/documents/from-marketing',{quotation})).status,409,'tax must match the Work Order snapshot');
+  assert.equal((await call('POST','/documents/from-marketing',{quotation,purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,409,'tax must match the Work Order snapshot');
   // An active document already exists while the Work Order is not completed.
   workOrderRow={...workOrderRow,quotationSnapshot:{tax:'12'},status:'IN_PROGRESS'};
-  assert.equal((await call('POST','/documents/from-marketing',{quotation})).status,409,'a COMPLETED Work Order is required for another document');
+  assert.equal((await call('POST','/documents/from-marketing',{quotation,purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'})).status,409,'a COMPLETED Work Order is required for another document');
   // A second quotation of the same branch is billed independently.
   const otherQuoteId=randomUUID();
   marketingQuote={...quotation,id:otherQuoteId};

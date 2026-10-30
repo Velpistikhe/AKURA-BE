@@ -27,8 +27,8 @@ model Document {
   quotationVersion Int? @map("quotation_version")
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
   location String? @db.VarChar(255)
-  purchaseOrderNumber String? @map("purchase_order_number") @db.VarChar(100)
-  purchaseOrderDate DateTime? @map("purchase_order_date") @db.Date
+  purchaseOrderNumber String @map("purchase_order_number") @db.VarChar(100)
+  purchaseOrderDate DateTime @map("purchase_order_date") @db.Date
   title String @db.VarChar(255)
   date DateTime @db.Date
   dueDate DateTime? @map("due_date") @db.Date

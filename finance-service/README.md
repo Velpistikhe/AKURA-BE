@@ -25,10 +25,10 @@ Marketing can create a Finance document from the full approved quotation. The qu
 `POST /api/v1/marketing/quotations/{quotationId}/invoices`
 
 ```json
-{"kind":"INVOICE","dueDate":"2026-12-31","notes":"Payment due in 30 days"}
+{"kind":"INVOICE","dueDate":"2026-12-31","location":"Jakarta","purchaseOrderNumber":"PO/2026/000001","purchaseOrderDate":"2026-01-15"}
 ```
 
-`kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate` is nullable/optional and represents the payment deadline. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards all quotation lines with quantities, unit prices, discounts and subtotals to Finance.
+`kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate`, `location`, `purchaseOrderNumber` and `purchaseOrderDate` are required. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards the quotation reference and required PO data to Finance.
 
 Finance exposes `POST /api/v1/finance/documents/from-marketing`. This endpoint accepts the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
 

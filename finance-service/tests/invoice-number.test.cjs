@@ -18,7 +18,7 @@ test('invoice numbering: concurrent creation, annual reset, branch isolation, ro
  });
  // Every document is billed from its own quotation, so a numbering run may
  // create one document per quotation.
- const create=()=>repo.createFromMarketing('INVOICE',{...q,id:randomUUID()},new Date('2099-12-31'),null,actor,null);
+ const create=()=>repo.createFromMarketing('INVOICE',{...q,id:randomUUID()},new Date('2099-12-31'),null,actor,null,null,'PO/2026/000001',new Date('2026-01-15'));
  const last=async()=> (await prisma.$queryRaw`SELECT last_number FROM invoice_sequences WHERE office_branch_id=${actor.officeBranchId}::uuid AND year=${year}`)[0]?.last_number;
  const allocate=clock=>prisma.$transaction(tx=>nextInvoiceIdentity(tx,rolloverBranch,clock));
  try {
@@ -38,7 +38,7 @@ test('invoice numbering: concurrent creation, annual reset, branch isolation, ro
   failHistory=false;
   assert.equal(await last(),8);
   assert.equal(await prisma.document.count({where:{officeBranchId:actor.officeBranchId}}),8);
-  await assert.rejects(repo.createFromMarketing('INVOICE',q,new Date('2000-01-01'),null,actor,null),e=>e.statusCode===400);
+  await assert.rejects(repo.createFromMarketing('INVOICE',q,new Date('2000-01-01'),null,actor,null,null,'PO/2026/000001',new Date('2026-01-15')),e=>e.statusCode===400);
   assert.equal(await last(),8);
   await repo.mutate(rows[0].id,{version:0},actor,true);
   assert.equal((await create()).number,`INV/${year}/000009`);

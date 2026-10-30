@@ -35,9 +35,12 @@ async function assertBillingAllowed(tx: Prisma.TransactionClient, quotationId: s
   if (existing) throw new HttpError('Quotation already has an active invoice while its Work Order is not COMPLETED', 409);
 }
 export const documentRepository = {
-  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location?: string | null) {
+  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location: string | null | undefined, purchaseOrderNumber: string, purchaseOrderDate: Date) {
 
     if (!(dueDate instanceof Date) || !Number.isFinite(dueDate.getTime())) throw new HttpError('Payment deadline is required', 400);
+    if (typeof purchaseOrderNumber !== 'string' || !purchaseOrderNumber.trim() || purchaseOrderNumber.trim().length > 100
+      || !(purchaseOrderDate instanceof Date) || !Number.isFinite(purchaseOrderDate.getTime()))
+      throw new HttpError('Purchase order number and date are required', 400);
     if (quotation.officeBranchId !== actor.officeBranchId || !quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Quotation is invalid or does not belong to this branch', 409);
     // The tax rate approved on the quotation must match the rate stored in the
     // Work Order snapshot, so a billing request can never price the quotation
@@ -83,7 +86,7 @@ export const documentRepository = {
         const row = await tx.document.create({ data: {
           source: 'QUOTATION', companyId: typeof quotation.companyId === 'string' ? quotation.companyId : null, companySnapshot: quotation.companySnapshot ? json(quotation.companySnapshot) : Prisma.JsonNull,
           quotationId: quotation.id, contractId, quotationVersion: quotation.version, quotationSnapshot: json(quotation), title: quotation.subject,
-          location: location ?? null, date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
+          location: location ?? null, purchaseOrderNumber: purchaseOrderNumber.trim(), purchaseOrderDate, date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
           subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), status: 'DRAFT',
           workOrderTax: workOrderTax === null ? null : new Prisma.Decimal(workOrderTax),
           createdById: actor.id, createdByName: actor.name, items: { create: lines },

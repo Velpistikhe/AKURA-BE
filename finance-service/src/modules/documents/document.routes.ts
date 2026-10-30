@@ -42,5 +42,5 @@ marketingDocumentRoutes.post('/from-marketing', requireMarketingCreateActor, asy
   const workOrder = await loadWorkOrderForQuotation(req, quotation.id, actor(res).officeBranchId);
   if ((workOrder && workOrder.status !== 'COMPLETED') || (quotation.workOrderStatus && quotation.workOrderStatus !== 'COMPLETED'))
     throw new HttpError('Work Order must be COMPLETED before billing', 409);
-  send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, undefined, actor(res), workOrder, input.location), 201);
+  send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, undefined, actor(res), workOrder, input.location, input.purchaseOrderNumber, input.purchaseOrderDate), 201);
 }));

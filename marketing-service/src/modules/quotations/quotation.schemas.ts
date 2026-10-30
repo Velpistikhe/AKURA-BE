@@ -87,6 +87,7 @@ export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFr
 export const createFinanceDocumentSchema = z.object({
   quotationId: z.string().uuid(), kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']),
   dueDate: isoDate, location: z.string().trim().min(1).max(255),
+  purchaseOrderNumber: z.string().trim().min(1).max(100), purchaseOrderDate: isoDate,
 }).strict();
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;

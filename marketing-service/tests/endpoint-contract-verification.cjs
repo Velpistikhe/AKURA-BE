@@ -217,7 +217,7 @@ async function main() {
     quotation = await request('POST', `/quotations/${quotation.id}/approve`, 200, { version: quotation.version });
     // Create one of Finance's documents using the same end-user token and the
     // full approved quotation, including the server-resolved line prices.
-    const financeDocument = await request('POST', `/quotations/${quotation.id}/invoices`, 201, { quotationId:quotation.id,kind: 'INVOICE', dueDate: '2026-12-31', location:'Jakarta' });
+    const financeDocument = await request('POST', `/quotations/${quotation.id}/invoices`, 201, { quotationId:quotation.id,kind: 'INVOICE', dueDate: '2026-12-31', location:'Jakarta',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15' });
     assert.equal(financeDocument.status, 'DRAFT');
     assert.equal(financeDocument.quotationId, quotation.id);
     assert.ok(stored.size > 0);

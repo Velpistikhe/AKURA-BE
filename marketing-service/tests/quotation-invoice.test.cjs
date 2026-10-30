@@ -21,7 +21,7 @@ test('Create invoice from quotation forwards the quotation reference to Finance'
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const request = async (id, body, expected = 201, section, selectedBranch = branch) => {
-    const response = await originalFetch(`http://127.0.0.1:${server.address().port}/quotations/${id}/invoices`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer user-token', ...(section ? { 'x-test-section': section } : {}), 'x-test-branch': selectedBranch }, body: JSON.stringify({quotationId:id,location:'Jakarta',...body}) });
+    const response = await originalFetch(`http://127.0.0.1:${server.address().port}/quotations/${id}/invoices`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer user-token', ...(section ? { 'x-test-section': section } : {}), 'x-test-branch': selectedBranch }, body: JSON.stringify({quotationId:id,location:'Jakarta',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15',...body}) });
     const payload = await response.json(); assert.equal(response.status, expected, JSON.stringify(payload)); return payload;
   };
   const rows = new Map();
@@ -43,18 +43,22 @@ test('Create invoice from quotation forwards the quotation reference to Finance'
     assert.equal((await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31' }, 403, 'FINANCE')).message, 'Marketing section is required');
     await request(quotation.id, { kind: 'INVOICE' }, 400);
     await request(quotation.id, { kind: 'INVOICE', dueDate: null }, 400);
+    // Every invoice creation must carry the purchase order number and date.
+    await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31', purchaseOrderNumber: undefined, purchaseOrderDate: undefined }, 400);
+    await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31', purchaseOrderNumber: '', purchaseOrderDate: '2026-01-15' }, 400);
+    await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31', purchaseOrderNumber: 'PO/2026/000001', purchaseOrderDate: 'not-a-date' }, 400);
     quotation.status = 'CREATED';
     assert.equal((await request(quotation.id, { kind: 'INVOICE', dueDate: '2099-12-31' }, 409)).message, 'Invoice requires an APPROVED quotation');
     quotation.status = 'APPROVED';
     global.fetch = async (url, options) => { if(String(url).includes('/fieldservice/')) return {ok:true,json:async()=>({data:workOrder})}; forwarded = { url: String(url), options }; return { ok: true, status: 201, json: async () => ({ data: { id: randomUUID(), number: 'INV/2026/000001', status: 'DRAFT' } }) }; };
-    const created = await request(quotation.id, { kind: 'INVOICE', dueDate: '2026-12-31', location: 'Jakarta' });
+    const created = await request(quotation.id, { kind: 'INVOICE', dueDate: '2026-12-31', location: 'Jakarta', purchaseOrderNumber:'PO/2026/000001', purchaseOrderDate:'2026-01-15' });
     assert.equal(created.message, 'Draft finance document created successfully');
     assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/finance/documents/from-marketing`);
     assert.equal(forwarded.options.headers.authorization, 'Bearer user-token');
     const payload = JSON.parse(forwarded.options.body);
-    assert.deepEqual(payload,{quotationId:quotation.id,kind:'INVOICE',dueDate:'2026-12-31',location:'Jakarta'});
+    assert.deepEqual(payload,{quotationId:quotation.id,kind:'INVOICE',dueDate:'2026-12-31',location:'Jakarta',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'});
     global.fetch = async (url, options) => { if(String(url).includes('/fieldservice/')) return {ok:true,json:async()=>({data:workOrder})}; forwarded = { url: String(url), options }; return { ok: true, status: 201, json: async () => ({ data: { id: randomUUID(), number: 'PI/2026/000001', status: 'DRAFT' } }) }; };
-    await request(quotation.id, { kind: 'PROFORMA_INVOICE', dueDate: '2099-12-31' });
+    await request(quotation.id, { kind: 'PROFORMA_INVOICE', dueDate: '2099-12-31', purchaseOrderNumber:'PO/2026/000001', purchaseOrderDate:'2026-01-15' });
     assert.equal(forwarded.url, `${env.API_GATEWAY_URL}/api/v1/finance/documents/from-marketing`);
     workOrder={id:randomUUID(),quotationId:quotation.id,officeBranchId:branch,revoked:false,status:'IN_PROGRESS'};
     await request(quotation.id,{kind:'INVOICE',dueDate:'2099-12-31'},409);

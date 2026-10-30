@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { Actor, requireActor, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { createFinanceDocument, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
+const financeCreateSchema = z.object({ quotationId: z.string().uuid(), kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']), dueDate: z.string().date(), location: z.string().trim().min(1).max(255), purchaseOrderNumber: z.string().trim().min(1).max(100), purchaseOrderDate: z.string().date() }).strict();
 type BasisInput = { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null };
 // The payload carries IDs only. Quotation and contract content is fetched live from
 // Marketing and validated (branch, APPROVED state, contract effective period) before
@@ -24,6 +25,13 @@ const send = (req: Request, res: Response, data: unknown, status = 200) => res.s
 router.get('/by-quotation/:quotationId', requireWorkOrderReferenceActor, asyncHandler(async (req, res) => {
   const quotationId = z.string().uuid().parse(req.params.quotationId);
   send(req, res, await repository.findActiveByQuotation(quotationId, actor(res)));
+}));
+// Create invoice/proforma invoice from quotation via Finance; Marketing still
+// owns quotation checks and Finance creates the financial document.
+router.post('/invoices/from-quotation', requireActor, requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
+  const input = financeCreateSchema.parse(req.body);
+  const data = await createFinanceDocument(req, input);
+  send(req, res, data, 201);
 }));
 router.use(requireActor);
 router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
