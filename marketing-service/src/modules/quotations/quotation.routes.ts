@@ -3,7 +3,7 @@ import { Router, RequestHandler } from 'express';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { quotationController } from './quotation.controller.js';
-import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, createWorkOrderFromQuotationSchema, createFinanceDocumentSchema } from './quotation.schemas.js';
+import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, createQuotationFromWorkOrderSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, createWorkOrderFromQuotationSchema, createFinanceDocumentSchema } from './quotation.schemas.js';
 import { HttpError } from '../../utils/httpError.js';
 import { getOfficeBranchId } from '../../utils/officeBranch.js';
 import { quotationRepository } from './quotation.repository.js';
@@ -38,6 +38,8 @@ router.get('/:quotationId/history', validate('params', quotationIdSchema), valid
   const data = await quotationRepository.history(res.locals.params.quotationId, getOfficeBranchId(res), res.locals.query);
   res.status(200).json({ status: 200, success: true, message: 'Quotation history retrieved successfully', data, requestId: req.headers['x-request-id'] });
 }));
+
+router.post('/from-work-order', requireMarketingSection, validate('body', createQuotationFromWorkOrderSchema), asyncHandler(quotationController.createFromWorkOrder));
 
 router.get('/', validate('query', listQuotationsSchema), asyncHandler(quotationController.list));
 router.get('/:quotationId', validate('params', quotationIdSchema), asyncHandler(quotationController.get));

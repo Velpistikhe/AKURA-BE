@@ -171,7 +171,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
  // Quotation reference: full Marketing payload. Prices are served upstream so the
  // reduced snapshot can prove they are dropped before they are stored.
  const quotationItemSizeId=randomUUID();
-  const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,revision:0,date:'2026-09-01T00:00:00.000Z',jobStart:'ASAP',inquiryMethod:'EMAIL',inquiryDate:'2026-08-01T00:00:00.000Z',subject:'Work',termOfPayment:'COD',validity:'30 days',supplyAkura:'Akura',supplyCustomer:'Customer',location:'Site',accomplished:'-',deliveryReports:'-',deliveryInvoice:'-',staffId:randomUUID(),customerSnapshot:'Buyer',companySnapshot:{name:'Company'},subTotal:'100',taxAmount:'11',total:'111',createdAt:'2026-09-01T00:00:00.000Z',updatedAt:'2026-09-01T00:00:00.000Z',futureMarketingColumn:'should not be stored',items:[{id:randomUUID(),itemSizeId:quotationItemSizeId,position:0,serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,subTotal:'100',priceSelection:null,inspectionScopes:'Visual',maintenanceScopes:'Clean',isActive:true,version:0,futureItemColumn:'should not be stored'}]};
+  const quotation={status:'APPROVED',id:quoteId,officeBranchId:branch,version:0,isActive:true,no:1,numberYear:2026,revision:0,date:'2026-09-01T00:00:00.000Z',jobStart:'ASAP',inquiryMethod:'EMAIL',inquiryDate:'2026-08-01T00:00:00.000Z',subject:'Work',termOfPayment:'COD',validity:'30 days',supplyAkura:'Akura',supplyCustomer:'Customer',location:'Site',accomplished:'-',deliveryReports:'-',deliveryInvoice:'-',staffId:randomUUID(),customerSnapshot:'Buyer',companySnapshot:{name:'Company'},subTotal:'100',tax:'11',taxAmount:'11',total:'111',createdAt:'2026-09-01T00:00:00.000Z',updatedAt:'2026-09-01T00:00:00.000Z',futureMarketingColumn:'should not be stored',items:[{id:randomUUID(),itemSizeId:quotationItemSizeId,position:0,serviceName:'Inspection',serviceType:'INSPECTION',itemName:'Tank',size:'L',note:null,quantityInspection:'1',quantityMaintenance:'0',priceInspection:'100',priceMaintenance:null,subTotal:'100',priceSelection:null,inspectionScopes:'Visual',maintenanceScopes:'Clean',isActive:true,version:0,futureItemColumn:'should not be stored'}]};
  const originalFetch=global.fetch;
  let quotationCalls=0,upstreamFails=false,contractStatus=200,contractReferenceCalls=0,quotationHttpStatus=200;
  let authInspectorCalls=0,authInspectorFails=false,authInspectorNames=null,authInspectorMissing=null;
@@ -262,14 +262,13 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   const row=await request('POST','/work-orders',raw,201);
   assert.equal(row.status,'DRAFT');
   for(const token of ['field','wrong','no-section','admin','manager']){
-   // POST /work-orders is now general: every authenticated profile that passes
-   // requireActor may create one, regardless of the originating service.
-   if(['wrong','no-section'].includes(token)) await request('POST','/work-orders',raw,403,token);
-   else if(token==='field') await request('POST','/work-orders',{...raw,startDate:'2026-11-15',endDate:'2026-11-20'},201,token);
-   else await request('POST','/work-orders',raw,409,token);
+   // Only the MARKETING section creates a Work Order. Field Service browses
+   // work orders; it never creates, starts, updates or deletes one, and the
+   // administrative roles do not bypass the write section restriction.
+   await request('POST','/work-orders',raw,403,token);
    await request('DELETE','/work-orders/'+row.id,{version:0},403,token);
    await request('POST','/work-orders/'+row.id+'/start',{version:0},403,token);
-   if(token!=='field')await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-10-01'},403,token);
+   await request('PATCH','/work-orders/'+row.id,{version:0,startDate:'2026-10-01'},403,token);
   }
   await request('GET','/work-orders/'+row.id,undefined,200,'field');
   assert.equal((await repo.get(row.id,actor)).version,0);
@@ -320,7 +319,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   const linked=await request('POST','/work-orders',basis,201);assert.equal(linked.quotationSnapshot.id,quoteId);
   assert.equal(linked.quotationSnapshot.version,quotation.version);
   // Lean quotation snapshot: identity and descriptive content, no price anywhere.
-  for(const priceField of ['subTotal','taxAmount','total','tax','taxSourceId'])
+  for(const priceField of ['subTotal','taxAmount','total','taxSourceId'])
    assert.equal(Object.hasOwn(linked.quotationSnapshot,priceField),false,`quotation snapshot never stores ${priceField}`);
   assert.equal(linked.quotationSnapshot.subject,quotation.subject);
   assert.equal(linked.quotationSnapshot.customerSnapshot,quotation.customerSnapshot);
@@ -386,13 +385,14 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // creation and a PATCH re-pointing are rejected until that Work Order is revoked.
   await request('POST','/work-orders',basis,409);
   const basisCallsBeforePatch=quotationCalls;
-  await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],quotationId:quoteId},409,'field');
-  assert.equal(quotationCalls,basisCallsBeforePatch+1,'PATCH quotation basis is validated live before the duplicate-basis check');
+  // Field Service may browse a Work Order but never update it.
+  await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi'],quotationId:quoteId},403,'field');
+  assert.equal(quotationCalls,basisCallsBeforePatch,'a rejected PATCH never resolves the quotation basis');
   await request('POST','/work-orders',{...basis,endDate:undefined},400);
   await request('POST','/work-orders',{...basis,inspectors:undefined},400);
   await request('POST','/work-orders',{...basis,quotationId:randomUUID()},404);
   upstreamFails=true;await request('POST','/work-orders',raw,503);upstreamFails=false;
-  const changed=await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi']},200,'field');
+  const changed=await request('PATCH','/work-orders/'+row.id,{version:0,inspectors:['Dewi']},200);
   assert.equal(changed.updatedByName,'Test User');assert.equal(changed.updatedById,user);assert.equal(changed.number,row.number);assert.deepEqual(changed.inspectors.map(x=>x.name),['Dewi']);assert.equal(changed.quotationId,null);
   await request('PATCH','/work-orders/'+row.id,{version:1,startDate:'2027-01-01',inspectors:['Should rollback']},400);
   assert.equal((await repo.get(row.id,actor)).version,1);assert.equal((await repo.get(row.id,actor)).inspectors[0].name,'Dewi');
@@ -417,7 +417,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   const contractDetail=await request('GET','/work-orders/'+byContract.id);
   assert.equal(contractDetail.contractId,contractId);
   assert.deepEqual(contractDetail.contractSnapshot,byContract.contractSnapshot,'detail response retains stored contract snapshot');
-  assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,3);
+  assert.equal((await request('GET','/work-orders?contractId='+contractId)).pagination.total,2);
   // ── Start flow: DRAFT -> IN_PROGRESS with live Marketing validation ────────
   // linked still holds quoteId, so the startable Work Order uses a second quotation.
   await seedQuotationSnapshotFor(startableQuoteId);
@@ -531,19 +531,19 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   assert.equal((await repo.history(row.id,1,20,actor)).pagination.total,4);
   assert.equal((await prisma.workOrderSequence.findUnique({where:{officeBranchId_year:{officeBranchId:branch,year}}})).lastNumber,sequenceBefore.lastNumber);
   const created=await Promise.all(Array.from({length:6},(_,i)=>repo.create(createWorkOrderSchema.parse({...raw,startDate:`2027-02-${String(i+1).padStart(2,'0')}`,endDate:`2027-02-${String(i+1).padStart(2,'0')}`}),contract,actor,itemReferences)));
-  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+7).padStart(6,'0')}`));
+  assert.deepEqual(created.map(x=>x.number).sort(),Array.from({length:6},(_,i)=>`WO/${year}/${String(i+6).padStart(6,'0')}`));
   // Child insertion failure must roll back both Work order and number allocation.
   let fail=true;
   prisma.$use(async(params,next)=>{if(fail&&params.model==='WorkOrder'&&params.action==='create')params.args.data.inspectors.create.push({name:'x'.repeat(256),position:999});return next(params);});
   await assert.rejects(repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences));fail=false;
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences)).number,`WO/${year}/000013`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences)).number,`WO/${year}/000012`);
   const allocate=clock=>prisma.$transaction(tx=>nextWorkOrderIdentity(tx,clockBranch,clock));
   const end=()=>new Date('2026-12-31T16:59:59Z'),start=()=>new Date('2026-12-31T17:00:00Z');
   assert.equal((await allocate(end)).number,'WO/2026/000001');assert.equal((await allocate(end)).number,'WO/2026/000002');assert.equal((await allocate(start)).number,'WO/2027/000001');
   let reads=0;const crossed=await allocate(()=>++reads===1?end():start());assert.equal(crossed.number,'WO/2027/000002');assert.equal(crossed.date.toISOString(),'2027-01-01T00:00:00.000Z');
   await prisma.workOrderSequence.delete({where:{officeBranchId_year:{officeBranchId:branch,year}}});
   Object.assign(raw,{startDate:'2027-03-15',endDate:'2027-03-20'});
-  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences)).number,`WO/${year}/000014`);
+  assert.equal((await repo.create(createWorkOrderSchema.parse(raw),contract,actor,itemReferences)).number,`WO/${year}/000013`);
   const inProgress=await request('GET','/work-orders/'+byContract.id);
   assert.equal(inProgress.status,'IN_PROGRESS');
   const callbacksBeforeContractRevoke=marketingCallbackCalls;

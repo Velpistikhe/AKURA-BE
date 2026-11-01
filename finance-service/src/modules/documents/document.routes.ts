@@ -1,8 +1,8 @@
 import { marketingDocumentReferenceSchema } from './document.schemas.js';
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { Actor, requireActor, requireMarketingCreateActor, requireDocumentReadActor } from '../../middlewares/actor.middleware.js';
-import { loadWorkOrderForQuotation, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
+import { Actor, requireMarketingCreateActor, requireDocumentReadActor } from '../../middlewares/actor.middleware.js';
+import { loadWorkOrderForQuotation, loadSourceWorkOrder, validateMarketingQuotation, loadBillingPrices } from '../../integrations/gateway.js';
 import { HttpError } from '../../utils/httpError.js';
 import { documentRepository as repository } from './document.repository.js';
 import { documentCreateSchema, approveSchema, updateSchema, deleteSchema, listSchema, historySchema, idSchema } from './document.schemas.js';
@@ -21,17 +21,19 @@ export function documentRoutes() {
     const prices = await loadBillingPrices(req, input.companyId, input.items, actor(res).officeBranchId);
     send(req, res, await repository.createFromPurchaseOrder(input.kind, input, prices, actor(res)), 201);
   });
-  router.post('/', requireActor, createDocument());
+  router.post('/', requireMarketingCreateActor, createDocument());
   router.get('/', requireDocumentReadActor, asyncHandler(async (req,res) => send(req,res,await repository.list(listSchema.parse(req.query),actor(res)))));
   router.get('/:id', requireDocumentReadActor, asyncHandler(async (req,res) => send(req,res,await repository.get(idSchema.parse(req.params.id),actor(res)))));
-  router.use(requireActor);
-  router.post('/:id/approve',asyncHandler(async(req,res)=>{
+  // Only the MARKETING section creates and mutates documents (rule: Finance is
+  // read-only on quotations, proforma invoices and invoices). Browsing stays
+  // available to MARKETING, FINANCE and ACCOUNTING above.
+  router.post('/:id/approve', requireMarketingCreateActor, asyncHandler(async(req,res)=>{
     const version=approveSchema.parse(req.body).version;
     const data=await repository.approve(idSchema.parse(req.params.id),version,actor(res)); send(req,res,data);
   }));
-  router.get('/:id/history',asyncHandler(async(req,res)=> { const {page,limit}=historySchema.parse(req.query); send(req,res,await repository.history(idSchema.parse(req.params.id),actor(res),page,limit)); }));
-  router.patch('/:id',asyncHandler(async(req,res)=> send(req,res,await repository.mutate(idSchema.parse(req.params.id),updateSchema.parse(req.body),actor(res)))));
-  router.delete('/:id',asyncHandler(async(req,res)=> send(req,res,await repository.mutate(idSchema.parse(req.params.id),deleteSchema.parse(req.body),actor(res),true))));
+  router.get('/:id/history', requireDocumentReadActor, asyncHandler(async(req,res) => { const {page,limit}=historySchema.parse(req.query); send(req,res,await repository.history(idSchema.parse(req.params.id),actor(res),page,limit)); }));
+  router.patch('/:id', requireMarketingCreateActor, asyncHandler(async(req,res)=> send(req,res,await repository.mutate(idSchema.parse(req.params.id),updateSchema.parse(req.body),actor(res)))));
+  router.delete('/:id', requireMarketingCreateActor, asyncHandler(async(req,res)=> send(req,res,await repository.mutate(idSchema.parse(req.params.id),deleteSchema.parse(req.body),actor(res),true))));
   return router;
 }
 
@@ -42,5 +44,9 @@ marketingDocumentRoutes.post('/from-marketing', requireMarketingCreateActor, asy
   const workOrder = await loadWorkOrderForQuotation(req, quotation.id, actor(res).officeBranchId);
   if ((workOrder && workOrder.status !== 'COMPLETED') || (quotation.workOrderStatus && quotation.workOrderStatus !== 'COMPLETED'))
     throw new HttpError('Work Order must be COMPLETED before billing', 409);
+  // Flow 3: a billing quotation raised from a contract Work Order must have that
+  // Work Order still active and COMPLETED. The live status is read here so an
+  // invoice can never bill work that was revoked or is not finished.
+  if (quotation.sourceWorkOrderId) await loadSourceWorkOrder(req, quotation.sourceWorkOrderId, actor(res).officeBranchId);
   send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, undefined, actor(res), workOrder, input.location, input.purchaseOrderNumber, input.purchaseOrderDate), 201);
 }));

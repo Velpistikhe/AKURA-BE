@@ -82,6 +82,33 @@ export async function loadWorkOrderForQuotation(req: Request, quotationId: strin
   return workOrder;
 }
 
+// A Flow 3 source Work Order reference: a contract Work Order billed through a
+// quotation created after the work was executed. Only the fields needed to
+// enforce the completion gate are read; nothing billable is taken from it.
+export const sourceWorkOrderReferenceSchema = z.object({
+  id: z.string().uuid(), officeBranchId: z.string().uuid(), revoked: z.boolean(),
+  status: z.enum(['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED']),
+}).passthrough();
+export type SourceWorkOrderReference = z.infer<typeof sourceWorkOrderReferenceSchema>;
+/**
+ * Reads the live source Work Order of a Flow 3 billing quotation. The quotation
+ * carries sourceWorkOrderId, so this verifies that the contract Work Order it
+ * bills is still active and COMPLETED at billing time. A revoked or unfinished
+ * Work Order is rejected (409), so an invoice can never bill work that is not
+ * done. Field Service derives the branch from the forwarded token.
+ */
+export async function loadSourceWorkOrder(req: Request, workOrderId: string, branch: string): Promise<SourceWorkOrderReference> {
+  const result = await gatewayGet(`fieldservice/work-orders/by-id/${workOrderId}`, req);
+  if (!result || typeof result !== 'object') throw new HttpError('Source Work Order not found', 404);
+  const parsed = sourceWorkOrderReferenceSchema.safeParse(result);
+  if (!parsed.success) throw new HttpError('Invalid Work Order response', 502);
+  const workOrder = parsed.data;
+  if (workOrder.id !== workOrderId || workOrder.officeBranchId !== branch) throw new HttpError('Source Work Order not found in this branch', 404);
+  if (workOrder.revoked) throw new HttpError('Source Work Order is revoked', 409);
+  if (workOrder.status !== 'COMPLETED') throw new HttpError('Work Order must be COMPLETED before billing', 409);
+  return workOrder;
+}
+
 export const billingPricesResponseSchema = z.object({
   officeBranchId: z.string().uuid(),
   company: z.object({ id: z.string().uuid(), name: z.string(), isSisterCompany: z.boolean() }),

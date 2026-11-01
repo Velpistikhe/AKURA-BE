@@ -181,11 +181,18 @@ export const workOrderPaths = {
   }
 },
 
+  '/api/v1/fieldservice/work-orders/by-id/{id}': {
+    get: {
+      ...operation('Get a reduced Work Order reference by ID for billing verification', 'WorkOrderLookupResponse', [id]),
+      description: 'Branch-scoped, read-only reference used by Marketing and Finance to verify a Flow 3 source Work Order. Returns identity, branch, status, revoked, quotationId and contractId only; no prices or inspectors. Accessible to MARKETING, FIELD_SERVICE, FINANCE and ACCOUNTING. Not found/other branch returns null.',
+    },
+  },
+
   '/api/v1/fieldservice/work-orders/by-quotation/{quotationId}': {
     get: {
       ...operation('Find active Work Order by quotation', 'WorkOrderResponse', [quotationId]),
       description: 'Read-only lookup scoped to the authenticated actor branch. Allowed sections: MARKETING, FIELD_SERVICE, FINANCE and ACCOUNTING; existing ADMIN and APP_MANAGER access also applies. Finance and Accounting access is limited to this lookup and does not grant other Work Order operations.',
-      responses: { 200: { description: 'Active Work Order found, or null when none exists', content: { 'application/json': { schema: ref('WorkOrderLookupResponse') } } }, 400: { description: 'Invalid quotation ID' }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 502: { description: 'Invalid Auth profile response' }, 503: { description: 'Referenced service unavailable' } },
+      responses: { 200: { description: 'Work Order reference or null', content: { 'application/json': { schema: ref('WorkOrderLookupResponse') } } }, 400: { description: 'Invalid Work Order ID' }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' } },
     },
   },
   '/api/v1/fieldservice/work-orders/{id}/history': {

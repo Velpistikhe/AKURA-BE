@@ -71,6 +71,14 @@ export const documentRepository = {
         // allocated. The unique constraints are the final guard against races.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'billing-quotation:' + quotation.id}))`;
         if (contractId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'billing-contract:' + contractId}))`;
+        // A proforma invoice of the quotation is the previous step of the
+        // flow, so it must be FINAL before the invoice can be issued. The
+        // check runs under the quotation lock, so a concurrent finalization
+        // is serialized with this request.
+        if (kind === 'INVOICE') {
+          const proforma = await tx.document.findFirst({ where: { officeBranchId: actor.officeBranchId, quotationId: quotation.id, kind: 'PROFORMA_INVOICE', isActive: true }, select: { id: true, status: true } });
+          if (proforma && proforma.status !== 'FINAL') throw new HttpError('Proforma invoice must be FINAL before an invoice can be created', 409);
+        }
         const existing = await tx.document.findFirst({ where: { officeBranchId: actor.officeBranchId, kind,
           OR: [{ quotationId: quotation.id }, ...(contractId ? [{ contractId }] : [])] } });
         if (existing) throw new HttpError(existing.quotationId === quotation.id ? 'An invoice or proforma invoice already exists for this quotation' : 'An invoice or proforma invoice already exists for this contract', 409);

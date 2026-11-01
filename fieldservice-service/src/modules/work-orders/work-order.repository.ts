@@ -304,6 +304,16 @@ export const workOrderRepository = {
         // is exposed so a billing service can compare it against its own record.
         quotationSnapshot: true } });
   },
+  /**
+   * Read-only Work Order lookup by id for billing verification. A Flow 3
+   * quotation bills a contract Work Order through its sourceWorkOrderId, and
+   * Finance/Marketing read the live status here to enforce COMPLETED before an
+   * invoice is issued. The reduced shape carries no price or inspector data.
+   */
+  async findReferenceById(id: string, actor: Actor) {
+    return prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId },
+      select: { id: true, officeBranchId: true, revoked: true, number: true, status: true, version: true, quotationId: true, contractId: true } });
+  },
   async get(id: string, actor: Actor) {
     const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
     if (!workOrder) throw new HttpError('Work order not found', 404);

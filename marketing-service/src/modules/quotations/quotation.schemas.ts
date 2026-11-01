@@ -94,6 +94,27 @@ export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;
 export const rejectQuotationSchema = deactivateQuotationSchema;
 export const reviseQuotationSchema = deactivateQuotationSchema;
+// A billing quotation raised from a contract-based Work Order (Flow 3). The
+// Work Order is the source document: it was executed against a contract and the
+// quotation exists only to bill that work. Its items, quantities and company
+// come from the Work Order, never from the client, so the client sends only the
+// document header and the Work Order reference.
+export const createQuotationFromWorkOrderSchema = z.object({
+  workOrderId: z.string().uuid(),
+  inquiryMethod: z.nativeEnum(InquiryMethod),
+  inquiryDate: isoDate,
+  jobStart: z.string().trim().min(1).max(255),
+  subject: text,
+  termOfPayment: text,
+  validity: text,
+  supplyAkura: supplyText,
+  supplyCustomer: supplyText,
+  location: text,
+  accomplished: supplyText,
+  deliveryReports: supplyText,
+  deliveryInvoice: supplyText,
+  staffId: z.string().uuid(),
+}).strict();
 export const quotationHistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

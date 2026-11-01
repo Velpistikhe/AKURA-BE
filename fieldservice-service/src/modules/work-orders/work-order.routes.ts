@@ -26,6 +26,14 @@ router.get('/by-quotation/:quotationId', requireWorkOrderReferenceActor, asyncHa
   const quotationId = z.string().uuid().parse(req.params.quotationId);
   send(req, res, await repository.findActiveByQuotation(quotationId, actor(res)));
 }));
+// Read-only Work Order lookup by id. A Flow 3 billing quotation points at its
+// contract Work Order through sourceWorkOrderId, and Finance reads the live
+// status here to require COMPLETED before an invoice is issued. Returns the
+// reduced reference shape (or null) and never exposes price or inspector data.
+router.get('/by-id/:id', requireWorkOrderReferenceActor, asyncHandler(async (req, res) => {
+  const id = workOrderIdSchema.parse(req.params.id);
+  send(req, res, await repository.findReferenceById(id, actor(res)));
+}));
 // Create invoice/proforma invoice from quotation via Finance; Marketing still
 // owns quotation checks and Finance creates the financial document.
 router.post('/invoices/from-quotation', requireActor, requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
@@ -62,7 +70,7 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
   const quote = current.quotationId ? await loadQuotationForStart(req, current.quotationId, actor(res).officeBranchId) : null;
   send(req, res, await repository.start(id, version, quote, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
 }));
-router.patch('/:id', requireWorkOrderSection('MARKETING', 'FIELD_SERVICE'), asyncHandler(async (req, res) => {
+router.patch('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   await repository.get(id, actor(res));
   const quotation = (input.quotationId !== undefined || input.contractId !== undefined || input.performaInvoiceId !== undefined)

@@ -5,7 +5,8 @@ import { Prisma, ServiceType, WorkOrderStatus } from '@prisma/client';
 import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
-import { createQuotationSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, UpdateQuotationInput } from './quotation.schemas.js';
+import { createQuotationSchema, createQuotationFromWorkOrderSchema, deactivateQuotationSchema, QuotationItemInput, ListQuotationsInput, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema, UpdateQuotationInput } from './quotation.schemas.js';
+import type { WorkOrderBasis } from './work-order.integration.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { lockNextQuotationNumber, quotationDate, quotationNumberYear } from './quotation-number.js';
 import type { QuotationPdfMetadata } from './quotation-approval.service.js';
@@ -180,11 +181,14 @@ export const quotationRepository = {
   async attachWorkOrder(id: string, officeBranchId: string, workOrder: { id: string; number: string; status: string; quotationId: string | null }, actor: AuditActor) {
     return prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "quotations" WHERE id = ${id}::uuid AND office_branch_id = ${officeBranchId}::uuid FOR UPDATE`;
-      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true, isActive: true, status: true, workOrderStatus: true } });
+      const quote = await tx.quotation.findFirst({ where: { id, officeBranchId }, select: { hasWorkOrder: true, workOrderId: true, isActive: true, status: true, sourceWorkOrderId: true, sourceContractId: true, workOrderStatus: true } });
       if (!quote) throw new HttpError('Quotation not found', 404);
       const workOrderStatus = workOrderStatusMirror(workOrder.status);
       // Retries and subsequent status events for the same Work Order are idempotent.
       if (quote.hasWorkOrder && quote.workOrderId === workOrder.id) {
+        // A Flow 3 quotation is created already linked to its contract Work Order.
+        // Keep the source identity and initial link immutable on callback.
+        if (quote.sourceWorkOrderId === workOrder.id) return tx.quotation.findUniqueOrThrow({ where: { id }, include });
         if (quote.workOrderStatus !== workOrderStatus) {
           await tx.quotation.update({ where: { id }, data: { workOrderStatus, workOrderSnapshot: json(workOrder), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
           await saveRevision(tx, id, actor, 'WORK_ORDER_STATUS');
@@ -194,7 +198,7 @@ export const quotationRepository = {
       if (quote.hasWorkOrder || quote.workOrderId) throw new HttpError('Quotation already has a Work Order', 409);
       if (!quote.isActive || quote.status !== 'APPROVED') throw new HttpError('Quotation is no longer an active APPROVED quotation', 409);
       const claimed = await tx.quotation.updateMany({
-        where: { id, officeBranchId, hasWorkOrder: false, workOrderId: null },
+        where: { id, officeBranchId, hasWorkOrder: false, workOrderId: null, sourceWorkOrderId: null },
         data: { hasWorkOrder: true, workOrderId: workOrder.id, workOrderStatus, workOrderSnapshot: json(workOrder), version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name },
       });
       if (!claimed.count) throw new HttpError('Quotation already has a Work Order', 409);
@@ -313,6 +317,76 @@ export const quotationRepository = {
       }
       await tx.quotation.update({ where: { id: quote.id }, data: await totals(tx, quote.id, quote.tax) });
       return saveRevision(tx, quote.id, actor, 'CREATE');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+
+  /**
+   * Creates a draft billing quotation from a contract-based Work Order (Flow 3).
+   * The Work Order was executed against a contract; the quotation is raised
+   * afterwards only to bill that work, so its company, items and quantities
+   * come from the Work Order and never from the client.
+   *
+   * The contract, the company staff and the Work Order linkage are re-checked
+   * inside the transaction, under the branch and Work Order advisory locks, so
+   * a concurrent creation cannot produce a second billing quotation for the
+   * same Work Order.
+   */
+  async createFromWorkOrder(input: unknown, workOrder: WorkOrderBasis, officeBranchId: string, actor: AuditActor) {
+    const { workOrderId, ...header } = createQuotationFromWorkOrderSchema.parse(input);
+    if (workOrder.id !== workOrderId || workOrder.officeBranchId !== officeBranchId)
+      throw new HttpError('Work Order does not belong to this branch', 404);
+    const contractId = workOrder.contractId;
+    const contractSnapshot = workOrder.contractSnapshot;
+    if (!contractId || !contractSnapshot || contractSnapshot.id !== contractId)
+      throw new HttpError('A billing quotation requires a contract-based Work Order', 409);
+    if (!workOrder.items.length) throw new HttpError('Work Order must contain items before billing', 409);
+
+    return prisma.$transaction(async (tx) => {
+      await lockCompanyBranch(tx, officeBranchId);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'work-order-billing-quotation:' + officeBranchId + ':' + workOrder.id}))`;
+      const duplicate = await tx.quotation.findFirst({
+        where: { officeBranchId, isActive: true, sourceWorkOrderId: workOrder.id },
+        select: { id: true },
+      });
+      if (duplicate) throw new HttpError('Work Order already has a billing quotation', 409);
+
+      const contract = await tx.companyContract.findFirst({
+        where: { id: contractId, company: { officeBranchId, revoked: false }, isDeleted: false, status: 'APPROVED' },
+    include: { company: { select: { id: true, version: true, name: true, type: true, address: true, npwp: true, isSisterCompany: true } } },
+      });
+      if (!contract || contract.version !== contractSnapshot.version || contract.company.id !== contractSnapshot.companyId)
+        throw new HttpError('Work Order contract is no longer active or has changed', 409);
+      const staff = await tx.companyStaff.findFirst({ where: { id: header.staffId, companyId: contract.companyId, revoked: false, company: { officeBranchId, revoked: false } }, select: { id: true, name: true, title: true } });
+      if (!staff) throw new HttpError('Company staff not found for the Work Order contract', 404);
+
+      const now = new Date();
+      // The contract that priced the Work Order must still be the current
+      // effective contract of the company, so the quotation bills the same
+      // prices the work was executed under.
+      const context = await priceContext(tx, contract.companyId, officeBranchId, now);
+      if (!context.contract || context.contract.id !== contract.id)
+        throw new HttpError('Work Order contract is not the current effective contract', 409);
+      const tax = await applicableTax(tx, officeBranchId, now);
+      const quote = await tx.quotation.create({ data: {
+        ...header, date: quotationDate(now), tax: tax.percentage, taxSourceId: tax.id,
+        status: 'CREATED', invoiceStatus: null, officeBranchId,
+        sourceWorkOrderId: workOrder.id, sourceContractId: contract.id,
+        workOrderId: workOrder.id, hasWorkOrder: true, workOrderStatus: 'COMPLETED',
+        workOrderSnapshot: json({ id: workOrder.id, number: workOrder.number, status: workOrder.status, quotationId: null, officeBranchId, revoked: false }),
+        customerSnapshot: staff.name, companySnapshot: json({ ...contract.company, staffTitle: staff.title }),
+        createdById: actor.id, createdByName: actor.name,
+      } });
+      const seen = new Set<string>();
+      for (const [position, item] of workOrder.items.entries()) {
+        if (seen.has(item.itemSizeId)) throw new HttpError('Work Order contains duplicate item sizes', 409);
+        seen.add(item.itemSizeId);
+        await tx.quotationItem.create({ data: { ...await newItem(tx, {
+          itemSizeId: item.itemSizeId, quantityInspection: item.quantityInspection,
+          quantityMaintenance: item.quantityMaintenance, discount: '0',
+        }, officeBranchId, actor, position, context, now), quotationId: quote.id } });
+      }
+      await tx.quotation.update({ where: { id: quote.id }, data: await totals(tx, quote.id, quote.tax) });
+      return saveRevision(tx, quote.id, actor, 'CREATE_FROM_WORK_ORDER');
     }, { maxWait: 10000, timeout: 20000 });
   },
 

@@ -439,6 +439,12 @@ model Quotation {
   workOrderId         String?            @map("work_order_id") @db.Uuid
   /// Work Order identity captured when the work order was published.
   workOrderSnapshot   Json?              @map("work_order_snapshot") @db.JsonB
+  /// Work Order this quotation bills. Set when the quotation is created for a
+  /// contract-based Work Order (Flow 3); null for a quotation that precedes
+  /// its Work Order (Flow 1 and Flow 2).
+  sourceWorkOrderId   String?            @map("source_work_order_id") @db.Uuid
+  sourceContractId    String?            @map("source_contract_id") @db.Uuid
+  @@index([officeBranchId, sourceWorkOrderId])
   createdById         String             @map("created_by_id") @db.Uuid
   createdByName       String             @map("created_by_name")
   updatedById         String?            @map("updated_by_id") @db.Uuid

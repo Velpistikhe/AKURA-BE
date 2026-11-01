@@ -82,6 +82,16 @@ export const quotationSchemas = {
       note:{type:'string',maxLength:5000,nullable:true,description:'Optional note for this quotation item.'},
     },
   },
+  CreateQuotationFromWorkOrderRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['workOrderId', ...requiredHeader],
+    properties: {
+      workOrderId: { ...uuid, description: 'Must reference an active, COMPLETED contract-based Work Order in the authenticated branch. The Work Order contract, company, item sizes and quantities are loaded server-side; clients cannot submit them.' },
+      ...header,
+    },
+    description: 'Creates a draft billing quotation for Flow 3: WO to quotation to invoice. Work Order line items and quantities are copied from the source Work Order; the server resolves current contract prices.',
+  },
+
   CreateWorkOrderFromQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['quotationId', 'startDate', 'endDate', 'inspectors', 'items'],
     properties: {
@@ -91,11 +101,9 @@ export const quotationSchemas = {
       inspectors: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['userId', 'name'], properties: { userId: { type: 'string', format: 'uuid', description: 'ID of an inspector option returned by GET /api/v1/fieldservice/options/inspectors for the authenticated branch (an active FIELD_SERVICE user synchronized into Field Service).' }, name: { type: 'string', minLength: 1, maxLength: 255, description: 'Display name (firstName + lastName) copied from the same inspector option snapshot. Field Service re-validates the pair before storing it; duplicate userId values are rejected.' } } }, description: 'Inspector user pairs in display order; duplicates are rejected.' },
       items: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['itemSizeId'], properties: { itemSizeId: { type: 'string', format: 'uuid', description: 'Quotation item size to include in the Work Order. Must belong to this quotation and may appear only once.' } } }, description: 'Required selection of the quotation items that become Work Order lines. Only itemSizeId is accepted: quantityInspection and quantityMaintenance are copied from the quotation line itself and any quantity submitted by the client is rejected (400). A size outside the quotation is also rejected (400).' },
     },
-    example: { quotationId: '00000000-0000-4000-8000-000000000009', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [
-      { userId: '00000000-0000-4000-8000-0000000000a1', name: 'Budi Santoso' },
-      { userId: '00000000-0000-4000-8000-0000000000a2', name: 'Agus Wijaya' },
-    ], items: [{ itemSizeId: '00000000-0000-4000-8000-000000000002' }] },
+    example: { quotationId: '00000000-0000-4000-8000-000000000009', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [{ userId: '00000000-0000-4000-8000-0000000000a1', name: 'Budi Santoso' }], items: [{ itemSizeId: '00000000-0000-4000-8000-000000000002' }] },
   },
+
   CreateFinanceDocumentFromQuotationRequest: {
     type:'object',additionalProperties:false,required:['quotationId','kind','dueDate','location','purchaseOrderNumber','purchaseOrderDate'],
     description:'Quotation ID must match the URL. Requires MARKETING section, same branch, active APPROVED quotation and COMPLETED status when an active Work Order exists. Finance fetches the quotation using the forwarded token. Every invoice creation must carry the purchase order number and date.',
@@ -106,7 +114,6 @@ export const quotationSchemas = {
     type: 'object', additionalProperties: false, required: [...requiredHeader, 'items'],
     properties: { ...header, items: { type: 'array', minItems: 1, maxItems: 100, items: ref('QuotationItemInput') } },
   },
-
   UpdateQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['version'], minProperties: 2,
     description: 'Updates a CREATED quotation only. companyId is immutable and rejected; staffId may change only to an active staff member in the same company and branch. Stale versions return 409.',
@@ -293,10 +300,17 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/reject': {
     post: { ...common, summary: 'Reject a submitted quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('RejectQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation rejected', 'QuotationResponse'), 403: response('Only ADMIN users in MARKETING may reject', 'ErrorResponse'), 409: response('Quotation is not SUBMITTED or version is stale', 'ErrorResponse') } },
   },
+  '/api/v1/marketing/quotations/from-work-order': {
+    post: {
+      ...common, summary: 'Create a billing quotation from a completed contract Work Order',
+      description: 'Flow 3. Only MARKETING can create. Caller supplies workOrderId and quotation header only. Marketing fetches the Work Order from Field Service in the authenticated branch; contract, company, items and quantities are derived server-side. Work Order must be COMPLETED, contract active/APPROVED, and only one active billing quotation can exist per Work Order. Prices are resolved server-side from the contract.',
+      requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationFromWorkOrderRequest') } } },
+      responses: { ...commonErrors, 201: response('Billing quotation created from Work Order', 'QuotationResponse'), 403: response('Marketing section required', 'ErrorResponse'), 404: response('Work Order or staff not found in branch', 'ErrorResponse'), 409: response('Work Order not completed, contract inactive, or quotation already exists', 'ErrorResponse'), 503: response('Field Service unavailable', 'ErrorResponse') },
+    },
+  },
   '/api/v1/marketing/quotations': {
     get: {
       ...common, summary: 'List all quotations in the current branch',
-      description: 'Returns quotation list rows exclusively within the authenticated user office branch. List rows omit quotation items, PDF metadata, long document text and the full company snapshot; use GET detail for complete documents. Only ADMIN may view inactive quotations; other roles always use isActive=true, overriding isActive=false. Superseded inactive REVISED rows remain visible so the revision lineage is listed. Filters: date range is inclusive on the quotation date, no is exact, status and invoiceStatus are exact enum values, and company is a case-insensitive partial match on the captured company name. Pagination counts follow all enforced filters. Ordered by createdAt descending, then ID descending.',
       parameters: [
         { in: 'query', name: 'isActive', description: 'ADMIN may select either state; all other roles always receive active quotations.', schema: { type: 'string', enum: ['true', 'false'] } },
         { in: 'query', name: 'dateFrom', description: 'Inclusive quotation date lower bound.', schema: { type: 'string', format: 'date' } },
