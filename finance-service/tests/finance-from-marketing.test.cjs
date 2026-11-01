@@ -35,7 +35,7 @@ test('Unified Marketing reference endpoint fetches quotation, validates ownershi
   assert.equal((await call('POST','/taxes',{percentage:'12',effectiveFrom:'2026-01-01'})).status,403,'Marketing cannot administer taxes');
   for(const body of [{},{quotationId:quoteId,kind:'INVOICE',location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:null,location:'Jakarta'},{quotationId:quoteId,kind:'INVOICE',dueDate:'2099-12-31',location:''},{quotation,dueDate:'2026-01-01',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'}])
     assert.equal((await call('POST','/documents/from-marketing',body)).status,400);
-  invoice=await expect('POST','/documents/from-marketing',{quotation,dueDate:'2026-12-31',notes:'30 days',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'},201);
+  invoice=await expect('POST','/documents/from-marketing',{quotation,dueDate:'2026-12-31',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'},201);
   assert.equal(invoice.status,'DRAFT');assert.equal(invoice.kind,'INVOICE');assert.equal(invoice.officeBranchId,branch);
   assert.equal(invoice.quotationId,quoteId);assert.equal(invoice.quotationVersion,2);
   assert.equal(new Date(invoice.dueDate).toISOString(),'2026-12-31T00:00:00.000Z');

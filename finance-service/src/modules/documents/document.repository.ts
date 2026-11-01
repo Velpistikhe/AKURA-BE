@@ -8,7 +8,7 @@ import { HttpError } from '../../utils/httpError.js';
 import { documentCreateSchema, updateSchema, deleteSchema, listSchema } from './document.schemas.js';
 import { nextInvoiceIdentity } from '../invoices/invoice-number.js';
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
-const labels: Record<string,string> = { number: 'Document number', location: 'Location', title: 'Title', date: 'Document date', dueDate: 'Due date', notes: 'Notes', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', purchaseOrderNumber: 'Purchase order number', purchaseOrderDate: 'Purchase order date', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
+const labels: Record<string,string> = { number: 'Document number', location: 'Location', title: 'Title', date: 'Document date', dueDate: 'Due date', content: 'Report content', status: 'Status', isActive: 'Active', quotationId: 'Quotation', quotationVersion: 'Quotation version', purchaseOrderNumber: 'Purchase order number', purchaseOrderDate: 'Purchase order date', subTotal: 'Subtotal', tax: 'Tax percentage', taxSourceId: 'Tax source', taxAmount: 'Tax amount', total: 'Total' };
 const pagination = (page: number, limit: number, total: number) => ({ page, limit, total, totalPages: Math.ceil(total / limit) });
 async function saveHistory(tx: Prisma.TransactionClient, row: Document, before: Document | null, actor: Actor, action: string, reason?: string) {
   const after = json(row) as Record<string, unknown>;
@@ -35,7 +35,7 @@ async function assertBillingAllowed(tx: Prisma.TransactionClient, quotationId: s
   if (existing) throw new HttpError('Quotation already has an active invoice while its Work Order is not COMPLETED', 409);
 }
 export const documentRepository = {
-  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, notes: string | null | undefined, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location: string | null | undefined, purchaseOrderNumber: string, purchaseOrderDate: Date) {
+  async createFromMarketing(kind: DocumentKind, quotation: import('../../integrations/gateway.js').MarketingQuotation, dueDate: Date, actor: Actor, workOrder: import('../../integrations/gateway.js').WorkOrderReference | null, location: string | null | undefined, purchaseOrderNumber: string, purchaseOrderDate: Date) {
 
     if (!(dueDate instanceof Date) || !Number.isFinite(dueDate.getTime())) throw new HttpError('Payment deadline is required', 400);
     if (typeof purchaseOrderNumber !== 'string' || !purchaseOrderNumber.trim() || purchaseOrderNumber.trim().length > 100
@@ -94,7 +94,7 @@ export const documentRepository = {
         const row = await tx.document.create({ data: {
           source: 'QUOTATION', companyId: typeof quotation.companyId === 'string' ? quotation.companyId : null, companySnapshot: quotation.companySnapshot ? json(quotation.companySnapshot) : Prisma.JsonNull,
           quotationId: quotation.id, contractId, quotationVersion: quotation.version, quotationSnapshot: json(quotation), title: quotation.subject,
-          location: location ?? null, purchaseOrderNumber: purchaseOrderNumber.trim(), purchaseOrderDate, date, dueDate: dueDate ?? null, notes: notes ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
+          location: location ?? null, purchaseOrderNumber: purchaseOrderNumber.trim(), purchaseOrderDate, date, dueDate: dueDate ?? null, number: identity.number, kind, officeBranchId: actor.officeBranchId,
           subTotal, taxSourceId: tax.id, tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), status: 'DRAFT',
           workOrderTax: workOrderTax === null ? null : new Prisma.Decimal(workOrderTax),
           createdById: actor.id, createdByName: actor.name, items: { create: lines },
@@ -151,7 +151,7 @@ export const documentRepository = {
       const row = await tx.document.create({ data: { source: 'DIRECT', companyId: input.companyId, companySnapshot: json(prices.company),
         kind, officeBranchId: actor.officeBranchId, title: input.title, location: input.location ?? null, number: identity.number, date: identity.date,
         purchaseOrderNumber: input.purchaseOrderNumber, purchaseOrderDate: input.purchaseOrderDate,
-        dueDate: input.dueDate ?? null, notes: input.notes ?? null, status: 'DRAFT', subTotal, taxSourceId: tax.id,
+        dueDate: input.dueDate ?? null, status: 'DRAFT', subTotal, taxSourceId: tax.id,
         tax: tax.percentage, taxAmount, total: subTotal.plus(taxAmount), items: { create: lines }, createdById: actor.id, createdByName: actor.name } });
       return saveHistory(tx, row, null, actor, 'CREATE');
     }, { maxWait: 10000, timeout: 20000 });

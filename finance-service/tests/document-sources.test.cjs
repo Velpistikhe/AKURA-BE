@@ -78,7 +78,7 @@ test('purchase order contracts: resolved prices, purchase order fields, branch i
   offline=true;await expect('POST','/documents',{...input,kind:'INVOICE'},503);offline=false;
   profile.section='MARKETING';
   const editable=await expect('POST','/documents',{...input,kind:'INVOICE'},201);
-  const edited=await expect('PATCH','/documents/'+editable.id,{version:0,notes:'Marketing update'},200);assert.equal(edited.version,1);
+  const edited=await expect('PATCH','/documents/'+editable.id,{version:0,title:'Marketing update'},200);assert.equal(edited.version,1);
   await expect('DELETE','/documents/'+editable.id,{version:1},200);
   await expect('GET','/documents/'+editable.id,undefined,404);
   profile.section='FINANCE';

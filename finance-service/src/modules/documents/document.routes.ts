@@ -48,5 +48,5 @@ marketingDocumentRoutes.post('/from-marketing', requireMarketingCreateActor, asy
   // Work Order still active and COMPLETED. The live status is read here so an
   // invoice can never bill work that was revoked or is not finished.
   if (quotation.sourceWorkOrderId) await loadSourceWorkOrder(req, quotation.sourceWorkOrderId, actor(res).officeBranchId);
-  send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, undefined, actor(res), workOrder, input.location, input.purchaseOrderNumber, input.purchaseOrderDate), 201);
+  send(req, res, await repository.createFromMarketing(input.kind, quotation, input.dueDate, actor(res), workOrder, input.location, input.purchaseOrderNumber, input.purchaseOrderDate), 201);
 }));

@@ -4,7 +4,6 @@ const fields = {
   number: z.string().trim().min(1).max(100).transform(value => value.toUpperCase()),
   title: z.string().trim().min(1).max(255), date,
   dueDate: date.nullable().optional(),
-  notes: z.string().trim().max(20000).nullable().optional(),
   status: z.enum(['DRAFT', 'ON_PROGRESS', 'FINAL']).optional(),
 };
 export const versionSchema = z.number().int().min(0).max(2147483646);
@@ -46,7 +45,7 @@ export const documentCreateSchema = z.object({
   location: z.string().trim().min(1).max(255).nullable().optional(),
   items: z.array(z.string().uuid()).min(1).max(100)
     .refine(ids => new Set(ids.map(id => id.toLowerCase())).size === ids.length, 'Duplicate item size'),
-  dueDate: fields.dueDate, notes: fields.notes,
+  dueDate: fields.dueDate,
 }).strict();
 export const approveSchema = z.object({ version: versionSchema }).strict();
 // Number and date are server-generated for both kinds and cannot be edited.

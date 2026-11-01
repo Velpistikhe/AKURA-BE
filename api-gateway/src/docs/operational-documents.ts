@@ -19,7 +19,7 @@ for (const [name,kind] of [
 ] as const) {
   const invoice = kind === 'INVOICE';
   const fields = {number:{...text,minLength:1,maxLength:100,readOnly:true,description:'Server-generated number, unique per branch and document kind, including deleted records.'},title:{...text,minLength:1,maxLength:255},location:{...text,nullable:true,description:'Delivery location of the document. Accepted on creation and never changed afterwards.'},purchaseOrderNumber:{...text,maxLength:100,description:'Purchase order number captured on creation from the request and never changed afterwards.'},purchaseOrderDate:{...date,description:'Purchase order date captured on creation from the request and never changed afterwards.'},date,
-    dueDate:{...date,nullable:true},notes:{...text,maxLength:20000,nullable:true},status:{type:'string',enum:['DRAFT','ON_PROGRESS','FINAL'],default:'DRAFT'}};
+    dueDate:{...date,nullable:true},status:{type:'string',enum:['DRAFT','ON_PROGRESS','FINAL'],default:'DRAFT'}};
   const invoiceFields = invoice ? {
     number: {...text, readOnly:true, example:'INV/2026/000001', description:'Generated at creation from an atomic counter per branch and Jakarta calendar year. Sequence restarts at 1 each year; cancelled numbers are not reused.'},
     date: {...date, readOnly:true, description:'Server-generated current calendar day in Asia/Jakarta. Cannot be edited.'},
@@ -36,8 +36,8 @@ operationalSchemas['FinanceDocumentLineItems']={...object({id:uuid,quotationItem
 // carries a purchase order and only the item size UUIDs: Finance resolves the
 // catalog data and the current prices from Marketing for the given company.
 const kindField = {type:'string',enum:['INVOICE','PROFORMA_INVOICE']};
-operationalSchemas['FinanceDocumentCreate']=object({kind:kindField,companyId:uuid,title:{...text,minLength:1,maxLength:255},purchaseOrderNumber:{...text,minLength:1,maxLength:100},purchaseOrderDate:date,location:{...text,maxLength:255,nullable:true},items:{type:'array',minItems:1,maxItems:100,uniqueItems:true,items:uuid},dueDate:{...date,nullable:true},notes:{...text,maxLength:20000,nullable:true}},['kind','companyId','title','purchaseOrderNumber','purchaseOrderDate','items']);
-operationalSchemas['FinanceDocumentUpdate']=object({title:{...text,minLength:1,maxLength:255},dueDate:{...date,nullable:true},notes:{...text,maxLength:20000,nullable:true},status:{type:'string',enum:['DRAFT','ON_PROGRESS','FINAL']},version,reason:{...text,minLength:1,maxLength:1000}},['version']);
+operationalSchemas['FinanceDocumentCreate']=object({kind:kindField,companyId:uuid,title:{...text,minLength:1,maxLength:255},purchaseOrderNumber:{...text,minLength:1,maxLength:100},purchaseOrderDate:date,location:{...text,maxLength:255,nullable:true},items:{type:'array',minItems:1,maxItems:100,uniqueItems:true,items:uuid},dueDate:{...date,nullable:true}},['kind','companyId','title','purchaseOrderNumber','purchaseOrderDate','items']);
+operationalSchemas['FinanceDocumentUpdate']=object({title:{...text,minLength:1,maxLength:255},dueDate:{...date,nullable:true},status:{type:'string',enum:['DRAFT','ON_PROGRESS','FINAL']},version,reason:{...text,minLength:1,maxLength:1000}},['version']);
 operationalSchemas['FinanceDocumentDelete']=object({version,reason:{...text,minLength:1,maxLength:1000}},['version']);
 operationalSchemas['FinanceDocumentApprove']=object({version},['version']);
 operationalSchemas['FinanceDocumentResponse']=envelope({oneOf:[ref('Invoice'),ref('ProformaInvoice')]});

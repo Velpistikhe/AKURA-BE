@@ -32,7 +32,6 @@ model Document {
   title String @db.VarChar(255)
   date DateTime @db.Date
   dueDate DateTime? @map("due_date") @db.Date
-  notes String? @db.Text
   status DocumentStatus @default(DRAFT)
   subTotal Decimal @map("sub_total") @db.Decimal(18,2)
   taxSourceId String? @map("tax_source_id") @db.Uuid

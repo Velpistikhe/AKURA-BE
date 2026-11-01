@@ -20,7 +20,7 @@ Domain routes belong in `src/modules` and are registered in `src/routes/index.ts
 
 ### Create invoice or proforma invoice from an approved quotation
 
-Marketing can create a Finance document from the full approved quotation. The quotation snapshot is resolved server-side; clients choose the document kind, optional payment deadline, and notes:
+Marketing can create a Finance document from the full approved quotation. The quotation snapshot is resolved server-side; clients choose the document kind and optional payment deadline:
 
 `POST /api/v1/marketing/quotations/{quotationId}/invoices`
 
@@ -30,7 +30,7 @@ Marketing can create a Finance document from the full approved quotation. The qu
 
 `kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate`, `location`, `purchaseOrderNumber` and `purchaseOrderDate` are required. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards the quotation reference and required PO data to Finance.
 
-Finance exposes `POST /api/v1/finance/documents/from-marketing`. This endpoint accepts the full quotation snapshot, optional `dueDate` and `notes`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
+Finance exposes `POST /api/v1/finance/documents/from-marketing`. This endpoint accepts the full quotation snapshot and an optional `dueDate`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
 
 Finance users approve a draft with `POST /api/v1/finance/documents/{id}/approve` and body `{"version":0}`. This atomically changes `DRAFT` to `ON_PROGRESS` and appends an `APPROVE` history entry. Stale versions or non-draft documents return 409.
 
@@ -38,7 +38,7 @@ Finance users approve a draft with `POST /api/v1/finance/documents/{id}/approve`
 
 Invoices and proforma invoices share one collection, `/api/v1/finance/documents`, and one table, `billing_documents`, distinguished by `DocumentKind`. The kind travels in the request payload instead of the URL, so one endpoint creates either kind and one endpoint lists, reads, updates, deletes, approves and audits both kinds.
 
-`POST /api/v1/finance/documents` creates a document from a purchase order. It accepts `kind` (`INVOICE` or `PROFORMA_INVOICE`), `companyId`, `title`, `purchaseOrderNumber`, `purchaseOrderDate` and `items`, plus an optional `dueDate`, `notes` and `location`:
+`POST /api/v1/finance/documents` creates a document from a purchase order. It accepts `kind` (`INVOICE` or `PROFORMA_INVOICE`), `companyId`, `title`, `purchaseOrderNumber`, `purchaseOrderDate` and `items`, plus an optional `dueDate` and `location`:
 
 ```json
 {"kind":"PROFORMA_INVOICE","companyId":"00000000-0000-4000-8000-000000000001","title":"Purchase order invoice","purchaseOrderNumber":"PO/2026/000001","purchaseOrderDate":"2026-01-15","items":["00000000-0000-4000-8000-000000000002"],"dueDate":null}
