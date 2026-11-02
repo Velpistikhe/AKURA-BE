@@ -253,7 +253,7 @@ test('Work order HTTP CRUD, contract resolution, lean snapshots, inspectors, bra
   // The document basis is IDs only: companyId is no longer accepted at all.
   for(const invalid of [{companyId},{companyId:randomUUID()},{companyId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
   // An empty basis is rejected; supplying more than one basis is allowed and quotation takes precedence in resolveBasis.
-  for(const invalid of [{contractId:null},{contractId:null,quotationId:null},{contractId:null,quotationId:null,performaInvoiceId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
+  for(const invalid of [{contractId:null},{contractId:null,quotationId:null}])await request('POST','/work-orders',{...raw,...invalid},400);
   // A quotation basis still requires endDate and inspectors of its own.
    const quotationBasis={contractId:null,quotationId:quoteId,startDate:'2026-10-15',endDate:'2026-10-20',inspectors:inspectorPairs,items:[{itemSizeId:quotationItemSizeId,quantityInspection:1,quantityMaintenance:0}]};
   await request('POST','/work-orders',{...quotationBasis,endDate:undefined},400);

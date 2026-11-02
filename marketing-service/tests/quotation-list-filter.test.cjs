@@ -28,13 +28,13 @@ test('all list filters compose inside the office branch scope', () => {
   const dateFrom = new Date('2026-01-01T00:00:00.000Z');
   const dateTo = new Date('2026-01-31T00:00:00.000Z');
   const where = buildQuotationListWhere(
-    { ...base, dateFrom, dateTo, no: 12, status: 'APPROVED', company: 'akura', invoiceStatus: 'SEND' },
+    { ...base, dateFrom, dateTo, no: 12, status: 'APPROVED', company: 'akura' },
     branch,
     ['company-id'],
   );
   assert.deepEqual(where, {
     officeBranchId: branch,
-    AND: [{ date: { gte: dateFrom, lte: dateTo }, no: 12, status: 'APPROVED', invoiceStatus: 'SEND', id: { in: ['company-id'] } }],
+    AND: [{ date: { gte: dateFrom, lte: dateTo }, no: 12, status: 'APPROVED', id: { in: ['company-id'] } }],
   });
 });
 

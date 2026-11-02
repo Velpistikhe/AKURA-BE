@@ -3,15 +3,13 @@ import { z } from 'zod';
 import { Actor, requireActor, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { createFinanceDocument, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
-const financeCreateSchema = z.object({ quotationId: z.string().uuid(), kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']), dueDate: z.string().date(), location: z.string().trim().min(1).max(255), purchaseOrderNumber: z.string().trim().min(1).max(100), purchaseOrderDate: z.string().date() }).strict();
-type BasisInput = { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null };
+type BasisInput = { quotationId?: string | null; contractId?: string | null };
 // The payload carries IDs only. Quotation and contract content is fetched live from
 // Marketing and validated (branch, APPROVED state, contract effective period) before
-// being reduced to the stored snapshot. A performa invoice basis carries only its ID,
-// so no upstream lookup is made for it.
+// being reduced to the stored snapshot.
 const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
   if (body.quotationId) return loadQuotationForBasis(req, body.quotationId, branch);
   if (body.contractId) return loadContract(req, body.contractId, branch);
@@ -20,26 +18,12 @@ const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => res.status(status).json({ status, success: true, message: 'Request completed successfully', data, requestId: req.headers['x-request-id'] });
-// Read-only reference used by Finance while billing a quotation. It exposes
-// the Work Order status and the stored quotation snapshot (tax rate only).
+// Read-only reference used by Marketing to check whether a quotation still
+// backs a live Work Order before it is revised or deleted. It exposes the
+// Work Order identity and status only.
 router.get('/by-quotation/:quotationId', requireWorkOrderReferenceActor, asyncHandler(async (req, res) => {
   const quotationId = z.string().uuid().parse(req.params.quotationId);
   send(req, res, await repository.findActiveByQuotation(quotationId, actor(res)));
-}));
-// Read-only Work Order lookup by id. A Flow 3 billing quotation points at its
-// contract Work Order through sourceWorkOrderId, and Finance reads the live
-// status here to require COMPLETED before an invoice is issued. Returns the
-// reduced reference shape (or null) and never exposes price or inspector data.
-router.get('/by-id/:id', requireWorkOrderReferenceActor, asyncHandler(async (req, res) => {
-  const id = workOrderIdSchema.parse(req.params.id);
-  send(req, res, await repository.findReferenceById(id, actor(res)));
-}));
-// Create invoice/proforma invoice from quotation via Finance; Marketing still
-// owns quotation checks and Finance creates the financial document.
-router.post('/invoices/from-quotation', requireActor, requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
-  const input = financeCreateSchema.parse(req.body);
-  const data = await createFinanceDocument(req, input);
-  send(req, res, data, 201);
 }));
 router.use(requireActor);
 router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
@@ -73,7 +57,7 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
 router.patch('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   await repository.get(id, actor(res));
-  const quotation = (input.quotationId !== undefined || input.contractId !== undefined || input.performaInvoiceId !== undefined)
+  const quotation = (input.quotationId !== undefined || input.contractId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;
   send(req, res, await repository.update(id, input, quotation, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
 }));

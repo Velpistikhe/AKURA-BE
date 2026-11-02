@@ -12,7 +12,7 @@ type WorkOrderSnapshot = Prisma.WorkOrderGetPayload<{ include: typeof include }>
 const historyLabels: Record<string, string> = {
   number: 'Work order number', date: 'Document date', quotationId: 'Quotation',
   quotationSnapshot: 'Quotation snapshot', contractId: 'Contract',
-  contractSnapshot: 'Contract snapshot', performaInvoiceId: 'Performa invoice', items: 'Items', startDate: 'Start date', endDate: 'End date',
+  contractSnapshot: 'Contract snapshot', items: 'Items', startDate: 'Start date', endDate: 'End date',
   status: 'Status', revoked: 'Revoked', inspectors: 'Inspectors',
 };
 const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', START: 'Work order started', REVOKE: 'Work order deleted' };
@@ -83,23 +83,19 @@ async function resolveInspectorUsers(tx: Prisma.TransactionClient, inspectors: {
  * only a reduced snapshot is stored: a contract keeps its number, dates and company
  * identity, a quotation keeps its identity and descriptive content without any price.
  */
-function reference(input: { quotationId?: string | null; contractId?: string | null; performaInvoiceId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
-  const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull, performaInvoiceId: null };
-  if (Number(!!input.quotationId) + Number(!!input.contractId) + Number(!!input.performaInvoiceId) < 1) throw new HttpError('At least one quotationId, contractId or performaInvoiceId is required', 400);
+function reference(input: { quotationId?: string | null; contractId?: string | null }, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+  const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };
+  if (Number(!!input.quotationId) + Number(!!input.contractId) < 1) throw new HttpError('At least one quotationId or contractId is required', 400);
   if (input.quotationId) {
     const quote = source as QuotationSnapshot | null;
     if (!quote || quote.id !== input.quotationId || quote.officeBranchId !== actor.officeBranchId || !quote.isActive || quote.status !== 'APPROVED') throw new HttpError('An APPROVED quotation in this branch is required', 409);
     return { ...cleared, quotationId: quote.id, quotationSnapshot: json(toQuotationSnapshot(quote)) };
   }
-  if (input.contractId) {
-    const contract = source as ContractSnapshot | null;
-    if (!contract || contract.id !== input.contractId
-      || contract.company?.id !== contract.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
-    validateContract(contract);
-    return { ...cleared, contractId: contract.id, contractSnapshot: json(toContractSnapshot(contract)) };
-  }
-  // Performa invoice basis carries only the ID; no Marketing snapshot is resolved for it.
-  return { ...cleared, performaInvoiceId: input.performaInvoiceId ?? null };
+  const contract = source as ContractSnapshot | null;
+  if (!contract || contract.id !== input.contractId
+    || contract.company?.id !== contract.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
+  validateContract(contract);
+  return { ...cleared, contractId: contract.id, contractSnapshot: json(toContractSnapshot(contract)) };
 }
 function checkDates(startDate: Date, endDate?: Date | null) {
   if (endDate && endDate < startDate) throw new HttpError('End date cannot precede start date', 400);
@@ -236,7 +232,7 @@ export const workOrderRepository = {
   },
   async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor,
     itemReferences?: Array<CreateWorkOrderInput['items'][number] & { snapshot: ItemSizeReference }>) {
-    const { inspectors = [], items, quotationId: _quotationId, contractId: _contractId, performaInvoiceId: _performaInvoiceId, ...fields } = input;
+    const { inspectors = [], items, quotationId: _quotationId, contractId: _contractId, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
     // The item description is never client-supplied. A quotation basis resolves it
@@ -297,22 +293,7 @@ export const workOrderRepository = {
   async findActiveByQuotation(quotationId: string, actor: Actor) {
     return prisma.workOrder.findFirst({ where: { quotationId, officeBranchId: actor.officeBranchId, revoked: false },
       select: { id: true, quotationId: true, officeBranchId: true, revoked: true, number: true, status: true, version: true,
-        // The contract the Work Order is based on is the second billing identity
-        // of the quotation, so Finance can refuse a second invoice for it.
-        contractId: true,
-        // The tax rate approved on the quotation is part of the stored snapshot and
-        // is exposed so a billing service can compare it against its own record.
-        quotationSnapshot: true } });
-  },
-  /**
-   * Read-only Work Order lookup by id for billing verification. A Flow 3
-   * quotation bills a contract Work Order through its sourceWorkOrderId, and
-   * Finance/Marketing read the live status here to enforce COMPLETED before an
-   * invoice is issued. The reduced shape carries no price or inspector data.
-   */
-  async findReferenceById(id: string, actor: Actor) {
-    return prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId },
-      select: { id: true, officeBranchId: true, revoked: true, number: true, status: true, version: true, quotationId: true, contractId: true } });
+        contractId: true, quotationSnapshot: true } });
   },
   async get(id: string, actor: Actor) {
     const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
@@ -320,9 +301,9 @@ export const workOrderRepository = {
     return workOrder;
   },
   async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
-    const { version, inspectors, quotationId, contractId, performaInvoiceId, ...fields } = input;
-    const quotation = (quotationId !== undefined || contractId !== undefined || performaInvoiceId !== undefined)
-      ? reference({ quotationId, contractId, performaInvoiceId }, quote, actor) : {};
+    const { version, inspectors, quotationId, contractId, ...fields } = input;
+    const quotation = (quotationId !== undefined || contractId !== undefined)
+      ? reference({ quotationId, contractId }, quote, actor) : {};
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
       const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },

@@ -73,8 +73,8 @@ async function main() {
     await request('POST', '/quotations', quote(staff.id, [{ ...line(normal), unitPrice: '1' }]), 400);
     await request('GET', `/items/sizes/prices?companyId=${company.id}`, undefined, 404, otherBranch);
     const companyOnly = await request('POST', '/quotations', { ...quote(staff.id, [{ ...line(normal), quantityMaintenance: 0 }]), companyId: company.id }, 201);
-    assert.equal(companyOnly.status, 'CREATED'); assert.equal(companyOnly.invoiceStatus, null);
-    for (const fields of [{status:'CREATED'},{status:'APPROVED'},{invoiceStatus:null},{invoiceStatus:'APPROVED'}]) {
+    assert.equal(companyOnly.status, 'CREATED');
+    for (const fields of [{status:'CREATED'},{status:'APPROVED'}]) {
       await request('POST','/quotations',{...quote(staff.id,[line(normal)]),...fields},400);
     }
     assert.equal((await request('GET',`/quotations/${companyOnly.id}`)).version,companyOnly.version);

@@ -14,7 +14,6 @@ formats and business lifecycle rules remain in place.
 | Marketing | Quotations and quotation items | `isActive=false`; current versions, branch, lifecycle and history. Quotation deletion rejects active Work Orders using local linkage plus live Field Service validation. Field Service failure prevents deletion. |
 | Marketing | Company contracts | `isDeleted=true`; only DRAFT/REJECTED, current version, branch lock and history; repeated deletion is rejected. |
 | Field Service | Work Orders | `revoked=true`; current version, branch, permitted lifecycle and history. A quotation-based order must notify Marketing successfully before commit. |
-| Finance | Proforma invoices and invoices | `isActive=false`; current version, document kind, branch and history in the same transaction. |
 | Auth | None | No public data DELETE endpoint exists. Logout/token revocation remains an authentication lifecycle operation. |
 | API Gateway | None | Proxies requests and publishes the API contract; owns no deletable business data. |
 

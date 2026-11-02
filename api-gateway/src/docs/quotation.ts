@@ -60,10 +60,6 @@ export const quotationSchemas = {
     type:'object',readOnly:true,description:'Server-generated source and version snapshot; never submitted by clients.',
     properties:{quantityModel:{type:'string',enum:['DUAL']},priceSource:{type:'string',enum:['CONTRACT','PRIMARY','SISTER_COMPANY']},priceId:uuid,priceVersion:{type:'integer'},contractId:{...uuid,nullable:true},contractVersion:{type:'integer',nullable:true},sizeVersion:{type:'integer'},itemVersion:{type:'integer'},serviceVersion:{type:'integer'}},
   },
-  InvoiceStatus: {
-    type: 'string', nullable: true, enum: ['CREATED', 'SEND', 'APPROVED', 'COMPLETE', 'CANCELED', 'EXPIRED', null],
-    description: 'Invoice status managed by the server. Initialized to null on creation; not accepted in POST or PATCH requests.',
-  },
   InquiryMethod: {
     type: 'string', enum: ['EMAIL', 'WHATSAPP', 'VERBAL', 'JOB_ORDER_REQUEST'],
     description: 'Inquiry channel. Values are case-sensitive.',
@@ -74,7 +70,7 @@ export const quotationSchemas = {
   },
   QuotationItemInput: {
     type:'object',additionalProperties:false,required:['itemSizeId','quantityInspection'],
-    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server re-resolves current company prices in the transaction: an effective contract price from the company’s active APPROVED contract is used when available for the size; otherwise primary/sister pricing applies. Prices, source tokens and priceKind are rejected. discount is an optional per-item percentage (default 0, range 0-100 with at most two decimals). The server re-resolves priceInspection and priceMaintenance, then calculates each net unit price as price - (price * discount / 100), rounded to two decimals. The effective unit price cannot be negative. Line subTotal and quotation totals are recalculated from the discounted unit prices.',
+    description:'One row per size with two quantities. Items may belong to a service or be standalone; standalone item scopes are snapshotted into the quotation. Maintenance may be omitted or zero; at least one quantity must be positive. Server re-resolves current company prices in the transaction: an effective contract price from the companyÃ¢â‚¬â„¢s active APPROVED contract is used when available for the size; otherwise primary/sister pricing applies. Prices, source tokens and priceKind are rejected. discount is an optional per-item percentage (default 0, range 0-100 with at most two decimals). The server re-resolves priceInspection and priceMaintenance, then calculates each net unit price as price - (price * discount / 100), rounded to two decimals. The effective unit price cannot be negative. Line subTotal and quotation totals are recalculated from the discounted unit prices.',
     properties:{ itemSizeId:uuid,
       quantityInspection:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],example:'2'},
       quantityMaintenance:{oneOf:[{type:'string',pattern:'^\\d{1,12}(\\.\\d{1,3})?$'},{type:'number',minimum:0,multipleOf:0.001,maximum:999999999999.999}],default:'0',example:'0'},
@@ -82,16 +78,6 @@ export const quotationSchemas = {
       note:{type:'string',maxLength:5000,nullable:true,description:'Optional note for this quotation item.'},
     },
   },
-  CreateQuotationFromWorkOrderRequest: {
-    type: 'object', additionalProperties: false,
-    required: ['workOrderId', ...requiredHeader],
-    properties: {
-      workOrderId: { ...uuid, description: 'Must reference an active, COMPLETED contract-based Work Order in the authenticated branch. The Work Order contract, company, item sizes and quantities are loaded server-side; clients cannot submit them.' },
-      ...header,
-    },
-    description: 'Creates a draft billing quotation for Flow 3: WO to quotation to invoice. Work Order line items and quantities are copied from the source Work Order; the server resolves current contract prices.',
-  },
-
   CreateWorkOrderFromQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['quotationId', 'startDate', 'endDate', 'inspectors', 'items'],
     properties: {
@@ -104,12 +90,7 @@ export const quotationSchemas = {
     example: { quotationId: '00000000-0000-4000-8000-000000000009', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [{ userId: '00000000-0000-4000-8000-0000000000a1', name: 'Budi Santoso' }], items: [{ itemSizeId: '00000000-0000-4000-8000-000000000002' }] },
   },
 
-  CreateFinanceDocumentFromQuotationRequest: {
-    type:'object',additionalProperties:false,required:['quotationId','kind','dueDate','location','purchaseOrderNumber','purchaseOrderDate'],
-    description:'Quotation ID must match the URL. Requires MARKETING section, same branch, active APPROVED quotation and COMPLETED status when an active Work Order exists. Finance fetches the quotation using the forwarded token. Every invoice creation must carry the purchase order number and date.',
-    properties:{quotationId:uuid,kind:{type:'string',enum:['INVOICE','PROFORMA_INVOICE']},dueDate:{type:'string',format:'date'},location:{type:'string',minLength:1,maxLength:255},purchaseOrderNumber:{type:'string',minLength:1,maxLength:100},purchaseOrderDate:{type:'string',format:'date'}},
-    example:{quotationId:'00000000-0000-4000-8000-000000000001',kind:'INVOICE',dueDate:'2026-12-31',location:'Jakarta',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15'},
-  },
+
   CreateQuotationRequest: {
     type: 'object', additionalProperties: false, required: [...requiredHeader, 'items'],
     properties: { ...header, items: { type: 'array', minItems: 1, maxItems: 100, items: ref('QuotationItemInput') } },
@@ -135,7 +116,7 @@ export const quotationSchemas = {
     },
   },
   Quotation: {
-    type: 'object', required: [...Object.keys(header).filter(key=>key!=='companyId'), 'date', 'no', 'numberYear', 'id', 'officeBranchId', 'customerSnapshot', 'companySnapshot', 'status', 'invoiceStatus', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'items', ...Object.keys(audit)],
+    type: 'object', required: [...Object.keys(header).filter(key=>key!=='companyId'), 'date', 'no', 'numberYear', 'id', 'officeBranchId', 'customerSnapshot', 'companySnapshot', 'status', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'items', ...Object.keys(audit)],
     properties: {
       ...Object.fromEntries(Object.entries(header).filter(([key])=>key!=='companyId')),
       tax: { type: 'string', readOnly: true, example: '11.25', description: 'Snapshot percentage selected from synchronized branch tax on creation.' },
@@ -144,7 +125,6 @@ export const quotationSchemas = {
       previousQuotationId: { ...uuid, nullable: true, readOnly: true, description: 'Previous approved quotation replaced by this revision.' },
       pdfDocument: { allOf: [ref('QuotationPdf')], nullable: true, readOnly: true },
       pdf: { type: 'object', readOnly: true, description: 'Included by GET detail and approval when a PDF exists.', properties: { url: { type: 'string', format: 'uri' }, expiresAt: timestamp } },
-      invoiceStatus: { allOf: [ref('InvoiceStatus')], nullable: true, readOnly: true },
       no: { type: 'integer', nullable: true, minimum: 1, maximum: 2147483647, readOnly: true, description: 'Null for drafts. Assigned only on approval; approved revisions reuse the previous number.' },
       numberYear: { type: 'integer', nullable: true, readOnly: true, description: 'Null for drafts. First approval year in Asia/Jakarta; revisions retain the original year.' },
       date: { ...timestamp, nullable: true, readOnly: true, description: 'Server-managed Asia/Jakarta calendar date serialized at UTC midnight. Set on creation and refreshed when the first number is assigned at approval; revisions retain the original numbered quotation date.' },
@@ -163,11 +143,11 @@ export const quotationSchemas = {
   },
   QuotationListRow: {
     type: 'object',
-    required: ['id', 'officeBranchId', 'date', 'no', 'numberYear', 'subject', 'customerSnapshot', 'companyId', 'companyName', 'status', 'invoiceStatus', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'createdAt', 'updatedAt'],
+    required: ['id', 'officeBranchId', 'date', 'no', 'numberYear', 'subject', 'customerSnapshot', 'companyId', 'companyName', 'status', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'createdAt', 'updatedAt'],
     properties: {
       id: uuid, officeBranchId: uuid, date: { ...timestamp, nullable: true }, no: { type: 'integer', nullable: true }, numberYear: { type: 'integer', nullable: true },
       subject: text, customerSnapshot: { type: 'string' }, companyId: { ...uuid, nullable: true }, companyName: { type: 'string', nullable: true },
-      status: ref('QuotationStatus'), invoiceStatus: ref('InvoiceStatus'), subTotal: money, taxAmount: money, total: money,
+      status: ref('QuotationStatus'), subTotal: money, taxAmount: money, total: money,
       version: { type: 'integer' }, revision: { type: 'integer' }, isActive: { type: 'boolean' }, createdAt: timestamp, updatedAt: timestamp,
       hasWorkOrder: { type: 'boolean', readOnly: true, description: 'True while this quotation has a live Work Order.' },
       workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, readOnly: true, description: 'Latest Field Service Work Order status. Null when no active Work Order is linked or its status is CANCELED.' },
@@ -181,11 +161,11 @@ export const quotationSchemas = {
   }),
   QuotationReferenceRow: {
     type: 'object',
-    required: ['id', 'officeBranchId', 'date', 'no', 'numberYear', 'subject', 'customerSnapshot', 'companyId', 'companyName', 'status', 'invoiceStatus', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'createdAt', 'updatedAt', 'approvedAt'],
+    required: ['id', 'officeBranchId', 'date', 'no', 'numberYear', 'subject', 'customerSnapshot', 'companyId', 'companyName', 'status', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'createdAt', 'updatedAt', 'approvedAt'],
     properties: {
       id: uuid, officeBranchId: uuid, date: { ...timestamp, nullable: true }, no: { type: 'integer', nullable: true }, numberYear: { type: 'integer', nullable: true },
       subject: text, customerSnapshot: { type: 'string' }, companyId: { ...uuid, nullable: true }, companyName: { type: 'string', nullable: true },
-      status: ref('QuotationStatus'), invoiceStatus: ref('InvoiceStatus'), subTotal: money, taxAmount: money, total: money,
+      status: ref('QuotationStatus'), subTotal: money, taxAmount: money, total: money,
       version: { type: 'integer' }, revision: { type: 'integer' }, isActive: { type: 'boolean' }, createdAt: timestamp, updatedAt: timestamp,
       hasWorkOrder: { type: 'boolean', readOnly: true, description: 'True while this quotation has a live Work Order.' },
       workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, readOnly: true, description: 'Latest Field Service Work Order status. Null when no active Work Order is linked or its status is CANCELED.' },
@@ -259,14 +239,6 @@ export const quotationPaths = {
       responses: { 200: { description: 'Quotation PDF preview', content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } } }, ...commonErrors, 404: response('Active quotation not found in this branch', 'ErrorResponse') },
     },
   },
-  '/api/v1/marketing/quotations/{quotationId}/invoices': {
-    post: {
-      ...common, summary: 'Create a DRAFT invoice or proforma invoice from an approved quotation', parameters: [idParameter],
-      description: 'Requires MARKETING section and an active APPROVED quotation in the actor branch. Body quotationId must match the URL. Validates live Work Order status: if present it must be COMPLETED. Forwards quotationId, kind, dueDate, location, purchaseOrderNumber and purchaseOrderDate to POST /finance/documents/from-marketing with the user token. Finance fetches and validates the quotation again. dueDate, location, purchaseOrderNumber and purchaseOrderDate are required; dueDate cannot precede the document date. Creates DRAFT header and priced items.',
-      requestBody: { required: true, content: { 'application/json': { schema: ref('CreateFinanceDocumentFromQuotationRequest') } } },
-      responses: { ...commonErrors, 201: response('DRAFT invoice or proforma invoice created by Finance', 'FinanceDocumentResponse'), 400: response('Invalid document kind, deadline or request body', 'ErrorResponse'), 404: response('Active quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation is not APPROVED or its version and items no longer match Marketing', 'ErrorResponse'), 503: response('Finance Service is unavailable', 'ErrorResponse') },
-    },
-  },
 
   '/api/v1/marketing/quotations/{quotationId}/work-orders': {
     post: {
@@ -300,14 +272,6 @@ export const quotationPaths = {
   '/api/v1/marketing/quotations/{quotationId}/reject': {
     post: { ...common, summary: 'Reject a submitted quotation', parameters: [idParameter], requestBody: { required: true, content: { 'application/json': { schema: ref('RejectQuotationRequest') } } }, responses: { ...commonErrors, 200: response('Quotation rejected', 'QuotationResponse'), 403: response('Only ADMIN users in MARKETING may reject', 'ErrorResponse'), 409: response('Quotation is not SUBMITTED or version is stale', 'ErrorResponse') } },
   },
-  '/api/v1/marketing/quotations/from-work-order': {
-    post: {
-      ...common, summary: 'Create a billing quotation from a completed contract Work Order',
-      description: 'Flow 3. Only MARKETING can create. Caller supplies workOrderId and quotation header only. Marketing fetches the Work Order from Field Service in the authenticated branch; contract, company, items and quantities are derived server-side. Work Order must be COMPLETED, contract active/APPROVED, and only one active billing quotation can exist per Work Order. Prices are resolved server-side from the contract.',
-      requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationFromWorkOrderRequest') } } },
-      responses: { ...commonErrors, 201: response('Billing quotation created from Work Order', 'QuotationResponse'), 403: response('Marketing section required', 'ErrorResponse'), 404: response('Work Order or staff not found in branch', 'ErrorResponse'), 409: response('Work Order not completed, contract inactive, or quotation already exists', 'ErrorResponse'), 503: response('Field Service unavailable', 'ErrorResponse') },
-    },
-  },
   '/api/v1/marketing/quotations': {
     get: {
       ...common, summary: 'List all quotations in the current branch',
@@ -318,7 +282,6 @@ export const quotationPaths = {
         { in: 'query', name: 'no', description: 'Exact quotation number. Drafts with null number are excluded when supplied.', schema: { type: 'integer', minimum: 1, maximum: 2147483647 } },
         { in: 'query', name: 'status', schema: ref('QuotationStatus') },
         { in: 'query', name: 'company', description: 'Case-insensitive partial match on companySnapshot.name.', schema: { type: 'string', minLength: 1, maxLength: 255 } },
-        { in: 'query', name: 'invoiceStatus', schema: ref('InvoiceStatus') },
         { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
         { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
       ],
@@ -326,7 +289,7 @@ export const quotationPaths = {
     },
     post: {
       ...common, summary: 'Create a quotation with items',
-      description: 'Creates the quotation, 1-100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, invoiceStatus, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. Item prices are resolved server-side: an active APPROVED contract with an effective contract price for the size stores CONTRACT pricing (priceSelection.contractId/priceId); otherwise primary or sister-company pricing is stored. The server initializes status to CREATED and invoiceStatus to null. Line subtotals are rounded to two decimals before summing; the optional discount percentage of each item (0-100, at most two decimals) is applied to the resolved inspection and maintenance unit prices first as netPrice = price - (price * discount / 100), then taxAmount = subTotal * tax / 100, total = subTotal + taxAmount.',
+      description: 'Creates the quotation, 1-100 items, totals, customer/catalog snapshots, and history atomically. Creates an unnumbered draft with no=null, numberYear=null and pdfDocument=null; it does not touch the sequence. Numbers are assigned only by approval. Select companyId and itemSizeId within the current branch; staffId is optional and must belong to that company. date is set to today in Asia/Jakarta; any supplied date is ignored on create and update. tax, status, no, numberYear, item IDs, audit fields, and totals cannot be supplied. Tax is selected from local branch configuration effective today in Asia/Jakarta at creation; missing configuration returns 503. Item prices are resolved server-side: an active APPROVED contract with an effective contract price for the size stores CONTRACT pricing (priceSelection.contractId/priceId); otherwise primary or sister-company pricing is stored. The server initializes status to CREATED. Line subtotals are rounded to two decimals before summing; the optional discount percentage of each item (0-100, at most two decimals) is applied to the resolved inspection and maintenance unit prices first as netPrice = price - (price * discount / 100), then taxAmount = subTotal * tax / 100, total = subTotal + taxAmount.',
       requestBody: { required: true, content: { 'application/json': { schema: ref('CreateQuotationRequest') } } },
       responses: { ...commonErrors, 201: response('Quotation created with items', 'QuotationResponse'), 404: response('Company staff or catalog size not found or inactive in this branch', 'ErrorResponse'), 409: response('Number limit reached or quotation numbering conflict', 'ErrorResponse') },
     },

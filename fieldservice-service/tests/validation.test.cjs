@@ -24,7 +24,7 @@ test('Marketing contract lifecycle and date-only references normalize without an
 test('Work Order quantities reject precision loss/overflow and item lines accept only size and quantities', () => {
   const itemSizeId = randomUUID();
   const item = { itemSizeId, quantityInspection: 1, quantityMaintenance: 0 };
-  const input = { performaInvoiceId: randomUUID(), startDate: '2030-01-01', inspectors: [{ userId: randomUUID(), name: 'Inspector' }], items: [item] };
+  const input = { contractId: randomUUID(), startDate: '2030-01-01', inspectors: [{ userId: randomUUID(), name: 'Inspector' }], items: [item] };
   for (const field of ['quantityInspection', 'quantityMaintenance']) {
     for (const value of [0.0001, 1000000000000, -1, Infinity, NaN]) assert.equal(createWorkOrderSchema.safeParse({ ...input, items: [{ ...item, [field]: value }] }).success, false, `${field}=${value}`);
     for (const value of [0, 0.001, 1.234, 999999999999.999]) assert.equal(createWorkOrderSchema.safeParse({ ...input, items: [{ ...item, [field]: value }] }).success, true, `${field}=${value}`);

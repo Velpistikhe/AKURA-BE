@@ -4,7 +4,7 @@ const { withQuotationFixture } = require('./quotation-fixture.cjs');
 const { quotationRepository: repo } = require('../dist/modules/quotations/quotation.repository.js');
 withQuotationFixture(async ({ branch, actor, company, service, itemSizeId, input, prisma }) => {
   const quote = await repo.create(input, branch, actor);
-  assert.equal(quote.no, null); assert.equal(quote.revision, 0); assert.equal(quote.status, 'CREATED'); assert.equal(quote.invoiceStatus, null);
+  assert.equal(quote.no, null); assert.equal(quote.revision, 0); assert.equal(quote.status, 'CREATED');
   assert.equal(quote.subTotal.toString(), '250.63'); assert.equal(quote.taxAmount.toString(), '27.57'); assert.equal(quote.total.toString(), '278.2');
   assert.equal(quote.companySnapshot.staffTitle, 'mr'); assert.equal(quote.items[0].note, 'Initial item note');
   await prisma.company.update({ where: { id: company.id }, data: { name: 'Renamed company' } });
@@ -16,7 +16,7 @@ withQuotationFixture(async ({ branch, actor, company, service, itemSizeId, input
   let current = await repo.find(quote.id, branch);
   assert.equal(current.version, 1); assert.equal(current.revision, 0); assert.equal(current.items[0].itemName, 'Pipe'); assert.deepEqual(current.companySnapshot, quote.companySnapshot);
   const before = JSON.stringify(current);
-  for (const fields of [{ status: 'APPROVED' }, { invoiceStatus: 'SEND' }, { revision: 99 }, { items: input.items }, { tax: 99 }]) await assert.rejects(repo.update(quote.id, { version: current.version, ...fields }, branch, actor));
+  for (const fields of [{ status: 'APPROVED' }, { revision: 99 }, { items: input.items }, { tax: 99 }]) await assert.rejects(repo.update(quote.id, { version: current.version, ...fields }, branch, actor));
   await assert.rejects(repo.addItem(quote.id, { version: current.version, itemSizeId: randomUUID(), quantityInspection: '1' }, branch, actor), error => error.statusCode === 404);
   assert.equal(JSON.stringify(await repo.find(quote.id, branch)), before, 'failed writes must roll back versions and snapshots');
   await assert.rejects(repo.addItem(quote.id, { version: current.version, itemSizeId, quantityInspection: '1' }, branch, actor), error => error.statusCode === 409);

@@ -16,14 +16,14 @@ withQuotationFixture(async ({ branch, actor, input, prisma }) => {
   };
   try {
     for (const key of ['staffId', 'deliveryInvoice', 'jobStart', 'items']) { const invalid = { ...input }; delete invalid[key]; await request('POST', '/quotations', invalid, 400); }
-    for (const field of ['status', 'invoiceStatus', 'revision', 'no', 'createdById', 'tax']) await request('POST', '/quotations', { ...input, [field]: field === 'status' ? 'APPROVED' : 1 }, 400);
+    for (const field of ['status', 'revision', 'no', 'createdById', 'tax']) await request('POST', '/quotations', { ...input, [field]: field === 'status' ? 'APPROVED' : 1 }, 400);
     for (const inquiryMethod of ['email', 'unknown', null, 1]) await request('POST', '/quotations', { ...input, inquiryMethod }, 400);
     for (const items of [[], [{ ...input.items[0], quantityInspection: '-1' }], [{ ...input.items[0], unitPrice: '1' }], [input.items[0], input.items[0]]]) await request('POST', '/quotations', { ...input, items }, 400);
     await request('POST', '/quotations', { ...input, items: [{ ...input.items[0], itemSizeId: randomUUID() }] }, 404);
     assert.equal(await prisma.quotation.count({ where: { officeBranchId: branch } }), 0);
     for (const inquiryMethod of ['EMAIL', 'WHATSAPP', 'VERBAL', 'JOB_ORDER_REQUEST']) {
       const quote = await request('POST', '/quotations', { ...input, inquiryMethod }, 201);
-      assert.equal(quote.inquiryMethod, inquiryMethod); assert.equal(quote.status, 'CREATED'); assert.equal(quote.invoiceStatus, null); assert.equal(quote.no, null);
+      assert.equal(quote.inquiryMethod, inquiryMethod); assert.equal(quote.status, 'CREATED'); assert.equal(quote.no, null);
       const path = `/quotations/${quote.id}`;
       await request('GET', path, undefined, 200); await request('GET', path, undefined, 404, randomUUID());
       await request('DELETE', path, { version: quote.version }, 404, randomUUID()); await request('DELETE', path, { version: quote.version + 1 }, 409);
@@ -31,7 +31,7 @@ withQuotationFixture(async ({ branch, actor, input, prisma }) => {
       assert.equal(removed.isActive, false); assert.equal((await request('GET', path, undefined, 200)).isActive, false);
       await request('DELETE', path, { version: removed.version }, 404); await request('PATCH', path, { version: removed.version, subject: 'Inactive' }, 409);
     }
-    for (const query of ['page=-1', 'no=0', 'status=unknown', 'invoiceStatus=unknown', 'dateFrom=2026-10-02&dateTo=2026-10-01']) await request('GET', `/quotations?${query}`, undefined, 400);
+    for (const query of ['page=-1', 'no=0', 'status=unknown', 'dateFrom=2026-10-02&dateTo=2026-10-01']) await request('GET', `/quotations?${query}`, undefined, 400);
     assert.equal((await request('GET', '/quotations?isActive=true', undefined, 200)).pagination.total, 0);
     assert.equal((await request('GET', '/quotations?isActive=false', undefined, 200)).pagination.total, 4);
     await request('GET', '/quotations/invalid', undefined, 400);

@@ -21,10 +21,3 @@ const resolveActor = (allowedSections: readonly string[], allowAdministrativeRol
   } catch (error) { next(error); }
 };
 export const requireActor = resolveActor(['FINANCE', 'ACCOUNTING', 'MARKETING']);
-// Shared Finance operations allow Marketing, Finance and Accounting actors.
-// The dedicated Marketing creation endpoint keeps its section-only restriction.
-export const requireMarketingForwardedActor = requireActor;
-
-export const requireMarketingCreateActor = resolveActor(['MARKETING'], false);
-
-export const requireDocumentReadActor = requireActor;

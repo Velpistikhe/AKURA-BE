@@ -18,7 +18,6 @@ const modules = [
   ['Company Contracts', 'Contracts, approval, revision, and termination.'],
   ['Company Contract Prices', 'Contract prices, history, and Excel import.'],
   ['Quotation Options', 'Company-specific size options and resolved prices.'],
-  ['Invoices', 'Invoices and proforma invoices, with or without a source document.'],
   ['Taxes', 'Finance master tax and cache delivery status.'],
   ['Work Order', 'Field service work orders, inspectors, and change history.'],
   ['Quotations', 'Quotation documents and item lists.'],
@@ -44,12 +43,10 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/inspection/scopes')) return 'Inspection Scopes';
   if (path.includes('/maintenance/scopes')) return 'Maintenance Scopes';
   if (path.includes('/services')) return 'Services';
-  if (path.endsWith('/billing-price-references')) return 'Item Prices';
   if (path.endsWith('/items/sizes/prices')) return 'Quotation Options';
   if (/\/items\/sizes\/[^/]+\/price(?:\/history)?$/.test(path)) return 'Item Prices';
   if (path.includes('/items/sizes')) return 'Item Sizes';
   if (path.includes('/items')) return 'Items';
-  if (path.startsWith('/api/v1/finance/documents')) return 'Invoices';
   if (path.startsWith('/api/v1/fieldservice')) return 'Work Order';
   if (path.includes('/item-size-references')) return 'Item Sizes';
   if (path.includes('/quotation-references')) return 'Quotations';

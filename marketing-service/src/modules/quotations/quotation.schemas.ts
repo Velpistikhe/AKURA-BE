@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { InquiryMethod, InvoiceStatus, QuotationStatus } from '@prisma/client';
+import { InquiryMethod, QuotationStatus } from '@prisma/client';
 
 export const quotationIdSchema = z.object({ quotationId: z.string().uuid() }).strict();
 export const listQuotationsSchema = z.object({
@@ -9,7 +9,6 @@ export const listQuotationsSchema = z.object({
   no: z.coerce.number().int().min(1).max(2147483647).optional(),
   status: z.nativeEnum(QuotationStatus).optional(),
   company: z.string().trim().min(1).max(255).optional(),
-  invoiceStatus: z.preprocess(value => value === 'null' ? null : value, z.nativeEnum(InvoiceStatus).nullable().optional()),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 }).strict().refine(value => !value.dateFrom || !value.dateTo || value.dateFrom <= value.dateTo, {
@@ -82,39 +81,11 @@ export const createWorkOrderFromQuotationSchema = z.object({
 }).strict()
   .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
 export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;
-// Invoice or proforma invoice created from an approved quotation. The quotation
-// reference is fetched again by Finance using the forwarded user token.
-export const createFinanceDocumentSchema = z.object({
-  quotationId: z.string().uuid(), kind: z.enum(['INVOICE', 'PROFORMA_INVOICE']),
-  dueDate: isoDate, location: z.string().trim().min(1).max(255),
-  purchaseOrderNumber: z.string().trim().min(1).max(100), purchaseOrderDate: isoDate,
-}).strict();
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;
 export const rejectQuotationSchema = deactivateQuotationSchema;
 export const reviseQuotationSchema = deactivateQuotationSchema;
-// A billing quotation raised from a contract-based Work Order (Flow 3). The
-// Work Order is the source document: it was executed against a contract and the
-// quotation exists only to bill that work. Its items, quantities and company
-// come from the Work Order, never from the client, so the client sends only the
-// document header and the Work Order reference.
-export const createQuotationFromWorkOrderSchema = z.object({
-  workOrderId: z.string().uuid(),
-  inquiryMethod: z.nativeEnum(InquiryMethod),
-  inquiryDate: isoDate,
-  jobStart: z.string().trim().min(1).max(255),
-  subject: text,
-  termOfPayment: text,
-  validity: text,
-  supplyAkura: supplyText,
-  supplyCustomer: supplyText,
-  location: text,
-  accomplished: supplyText,
-  deliveryReports: supplyText,
-  deliveryInvoice: supplyText,
-  staffId: z.string().uuid(),
-}).strict();
 export const quotationHistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

@@ -10,14 +10,6 @@
       ]
     },
     {
-      "operation": "POST /billing-price-references",
-      "statuses": [
-        401,
-        400,
-        200
-      ]
-    },
-    {
       "operation": "GET /company-contract-references/{companyId}",
       "statuses": [
         401,
@@ -606,14 +598,6 @@
         401,
         400,
         200
-      ]
-    },
-    {
-      "operation": "POST /quotations/{quotationId}/invoices",
-      "statuses": [
-        401,
-        400,
-        201
       ]
     },
     {

@@ -22,7 +22,6 @@ model WorkOrder {
   contractSnapshot Json? @map("contract_snapshot") @db.JsonB
   quotationId String? @map("quotation_id") @db.Uuid
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
-  performaInvoiceId String? @map("performa_invoice_id") @db.Uuid
   startDate DateTime @map("start_date") @db.Date
   endDate DateTime? @map("end_date") @db.Date
   status WorkOrderStatus @default(DRAFT)

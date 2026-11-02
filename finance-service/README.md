@@ -15,55 +15,9 @@ Development setup: `DIRECT_MFE_ACCESS=true` permits the local Finance MFE to cal
 
 Commands: `npm run build`, `npm start`, `npm run typecheck`, `npm test`.
 
-Domain routes belong in `src/modules` and are registered in `src/routes/index.ts`. Authentication is applied before the router. The service owns its PostgreSQL database. Set DATABASE_URL to its own database, run npm run db:push, then npm run build. Never point DATABASE_URL at another service database. Swagger is maintained in `api-gateway/src/docs/operational-documents.ts` and `openapi.ts`.
+Domain routes belong in `src/modules` and are registered in `src/routes/index.ts`. Authentication is applied before the router. The service owns its PostgreSQL database. Set DATABASE_URL to its own database, run npm run db:push, then npm run build. Never point DATABASE_URL at another service database. Swagger is maintained in `api-gateway/src/docs/openapi.ts` and `api-gateway/src/docs/tax.ts`.
 
-
-### Create invoice or proforma invoice from an approved quotation
-
-Marketing can create a Finance document from the full approved quotation. The quotation snapshot is resolved server-side; clients choose the document kind and optional payment deadline:
-
-`POST /api/v1/marketing/quotations/{quotationId}/invoices`
-
-```json
-{"kind":"INVOICE","dueDate":"2026-12-31","location":"Jakarta","purchaseOrderNumber":"PO/2026/000001","purchaseOrderDate":"2026-01-15"}
-```
-
-`kind` accepts `INVOICE` or `PROFORMA_INVOICE`. `dueDate`, `location`, `purchaseOrderNumber` and `purchaseOrderDate` are required. Marketing requires an active quotation in the caller's branch and status `APPROVED`, then forwards the quotation reference and required PO data to Finance.
-
-Finance exposes `POST /api/v1/finance/documents/from-marketing`. This endpoint accepts the full quotation snapshot and an optional `dueDate`; Finance re-fetches the quotation from Marketing using the forwarded access token and validates branch ownership, active/APPROVED status, version and billed line values before saving. Both kinds are created as `DRAFT`. Finance stores a header and detail lines with prices, and generates the document number, date, tax and totals. The deadline must not precede the document date. MARKETING users may access Finance document creation, lists, details, history, updates, deletion and approval, plus tax reads and delivery status. Tax creation and resync require ADMIN with section FINANCE or MARKETING. All operations remain branch-scoped.
-
-Finance users approve a draft with `POST /api/v1/finance/documents/{id}/approve` and body `{"version":0}`. This atomically changes `DRAFT` to `ON_PROGRESS` and appends an `APPROVE` history entry. Stale versions or non-draft documents return 409.
-
-## Unified invoice and proforma invoice collection
-
-Invoices and proforma invoices share one collection, `/api/v1/finance/documents`, and one table, `billing_documents`, distinguished by `DocumentKind`. The kind travels in the request payload instead of the URL, so one endpoint creates either kind and one endpoint lists, reads, updates, deletes, approves and audits both kinds.
-
-`POST /api/v1/finance/documents` creates a document from a purchase order. It accepts `kind` (`INVOICE` or `PROFORMA_INVOICE`), `companyId`, `title`, `purchaseOrderNumber`, `purchaseOrderDate` and `items`, plus an optional `dueDate` and `location`:
-
-```json
-{"kind":"PROFORMA_INVOICE","companyId":"00000000-0000-4000-8000-000000000001","title":"Purchase order invoice","purchaseOrderNumber":"PO/2026/000001","purchaseOrderDate":"2026-01-15","items":["00000000-0000-4000-8000-000000000002"],"dueDate":null}
-```
-
-`items` is an array of 1-100 item size UUIDs; no quotation, contract or work order reference is accepted. Finance resolves the catalog data and the current price of every item from Marketing for the given company before the document is written, so a client can never bill a stale rate. One requested UUID becomes one billed line of exactly one inspection unit, plus one maintenance unit when the item offers maintenance and a maintenance price exists. Documents created this way never carry a discount; the discount is always zero.
-
-The purchase order number and date are stored on the document and are never changed afterwards.
-
-The collection supports `GET /documents` (page, limit, kind, quotationId, status and search over number and title), `GET /documents/{id}`, `PATCH /documents/{id}`, `DELETE /documents/{id}`, `POST /documents/{id}/approve` and `GET /documents/{id}/history`. The list filter `kind` is optional: an omitted kind lists both kinds together.
-
-## Quotation-linked documents
-
-Each document owns its history. The quotation ID and snapshot are immutable after creation. One quotation may have multiple documents. Finance uses the full quotation amount, not partial billing. Invoice numbers and dates are server-generated and rejected in POST/PATCH bodies. Numbers use `INV/YYYY/000001`, with an atomic `invoice_sequences` counter keyed by officeBranchId and year. The sequence restarts at 1 each January 1 in Asia/Jakarta. The document date uses the same Jakarta calendar day, captured after acquiring the counter lock. Counter, document, and history commit together; failures roll back allocation and soft deletion never frees a number. A missing counter is seeded from existing invoice numbers matching `INV/YYYY/<digits>`, including deleted invoices. Other legacy number formats are preserved. Proforma invoice numbers are generated as `PI/YYYY/000001` using the separate `proforma_invoice_sequences` table keyed by officeBranchId and year, with an independent annual reset. POST/PATCH reject number and date for both kinds. Allocation, document and history share one transaction. Existing documents keep their numbers. FINAL is a document label in this CRUD module, not an accounting posting or approval workflow.
-
-PATCH and DELETE require the latest `version`; stale or competing mutations return 409. Both accept an optional `reason`. Writes and append-only history share a local transaction. History contains English action labels, actor ID/name, timestamps, field labels, before/after values, reason and full snapshots.
-
-The service verifies the current active Auth profile through Gateway and derives officeBranchId from that profile. It never trusts client-supplied branch or user headers. Quotation lookup is branch scoped, verifies the requested quotationVersion and fails closed on upstream errors. No foreign key or direct query crosses databases. The saved quotation snapshot is the state observed at validation time, not a distributed lock; later quotation edits/deletion preserve existing documents.
-
-No invoiceStatus updates are sent automatically to Marketing. No automatic invoice, proforma, report, contract or payment is generated.
-
-The invoice and proforma sequence tables are already applied to existing databases. Fresh databases use `npm run db:push`.
-
-Run `npm test` and `npm run test:documents` after setting up the database. Document tests use isolated random branches and remove only their fixtures. They exercise cross-branch rejection, snapshot persistence, 12 competing updates, atomic history, soft deletion and upstream validation.
-
+`r`n
 Access is available to MARKETING, FINANCE and ACCOUNTING users, plus existing ADMIN/APP_MANAGER access. The JWT branch must match the current Auth profile; a changed assignment requires a fresh login. Quotation references use the read-only Marketing endpoint `/quotation-references/:quotationId`, accessible to relevant document sections within the same branch.
 
 HTTP tests mount the real module routes with an injected token identity and mock Auth/Marketing responses. Persistence and concurrency tests use the local PostgreSQL database; they do not constitute a live end-to-end test across all running services.
@@ -86,12 +40,6 @@ HTTP delivery requests have a ten-second timeout and require `{success:true,even
 Long-lived servers also run the timer worker and recover pending entries on startup. On Vercel, retries without incoming requests require a separate durable scheduler/queue; timers alone do not guarantee execution between requests. Refresh retries existing due entries, while Resync publishes a new snapshot. After deploying this fix, use Refresh or Resync to recover pending synchronization. Set the deployed Finance `TAX_DELIVERY_TARGETS` to the Marketing Vercel receiver and configure identical `TAX_SYNC_SECRET` values in both Vercel projects; changing local `.env` files does not update deployed environments. Allow sufficient function duration for the database transaction and delivery timeout.
 
 Run `npm run test:tax-serverless` in Finance and `npm run test:tax-events-http` in Marketing for HTTP regression tests without production database writes. The existing `test:tax-delivery` and `test:tax-events` suites cover real database transaction behavior using isolated schemas.
-
-Invoice/proforma creation reads Finance master tax effective on document date, serializes with branch tax writes, computes tax with Decimal half-up rounding to two decimals and saves taxSourceId/tax alongside amounts. A missing period returns 409. Proforma draft date changes and document finalization revalidate tax. Final documents cannot be edited; existing documents are not automatically repriced. Legacy tax snapshots remain null rather than guessing from historical amounts.
-
-14. `POST /documents/from-marketing` — create a DRAFT invoice or proforma invoice from a Marketing-approved full quotation snapshot. Finance revalidates the branch, approval status, version and priced detail lines with Marketing using the forwarded token, and accepts an optional payment `dueDate`.
-15. `POST /documents/:id/approve` — Finance/Accounting approval transition from DRAFT to ON_PROGRESS. It requires the current `{version}` and records history atomically.
-16. `POST /documents` — one endpoint creates either kind. `kind` travels in the payload, together with the purchase order number, the purchase order date, the company and the item size UUIDs to bill. MARKETING-section users may access all Finance modules; tax writes and resync still require ADMIN in FINANCE or MARKETING.
 
 ### Cutover from App Manager
 

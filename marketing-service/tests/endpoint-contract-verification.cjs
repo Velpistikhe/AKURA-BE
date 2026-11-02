@@ -25,18 +25,6 @@ async function main() {
   boundary.post('/api/v1/fieldservice/work-orders', (req, res) => res.status(201).json({ data: {
     id: randomUUID(), quotationId: req.body.quotationId, officeBranchId: branch, revoked: false, number: 'WO-CONTRACT-TEST', status: 'DRAFT', version: 0,
   } }));
-  // Finance owns the billing documents. It answers the forwarded creation
-  // request with the DRAFT document it generated for the quotation.
-  const financeDocument = (kind, number, body) => ({
-    id: randomUUID(), kind, number, title: 'Invoice',
-    date: '2026-10-26', dueDate: body.dueDate ?? null, notes: body.notes ?? null, status: 'DRAFT',
-    officeBranchId: branch, quotationId: body.quotationId, quotationVersion: 0,
-    quotationSnapshot: {}, subTotal: '100.00', tax: '11', taxSourceId: randomUUID(),
-    taxAmount: '11.00', total: '111.00', version: 0, isActive: true,
-    createdById: randomUUID(), createdByName: 'Finance Test', updatedById: null, updatedByName: null,
-    createdAt: '2026-10-26T00:00:00.000Z', updatedAt: '2026-10-26T00:00:00.000Z',
-  });
-  boundary.post('/api/v1/finance/documents/from-marketing', (req, res) => res.status(201).json({ data: financeDocument(req.body.kind, req.body.kind==='INVOICE'?'INV/2026/000001':'PI/2026/000001', req.body) }));
   const listen = app => new Promise(resolve => { const server = app.listen(0, '127.0.0.1', () => resolve(server)); });
   const dependencyServer = await listen(boundary);
   process.env.API_GATEWAY_URL = `http://127.0.0.1:${dependencyServer.address().port}`;
@@ -166,7 +154,6 @@ async function main() {
     const small = await prisma.itemSize.findFirstOrThrow({ where: { itemId: itemRow.id, size: 'Small' } });
     await request('POST', `/items/sizes/${small.id}/price`, 201, { priceServicePrimary: '50', priceMaintenancePrimary: '10', priceMaintenanceSisterCompany: '5' });
     await request('GET', `/items/sizes/prices?companyId=${company.id}`, 200);
-    await request('POST', '/billing-price-references', 200, {companyId:company.id,itemSizeIds:[size.id,small.id]}, finance);
     await request('GET', '/items/sizes/export', 200);
     let contract = await request('POST', '/company-contracts', 201, { companyId: company.id, contractNumber: `CONTRACT-${branch}`, contractDate: '2026-01-01', effectiveFrom: '2026-01-01', effectiveUntil: '2099-12-31' });
     let contractPrice = await request('POST', `/items/sizes/${size.id}/contract-prices`, 201, { contractId: contract.id, priceService: '90', priceMaintenance: '10' });
@@ -215,11 +202,6 @@ async function main() {
     quotation = await request('POST', `/quotations/${quotation.id}/reject`, 200, { version: quotation.version });
     quotation = await request('POST', `/quotations/${quotation.id}/submit`, 200, { version: quotation.version });
     quotation = await request('POST', `/quotations/${quotation.id}/approve`, 200, { version: quotation.version });
-    // Create one of Finance's documents using the same end-user token and the
-    // full approved quotation, including the server-resolved line prices.
-    const financeDocument = await request('POST', `/quotations/${quotation.id}/invoices`, 201, { quotationId:quotation.id,kind: 'INVOICE', dueDate: '2026-12-31', location:'Jakarta',purchaseOrderNumber:'PO/2026/000001',purchaseOrderDate:'2026-01-15' });
-    assert.equal(financeDocument.status, 'DRAFT');
-    assert.equal(financeDocument.quotationId, quotation.id);
     assert.ok(stored.size > 0);
     const quoteRevision = await request('POST', `/quotations/${quotation.id}/revise`, 201, { version: quotation.version });
     await request('DELETE', `/quotations/${quoteRevision.id}`, 200, { version: quoteRevision.version });
