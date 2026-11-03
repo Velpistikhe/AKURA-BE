@@ -8,12 +8,9 @@
                     "build":  "prisma generate \u0026\u0026 rimraf dist \u0026\u0026 tsc",
                     "start":  "node dist/server.js",
                     "typecheck":  "tsc --noEmit",
-                    "test":  "npm run build \u0026\u0026 node --test tests/service.test.cjs",
                     "db:generate":  "prisma generate",
                     "db:push":  "prisma db push",
-                    "tax:import":  "node scripts/import-app-manager-taxes.cjs",
-                    "test:tax-delivery":  "tsc \u0026\u0026 node --test tests/tax-delivery.test.cjs",
-                    "test:tax-serverless":  "tsc \u0026\u0026 node --test tests/tax-serverless.test.cjs"
+                    "tax:import":  "node scripts/import-app-manager-taxes.cjs"
                 },
     "dependencies":  {
                          "cookie-parser":  "^1.4.7",

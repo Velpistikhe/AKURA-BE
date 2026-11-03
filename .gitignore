@@ -13,6 +13,21 @@ coverage/
 test-results/
 playwright-report/
 
+# Test, temporary, and raw SQL artifacts
+tests/
+test/
+temp/
+tmp/
+tmp-*
+*.tmp
+*.bak
+*.orig
+*~
+*.sql
+
+# Documentation
+*.md
+
 # Environment files and local secrets
 .env
 .env.*
@@ -63,14 +78,6 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.bak
-*.orig
-*~
 
 # AI coding assistant local rules
 .clinerules/

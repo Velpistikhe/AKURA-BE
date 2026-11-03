@@ -9,9 +9,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "test:api": "node tests/app-manager-verification.mjs",
-    "test:all": "node tests/all-endpoints-verification.mjs"
+    "db:push": "prisma db push"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

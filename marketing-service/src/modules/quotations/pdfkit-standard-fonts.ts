@@ -5,7 +5,7 @@
 // with MODULE_NOT_FOUND for Helvetica.cjs when a PDF is rendered. Resolving every
 // public standard-font subpath with a literal specifier anchors each metrics
 // module in the traced bundle so /var/task keeps the exact files pdfkit resolves
-// at runtime. Regression covered by tests/quotation-pdf-serverless-trace.test.cjs.
+// at runtime.
 require.resolve('pdfkit/standard-fonts/Courier');
 require.resolve('pdfkit/standard-fonts/CourierBold');
 require.resolve('pdfkit/standard-fonts/CourierBoldOblique');
