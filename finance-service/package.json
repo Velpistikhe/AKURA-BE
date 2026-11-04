@@ -9,8 +9,7 @@
                     "start":  "node dist/server.js",
                     "typecheck":  "tsc --noEmit",
                     "db:generate":  "prisma generate",
-                    "db:push":  "prisma db push",
-                    "tax:import":  "node scripts/import-app-manager-taxes.cjs"
+                    "db:push":  "prisma db push"
                 },
     "dependencies":  {
                          "cookie-parser":  "^1.4.7",
