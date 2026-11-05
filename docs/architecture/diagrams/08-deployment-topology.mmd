@@ -1,0 +1,52 @@
+%% Deployment / Runtime Topology
+%% VERIFIED: local development topology (ports and URLs read from each service .env / config/env.ts).
+%% UNKNOWN / NEEDS VERIFICATION: production platform, regions, scaling, network boundaries.
+%% INFERRED: Vercel is the intended host for 4 of 6 services (vercel.json present).
+
+graph TB
+    subgraph Prod["Production - UNKNOWN / NEEDS VERIFICATION"]
+        direction TB
+        P1["<b>api-gateway</b><br/>vercel.json present<br/>framework: express<br/>INFERRED: Vercel"]
+        P2["<b>auth-service</b><br/>vercel.json present<br/>INFERRED: Vercel"]
+        P3["<b>app-manager-service</b><br/>vercel.json present<br/>INFERRED: Vercel"]
+        P4["<b>marketing-service</b><br/>vercel.json + @vercel/nft<br/>INFERRED: Vercel"]
+        P5["<b>finance-service</b><br/>NO vercel.json<br/>hosting UNKNOWN"]
+        P6["<b>fieldservice-service</b><br/>NO vercel.json<br/>hosting UNKNOWN"]
+        PD[("Managed PostgreSQL<br/>5 databases<br/>provider UNKNOWN")]
+        PS3[("S3-compatible object storage<br/>provider UNKNOWN")]
+    end
+
+    subgraph Dev["Local Development - VERIFIED"]
+        direction TB
+        D0["api-gateway :5000"]
+        D1["auth-service :5001"]
+        D2["app-manager-service :5002"]
+        D3["marketing-service :5003"]
+        D4["finance-service :5004"]
+        D5["fieldservice-service :5005"]
+        D0 --> D1
+        D0 --> D2
+        D0 --> D3
+        D0 --> D4
+        D0 --> D5
+        DD[("PostgreSQL @ localhost:5432<br/>akura_auth, akura_app_manager,<br/>akura_marketing, akura_finance,<br/>akura_fieldservice")]
+    end
+
+    P1 -.->|"gateway secrets,<br/>JWT issuer/audience"| P2
+    P1 -.-> P3
+    P1 -.-> P4
+    P1 -.-> P5
+    P1 -.-> P6
+    P2 -.-> PD
+    P3 -.-> PD
+    P4 -.-> PD
+    P5 -.-> PD
+    P6 -.-> PD
+    P4 -.-> PS3
+
+    Note1["NEEDS VERIFICATION:<br/>No Dockerfile, docker-compose, CI workflow,<br/>or IaC (Terraform) file exists in this repo.<br/>Deployment is configured outside the repository."]
+
+    classDef prod fill:#ffebee,stroke:#c62828,stroke-width:1px
+    classDef dev fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    class P1,P2,P3,P4,P5,P6,PD,PS3 prod
+    class D0,D1,D2,D3,D4,D5,DD dev

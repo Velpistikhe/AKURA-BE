@@ -1,0 +1,62 @@
+%% Database / Data Ownership Diagram
+%% VERIFIED: 5 separate PostgreSQL databases, one per domain service.
+%% There are NO cross-database foreign keys. officeBranchId is a bare UUID column
+%% in Marketing, Finance and Field Service; it is a logical, not physical, reference
+%% to app-manager-service.office_branches.
+
+graph TB
+    subgraph DBA["app-manager-service (akura_app_manager)"]
+        T_office["office_branches<br/>OWNER: App Manager<br/>REFERENCE DATA (master)"]
+        T_menu["menus / menu_items / menu_accesses<br/>OWNER: App Manager"]
+        T_tax_orphan["taxes<br/>OWNER: App Manager (declared)<br/>CONFLICT: no source references;<br/>Finance owns the live table"]
+        T_audit_am["audit_logs<br/>OWNER: App Manager (own writes only)"]
+    end
+
+    subgraph DBAUTH["auth-service (akura_auth)"]
+        T_user["users / user_passwords / user_histories<br/>refresh_tokens"]
+        T_enum["user_role / user_section (enums)"]
+        T_audit_auth["security_audit_logs"]
+        T_outbox["user_sync_events / user_sync_deliveries<br/>OUTBOX (authoritative for User)"]
+    end
+
+    subgraph DBMKT["marketing-service (akura_marketing)"]
+        T_cat["companies / company_staffs / services<br/>items / item_sizes / item_prices"]
+        T_contract["company_contracts / company_contract_prices"]
+        T_quote["quotations / quotation_items / quotation_history<br/>quotation_pdfs / quotation_snapshots"]
+        T_mkt_user["marketing_admin_users<br/>READ MODEL (replicated from Auth)"]
+        T_mkt_rev["marketing_user_sync_revisions"]
+        T_taxcache["tax_cache<br/>READ MODEL (replicated from Finance)"]
+        T_taxrev["tax_cache_revisions"]
+        T_mkt_audit["audit_logs / catalog_audit_logs"]
+    end
+
+    subgraph DBFIN["finance-service (akura_finance)"]
+        T_tax["taxes / tax_revisions<br/>OWNER: Finance (authoritative)"]
+        T_taxevent["tax_events / tax_deliveries<br/>OUTBOX"]
+        T_fin_orphan["tax_cache / tax_sync_state<br/>CONFLICT: no source references;<br/>unused duplicate of Marketing's cache"]
+    end
+
+    subgraph DBFIELD["fieldservice-service (akura_fieldservice)"]
+        T_wo["work_order / work_order_items<br/>work_order_inspectors / work_order_sequences<br/>work_order_histories"]
+        T_fs_user["field_service_users<br/>READ MODEL (replicated from Auth)"]
+        T_fs_rev["field_service_user_sync_revisions"]
+        T_field_audit["audit_logs"]
+    end
+
+    T_outbox -.->|"async user sync<br/>idempotent, versioned"| T_mkt_user
+    T_outbox -.->|"async user sync<br/>idempotent, versioned"| T_fs_user
+    T_taxevent -.->|"async tax snapshot<br/>idempotent, versioned"| T_taxcache
+    T_office -.->|"LOGICAL reference only<br/>officeBranchId UUID, no FK<br/>NEEDS VERIFICATION: enforced in app layer"| T_cat
+    T_office -.->|"LOGICAL reference only"| T_quote
+    T_office -.->|"LOGICAL reference only"| T_tax
+    T_office -.->|"LOGICAL reference only"| T_wo
+    T_tax -.->|"replicated snapshot"| T_taxcache
+
+    classDef owner fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    classDef readmodel fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
+    classDef outbox fill:#fff8e1,stroke:#f9a825,stroke-width:1px
+    classDef conflict fill:#ffebee,stroke:#c62828,stroke-width:2px,stroke-dasharray:5 3
+    class T_office,T_menu,T_user,T_enum,T_audit_auth,T_cat,T_contract,T_quote,T_tax,T_wo owner
+    class T_mkt_user,T_fs_user,T_taxcache readmodel
+    class T_outbox,T_taxevent outbox
+    class T_tax_orphan,T_fin_orphan conflict

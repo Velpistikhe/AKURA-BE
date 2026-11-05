@@ -1,0 +1,47 @@
+%% Authentication Flow - login, token issuance, verification, and identity propagation
+%% VERIFIED against auth-service/src/**, api-gateway/src/utils/tokens.ts, */src/utils/tokens.ts.
+
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant G as API Gateway
+    participant A as Auth Service
+    participant DB as akura_auth DB
+    participant S as Downstream Service
+    participant JWKS as GET /.well-known/jwks.json
+
+    rect rgb(232, 245, 233)
+    Note over C,A: LOGIN (authRequired = false)
+    C->>G: POST /api/v1/auth/login
+    G->>G: authRateLimiter (tight per-IP limit)
+    G->>A: POST /login (x-gateway-secret injected)
+    A->>DB: find user by username
+    A->>A: bcrypt.compare(password, passwordHash)
+    A->>A: check isActive
+    A->>A: sign ACCESS token: RS256, sub, role, section,<br/>officeBranchId, type='access', kid, iss, aud, 15m
+    A->>A: sign REFRESH token: HS256, id, sub, type='refresh', 7d
+    A->>DB: persist refresh token row
+    A->>DB: security audit log (LOGIN)
+    A-->>C: accessToken + refreshToken<br/>Set-Cookie: accessToken, refreshToken (httpOnly)
+    end
+
+    rect rgb(232, 245, 233)
+    Note over C,G: SUBSEQUENT REQUEST
+    C->>G: GET /api/v1/marketing/companies<br/>Bearer token or accessToken cookie
+    G->>JWKS: fetch JWKS (createRemoteJWKSet, cached ~10 min)
+    JWKS-->>G: public key (RSA >= 2048, kid)
+    G->>G: jwtVerify(token, jwks, RS256 + issuer + audience)<br/>require sub and type='access'
+    G->>G: write x-user-id / x-user-role / x-user-section /<br/>x-user-name / x-user-username / x-office-branch-id
+    end
+
+    rect rgb(255, 243, 224)
+    Note over G,S: DOWNSTREAM RE-VALIDATION (defense in depth)
+    G->>S: proxied request + x-gateway-secret + X-User-* headers
+    S->>S: verifyGatewaySecret (403 if absent/mismatch)
+    S->>S: authenticate - local JWKS verify of the same token
+    S->>G: GET auth/me (Bearer token + x-service-name/secret)
+    G->>A: GET /me
+    A->>DB: read live user row (isActive)
+    A-->>S: live profile (id, role, section, officeBranchId, isActive)
+    S->>S: cross-check token vs gateway headers vs live profile<br/>mismatch -> 401 / 403
+    end

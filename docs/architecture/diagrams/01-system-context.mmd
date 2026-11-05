@@ -1,0 +1,43 @@
+%% System Context Diagram - Akura platform
+%% VERIFIED: every edge below is confirmed by source code (file references in docs/architecture/).
+%% Legend: solid = VERIFIED call path, dashed = INFERRED, dotted = UNKNOWN / NEEDS VERIFICATION.
+
+graph TB
+    Client["Web Client / Microfrontend<br/>UNKNOWN: not in this repository"]
+
+    Gateway["<b>API Gateway</b><br/>api-gateway<br/>Express + TypeScript<br/>Port 5000 (dev)<br/>VERIFIED"]
+
+    Auth["<b>Auth Service</b><br/>auth-service<br/>RS256 JWT issuer + JWKS<br/>Port 5001 (dev)<br/>VERIFIED"]
+    AppMgr["<b>App Manager Service</b><br/>app-manager-service<br/>Menus, office branches, audit trail<br/>Port 5002 (dev)<br/>VERIFIED"]
+    Marketing["<b>Marketing Service</b><br/>marketing-service<br/>Quotations, contracts, catalog<br/>Port 5003 (dev)<br/>VERIFIED"]
+    Finance["<b>Finance Service</b><br/>finance-service<br/>Taxes<br/>Port 5004 (dev)<br/>VERIFIED"]
+    Field["<b>Field Service</b><br/>fieldservice-service<br/>Work Orders<br/>Port 5005 (dev)<br/>VERIFIED"]
+
+    DB1[("PostgreSQL<br/>akura_auth<br/>VERIFIED")]
+    DB2[("PostgreSQL<br/>akura_app_manager<br/>VERIFIED")]
+    DB3[("PostgreSQL<br/>akura_marketing<br/>VERIFIED")]
+    DB4[("PostgreSQL<br/>akura_finance<br/>VERIFIED")]
+    DB5[("PostgreSQL<br/>akura_fieldservice<br/>VERIFIED")]
+
+    S3["S3-compatible Object Storage<br/>quotation PDFs<br/>VERIFIED usage / UNKNOWN provider"]
+
+    Client -->|"HTTPS / JSON<br/>Bearer token or cookie"| Gateway
+    Gateway -->|"auth/me, register, login,<br/>refresh-token, users/*"| Auth
+    Gateway -->|"app-manager/*"| AppMgr
+    Gateway -->|"marketing/*"| Marketing
+    Gateway -->|"finance/*"| Finance
+    Gateway -->|"fieldservice/*"| Field
+
+    Auth --> DB1
+    AppMgr --> DB2
+    Marketing --> DB3
+    Finance --> DB4
+    Field --> DB5
+
+    Marketing -->|"quotation PDF upload<br/>S3Client"| S3
+
+    classDef verified fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    classDef unknown fill:#fff3e0,stroke:#ef6c00,stroke-width:1px,stroke-dasharray:5 3
+    class Gateway,Auth,AppMgr,Marketing,Finance,Field verified
+    class DB1,DB2,DB3,DB4,DB5 verified
+    class Client,S3 unknown

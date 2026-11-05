@@ -1,0 +1,55 @@
+%% Container / Service Architecture Diagram - Akura platform
+%% VERIFIED: module names, ports, and database ownership read from source.
+
+graph TB
+    subgraph Edge["Edge Layer"]
+        Gateway["<b>API Gateway</b> :5000<br/>src/app.ts<br/>src/routes/proxy.routes.ts<br/>src/middlewares/*"]
+        Swagger["Swagger UI<br/>/api-docs, /api-docs.json<br/>src/docs/openapi.ts"]
+    end
+
+    subgraph Domain["Domain Services"]
+        Auth["<b>Auth Service</b> :5001<br/>modules: auth, user-management, user-sync"]
+        AppMgr["<b>App Manager Service</b> :5002<br/>modules: audit-trail, menu, reference"]
+        Marketing["<b>Marketing Service</b> :5003<br/>modules: companies, company-staff,<br/>contract-prices, contracts, items,<br/>quotations, services, taxes, user-sync"]
+        Finance["<b>Finance Service</b> :5004<br/>modules: taxes"]
+        Field["<b>Field Service</b> :5005<br/>modules: options, user-sync, work-orders"]
+    end
+
+    subgraph Data["Data Stores (one PostgreSQL DB per service)"]
+        DB1[("akura_auth")]
+        DB2[("akura_app_manager")]
+        DB3[("akura_marketing")]
+        DB4[("akura_finance")]
+        DB5[("akura_fieldservice")]
+        ObjStore[("S3-compatible<br/>quotation PDFs")]
+    end
+
+    subgraph CrossCutting["Cross-Cutting Middleware (per service)"]
+        CC["requestId · errorHandler · validate (zod)<br/>verifyGatewaySecret · logger (winston)"]
+    end
+
+    Gateway --- Swagger
+    Gateway --> Auth
+    Gateway --> AppMgr
+    Gateway --> Marketing
+    Gateway --> Finance
+    Gateway --> Field
+
+    Auth --> DB1
+    AppMgr --> DB2
+    Marketing --> DB3
+    Finance --> DB4
+    Field --> DB5
+    Marketing --> ObjStore
+
+    CrossCutting -.-> Gateway
+    CrossCutting -.-> Auth
+    CrossCutting -.-> AppMgr
+    CrossCutting -.-> Marketing
+    CrossCutting -.-> Finance
+    CrossCutting -.-> Field
+
+    classDef verified fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    classDef store fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
+    class Gateway,Swagger,Auth,AppMgr,Marketing,Finance,Field,CC verified
+    class DB1,DB2,DB3,DB4,DB5,ObjStore store

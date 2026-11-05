@@ -1,0 +1,45 @@
+%% Event / Asynchronous Delivery Flow
+%% VERIFIED: no message broker. Asynchronous delivery is HTTP POST through the API Gateway,
+%% backed by a transactional outbox in the producer's own PostgreSQL database.
+%% Shared mechanics: pg_try_advisory_xact_lock, exponential backoff + jitter,
+%% receiver-side version guard for idempotency, ack shape { eventId, success: true }.
+
+graph TB
+    subgraph Producers["Producers (own the outbox)"]
+        A1["<b>auth-service</b><br/>user_sync_events + user_sync_deliveries"]
+        A2["<b>finance-service</b><br/>tax_events + tax_deliveries"]
+        A3["<b>fieldservice-service</b><br/>no outbox - callback is synchronous inside the tx"]
+    end
+
+    GW["<b>API Gateway</b><br/>internalCaller guard:<br/>POST only + matching x-service-name/secret"]
+
+    subgraph Receivers["Receivers (idempotent read models)"]
+        R1["<b>marketing-service</b><br/>POST /internal/users/events<br/>x-user-sync-secret"]
+        R2["<b>marketing-service</b><br/>POST /internal/taxes/events<br/>x-tax-sync-secret"]
+        R3["<b>marketing-service</b><br/>POST /internal/work-orders/events<br/>x-work-order-sync-secret"]
+        R4["<b>fieldservice-service</b><br/>POST /internal/users/events<br/>x-user-sync-secret"]
+    end
+
+    A1 -->|"1. user snapshot<br/>2. marketing/internal/users/events"| GW
+    A1 -->|"1. user snapshot<br/>2. fieldservice/internal/users/events"| GW
+    A2 -->|"1. tax snapshot<br/>2. marketing/internal/taxes/events"| GW
+    A3 -->|"work-order link state<br/>(synchronous, inside the DB transaction)"| GW
+
+    GW --> R1
+    GW --> R2
+    GW --> R3
+    GW --> R4
+
+    R1 --> M1["marketing_admin_users<br/>+ marketing_user_sync_revisions"]
+    R2 --> M2["tax_cache<br/>+ tax_cache_revisions"]
+    R3 --> M3["quotations.has_work_order / work_order_id /<br/>work_order_status / work_order_snapshot"]
+    R4 --> M4["field_service_users<br/>+ field_service_user_sync_revisions"]
+
+    classDef producer fill:#fff8e1,stroke:#f9a825,stroke-width:1px
+    classDef gw fill:#ede7f6,stroke:#4527a0,stroke-width:2px
+    classDef receiver fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
+    classDef model fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    class A1,A2,A3 producer
+    class GW gw
+    class R1,R2,R3,R4 receiver
+    class M1,M2,M3,M4 model

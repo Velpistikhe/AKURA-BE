@@ -1,0 +1,30 @@
+%% API Request Flow - user-facing request through the gateway
+%% VERIFIED against api-gateway/src/app.ts, routes/proxy.routes.ts, middlewares/*.
+
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant G as API Gateway
+    participant AM as authenticateServiceCaller
+    participant RL as Rate Limiter
+    participant JWT as authenticateJwt
+    participant P as http-proxy-middleware
+    participant S as Downstream Service
+
+    C->>G: GET /api/v1/marketing/companies<br/>Authorization: Bearer <token> or accessToken cookie
+    G->>G: helmet() · cors() · requestId · logger · cookieParser
+    G->>AM: x-service-name / x-service-secret present?
+    AM-->>G: absent -> next()<br/>present -> timingSafeEqual check (403 on mismatch)
+    G->>RL: globalRateLimiter (skips internal service callers)
+    RL-->>G: next() / 429
+    Note over G,RL: POST /api/v1/auth/{login,register,refresh-token}<br/>uses the tighter authRateLimiter
+    G->>JWT: authenticateJwt (only when authRequired = true)
+    JWT->>JWT: verifyAccessToken via remote JWKS<br/>RS256 + issuer + audience + type='access'
+    JWT-->>G: req.headers['x-user-id'] = sub<br/>x-user-role, x-user-section, x-user-name,<br/>x-user-username, x-office-branch-id
+    G->>P: mount on prefix /api/v1/marketing
+    P->>P: strip inbound X-User-* and X-Service-*<br/>remove x-vercel-id
+    P->>S: proxied request + x-gateway-secret<br/>+ re-injected X-User-* headers
+    S->>S: verifyGatewaySecret -> authenticate (local JWKS)<br/>-> authorize / actor (re-check auth/me)
+    S-->>P: response
+    P-->>C: response
+    Note over P,S: Proxy failure -> 503 Service Unavailable
