@@ -4,6 +4,7 @@ import { catalogPaths, catalogSchemas } from './catalog.js';
 import { quotationPaths, quotationSchemas } from './quotation.js';
 import { taxPaths } from './tax.js';
 import { userSyncPaths } from './user-sync.js';
+import { auditTrailPaths, auditTrailSchemas } from './audit-trail.js';
 
 import { groupByModule } from './module-tags.js';
 
@@ -106,6 +107,7 @@ export const openApiDocument = groupByModule({
       ...operationalSchemas,
       ...workOrderSchemas,
       ...catalogSchemas,
+      ...auditTrailSchemas,
       UserSection: {
         type: 'string',
         enum: ['ACCOUNTING', 'FINANCE', 'HRD_MANAGEMENT', 'MARKETING', 'FIELD_SERVICE'],
@@ -1380,6 +1382,7 @@ export const openApiDocument = groupByModule({
     ...operationalPaths,
     ...workOrderPaths,
     ...catalogPaths,
+    ...auditTrailPaths,
     '/health': {
       get: {
         tags: ['Gateway'],

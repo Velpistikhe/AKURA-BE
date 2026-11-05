@@ -6,6 +6,7 @@ const modules = [
   ['Menus', 'Application menus.'],
   ['Menu Items', 'Entries within application menus.'],
   ['Menu Access', 'Role and section access to menus.'],
+  ['Audit Trail', 'Append-only change history of managed entities.'],
   ['Office Branches', 'Office branch reference data.'],
   ['Companies', 'Company profiles and history.'],
   ['Company Staff', 'Company contacts and staff history.'],
@@ -34,6 +35,7 @@ const moduleFor = (path: string): typeof modules[number][0] => {
   if (path.includes('/menu-accesses')) return 'Menu Access';
   if (path.includes('/menu-items')) return 'Menu Items';
   if (path.includes('/menus')) return 'Menus';
+  if (path.includes('/audit-trail')) return 'Audit Trail';
   if (path.includes('/office-branches')) return 'Office Branches';
   if (path.includes('/company-staffs') || path.endsWith('/staff-history')) return 'Company Staff';
   if (path.includes('/company-contract-prices') || path.includes('/contract-prices') || path.endsWith('/prices/import')) return 'Company Contract Prices';
