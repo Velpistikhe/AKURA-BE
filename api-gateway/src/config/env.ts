@@ -26,7 +26,22 @@ const envSchema = z.object({
     .url('MARKETING_SERVICE_URL must be a valid URL'),
   RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform((value) => Number.parseInt(value, 10)),
   RATE_LIMIT_MAX_REQUESTS: z.string().default('100').transform((value) => Number.parseInt(value, 10)),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform((value) => Number.parseInt(value, 10)),
+  AUTH_RATE_LIMIT_MAX_REQUESTS: z.string().default('10').transform((value) => Number.parseInt(value, 10)),
 }).superRefine((value, context) => {
+  // Credentials are allowed on every response, so a wildcard origin would let
+  // any site read authenticated responses using the victim's cookies. Fail at
+  // startup instead of silently exposing the API.
+  if (value.NODE_ENV === 'production' && value.CORS_ORIGIN.trim() === '*') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['CORS_ORIGIN'],
+      message: 'CORS_ORIGIN must list explicit origins in production; "*" is not allowed because credentials are enabled',
+    });
+  }
+  if (value.CORS_ORIGIN.trim() === '*' && value.NODE_ENV !== 'production') {
+    console.warn('[api-gateway] CORS_ORIGIN="*" reflects any origin. Use an explicit origin list outside local development.');
+  }
   for (const name of ['FINANCE', 'FIELDSERVICE'] as const) {
     if (Boolean(value[`${name}_SERVICE_URL`]) !== Boolean(value[`${name}_SERVICE_GATEWAY_SECRET`])) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: [`${name}_SERVICE_URL`], message: 'Service URL and gateway secret must be configured together' });

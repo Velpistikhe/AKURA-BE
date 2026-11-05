@@ -2,7 +2,6 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
-import { authenticate } from './middlewares/auth.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
@@ -32,7 +31,8 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
-app.use(authenticate);
+// Identity and role checks are applied per route by the authorize middleware,
+// which reads the gateway-verified X-User-* headers.
 app.use(routes);
 
 app.use((req: Request, res: Response) => {

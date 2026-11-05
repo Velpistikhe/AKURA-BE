@@ -1,8 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
 import { UserRole, UserSection } from '@prisma/client';
-import { serviceUrl, serviceHeaders } from '../utils/serviceUrl.js';
-import { getAccessToken } from '../utils/requestTokens.js';
-import { verifyAccessToken } from '../utils/tokens.js';
 
 export interface AuthUser {
   id: string;
@@ -23,38 +20,46 @@ declare global {
   }
 }
 
-/**
- * Verifikasi user ke auth-service — ambil isActive dan section terkini.
- * Menggunakan endpoint GET /me dengan forward access token.
- */
-const fetchAuthUserProfile = async (token: string, requestId?: string): Promise<{
-  id: string; role: UserRole; section: UserSection | null; isActive: boolean;
-  officeBranchId?: string | null; firstName?: string; lastName?: string; username?: string;
-} | null> => {
-  try {
-    const res = await fetch(serviceUrl('auth/me'), {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...serviceHeaders('auth/me'),
-        ...(requestId ? { 'x-request-id': requestId } : {}),
-      },
-    });
-    if (!res.ok) return null;
-    const json = await res.json() as { data?: AuthUser & { isActive: boolean } };
-    return json.data ?? null;
-  } catch {
-    return null;
-  }
+const readHeader = (req: Request, name: string): string | undefined => {
+  const value = req.headers[name];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 };
 
 /**
- * Factory middleware: verifikasi token, validasi user aktif, validasi role.
+ * Identity for this service comes from the API Gateway, which verifies the
+ * access token and forwards the result in the X-User-* headers. The gateway
+ * strips any inbound X-User-* header before injecting its own, so a client
+ * cannot spoof them. Because the gateway secret already proves the request
+ * arrived through the gateway, this service does not verify the token itself.
+ */
+const readGatewayIdentity = (req: Request): AuthUser | null => {
+  const id = readHeader(req, 'x-user-id');
+  const role = readHeader(req, 'x-user-role') as UserRole | undefined;
+  if (!id || !role || !Object.values(UserRole).includes(role)) return null;
+
+  const sectionHeader = readHeader(req, 'x-user-section');
+  const section = sectionHeader && Object.values(UserSection).includes(sectionHeader as UserSection)
+    ? sectionHeader as UserSection
+    : null;
+
+  return {
+    id,
+    role,
+    section,
+    officeBranchId: readHeader(req, 'x-office-branch-id') ?? null,
+    firstName: readHeader(req, 'x-user-name'),
+    username: readHeader(req, 'x-user-username'),
+  };
+};
+
+/**
+ * Factory middleware: resolve the gateway-verified identity and validate the
+ * role.
  *
- * Alur:
- *  1. Ambil & verifikasi access token via JWKS → dapatkan userId + role dari payload
- *  2. Panggil auth-service GET /me → dapatkan isActive + section terkini (no direct DB)
- *  3. Validasi role → lanjutkan atau tolak request
- *  4. Simpan authUser ke res.locals untuk digunakan controller
+ * Flow:
+ *  1. Read the identity headers the gateway injected after verifying the JWT
+ *  2. Validate the role -> continue or reject the request
+ *  3. Store the identity in res.locals for the controller
  */
 const requireRole = (allowedRoles: UserRole[]) =>
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -62,24 +67,13 @@ const requireRole = (allowedRoles: UserRole[]) =>
       ? req.headers['x-request-id']
       : undefined;
 
-    // 1. Verifikasi token & ambil payload
-    const token = getAccessToken(req);
-    if (!token) {
-      res.status(401).json({ status: 401, success: false, message: 'Unauthorized: missing access token', requestId });
+    const authUser = readGatewayIdentity(req);
+    if (!authUser) {
+      res.status(401).json({ status: 401, success: false, message: 'Unauthorized: missing or invalid identity', requestId });
       return;
     }
 
-    let tokenPayload: { sub: string; role?: string };
-    try {
-      tokenPayload = await verifyAccessToken(token);
-    } catch {
-      res.status(401).json({ status: 401, success: false, message: 'Unauthorized: invalid or expired access token', requestId });
-      return;
-    }
-
-    // 2. Validasi role cepat dari token payload (tanpa DB call)
-    const tokenRole = tokenPayload.role as UserRole | undefined;
-    if (allowedRoles.length > 0 && (!tokenRole || !allowedRoles.includes(tokenRole))) {
+    if (allowedRoles.length > 0 && !allowedRoles.includes(authUser.role)) {
       res.status(403).json({
         status: 403,
         success: false,
@@ -89,49 +83,13 @@ const requireRole = (allowedRoles: UserRole[]) =>
       return;
     }
 
-    // 3. Verifikasi ke auth-service: pastikan user masih aktif & ambil data terkini
-    try {
-      const profile = await fetchAuthUserProfile(token, requestId);
-
-      if (!profile || profile.id !== tokenPayload.sub) {
-        res.status(401).json({ status: 401, success: false, message: 'Unauthorized: user not found', requestId });
-        return;
-      }
-
-      if (!profile.isActive) {
-        res.status(403).json({ status: 403, success: false, message: 'Account is inactive', requestId });
-        return;
-      }
-
-      // Double-check role dari DB (sumber kebenaran) bukan hanya dari token
-      if (allowedRoles.length > 0 && !allowedRoles.includes(profile.role)) {
-        res.status(403).json({
-          status: 403,
-          success: false,
-          message: `Access denied: required role is ${allowedRoles.join(' or ')}`,
-          requestId,
-        });
-        return;
-      }
-
-      // 4. Simpan ke res.locals
-      res.locals.authUser = { id: profile.id, role: profile.role, section: profile.section,
-        officeBranchId: profile.officeBranchId, firstName: profile.firstName, lastName: profile.lastName, username: profile.username };
-
-      next();
-    } catch (error) {
-      next(error);
-    }
+    res.locals.authUser = authUser;
+    next();
   };
 
-/** Hanya user aktif dengan role app_manager */
+/** Hanya user dengan role app_manager */
 export const requireAppManager = requireRole([UserRole.APP_MANAGER]);
 
-/** Hanya user aktif dengan role admin */
-export const requireAdmin = requireRole([UserRole.ADMIN]);
-
-/** Hanya user aktif dengan role admin atau app_manager */
-export const requireAdminOrAppManager = requireRole([UserRole.ADMIN, UserRole.APP_MANAGER]);
-
-/** Semua user aktif (semua role) — hanya memvalidasi token + status aktif */
+/** Semua role aktif - hanya memvalidasi identitas dari gateway */
 export const requireAuthenticated = requireRole([UserRole.USER, UserRole.ADMIN, UserRole.APP_MANAGER]);
+

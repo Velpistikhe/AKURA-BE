@@ -12,6 +12,7 @@ interface AccessTokenPayload extends JwtPayload {
   name: string;
   username: string;
   role: string;
+  section?: string | null;
   officeBranchId: string | null;
   type: 'access';
 }
@@ -21,6 +22,10 @@ const generateAccessToken = (user: User): string => jwt.sign(
     name: `${user.firstName} ${user.lastName}`.trim(),
     username: user.username,
     role: user.role,
+    // The department/section is part of the access token so that services which
+    // rely on the gateway-verified identity headers can authorize section-scoped
+    // resources without calling back into the auth service.
+    section: user.section,
     officeBranchId: user.officeBranchId,
     type: 'access',
   },

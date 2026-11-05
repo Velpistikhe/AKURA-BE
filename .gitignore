@@ -1,21 +1,31 @@
+
+# ==========================================
 # Dependencies
+# ==========================================
 node_modules/
 
+# ==========================================
 # Build output
+# ==========================================
 dist/
 build/
 out/
+.next/
+.nuxt/
+.output/
 *.tsbuildinfo
 
+# ==========================================
 # Test and coverage output
+# ==========================================
 coverage/
 .nyc_output/
 test-results/
 playwright-report/
 
-# Test, temporary, and raw SQL artifacts
-tests/
-test/
+# ==========================================
+# Temporary files and backups
+# ==========================================
 temp/
 tmp/
 tmp-*
@@ -23,31 +33,35 @@ tmp-*
 *.bak
 *.orig
 *~
-*.sql
 
-# Documentation
-*.md
-
+# ==========================================
 # Environment files and local secrets
+# ==========================================
 .env
 .env.*
 !.env.example
 !.env.*.example
 
-# Generated authentication keys and certificates
+# ==========================================
+# Authentication keys and certificates
+# ==========================================
 **/keys/
 *.pem
 *.key
 *.p12
 *.pfx
 
+# ==========================================
 # Local databases
+# ==========================================
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
 
+# ==========================================
 # Logs and runtime files
+# ==========================================
 logs/
 *.log
 npm-debug.log*
@@ -57,14 +71,18 @@ pnpm-debug.log*
 *.pid
 *.pid.lock
 
+# ==========================================
 # Tool caches
+# ==========================================
 .cache/
 .eslintcache
 .parcel-cache/
 .turbo/
 .nx/
 
+# ==========================================
 # Editor and IDE settings
+# ==========================================
 .idea/
 .vscode/
 *.iml
@@ -74,30 +92,20 @@ pnpm-debug.log*
 *.sln
 *.sw?
 
-# Operating-system files
+# ==========================================
+# Operating system files
+# ==========================================
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# AI coding assistant local rules
-.clinerules/
-CLAUDE.MD
-.claude/
+# ==========================================
+# Local AI tool state
+# ==========================================
 
-node_modules/
-dist/
-build/
-coverage/
-.nyc_output/
-.turbo/
-.cache/
-.parcel-cache/
-.next/
-.nuxt/
-.output/
-*.tsbuildinfo
-.env
-.env.*
-!.env.example
+# Serena local state
+.serena/project.local.yml
+.serena/.indexing-complete
 
-.project-map/
+# Temporary task state
+.ai-context/TASK-STATE.md

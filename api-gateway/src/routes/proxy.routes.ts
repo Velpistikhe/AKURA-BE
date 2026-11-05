@@ -37,6 +37,7 @@ servicesConfig.forEach((service) => {
           proxyReq.setHeader('x-gateway-secret', service.gatewaySecret);
           proxyReq.removeHeader('X-User-ID');
           proxyReq.removeHeader('X-User-Role');
+          proxyReq.removeHeader('X-User-Section');
           proxyReq.removeHeader('X-User-Name');
           proxyReq.removeHeader('X-User-Email');
           proxyReq.removeHeader('X-User-Username');
@@ -49,11 +50,13 @@ servicesConfig.forEach((service) => {
           if (service.authRequired) {
             const userId = req.headers['x-user-id'];
             const userRole = req.headers['x-user-role'];
+            const userSection = req.headers['x-user-section'];
             const userName = req.headers['x-user-name'];
             const username = req.headers['x-user-username'];
             const officeBranchId = req.headers['x-office-branch-id'];
             if (userId) proxyReq.setHeader('X-User-ID', userId);
             if (userRole) proxyReq.setHeader('X-User-Role', userRole);
+            if (userSection) proxyReq.setHeader('X-User-Section', userSection);
             if (userName) proxyReq.setHeader('X-User-Name', userName);
             if (username) proxyReq.setHeader('X-User-Username', username);
             if (officeBranchId) proxyReq.setHeader('X-Office-Branch-ID', officeBranchId);

@@ -8,7 +8,7 @@ import { swaggerSpec } from './config/swagger.config.js';
 import { env } from './config/env.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import { loggerMiddleware } from './middlewares/logger.middleware.js';
-import { globalRateLimiter } from './middlewares/rateLimiter.middleware.js';
+import { globalRateLimiter, authRateLimiter } from './middlewares/rateLimiter.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import proxyRoutes from './routes/proxy.routes.js';
 import { servicesConfig } from './config/services.config.js';
@@ -53,6 +53,13 @@ app.use(cookieParser());
 
 app.use(authenticateServiceCaller);
 app.use(globalRateLimiter);
+// Credential submission endpoints get a tighter per-IP limit than the general
+// API so brute-force attempts against a single account are throttled.
+// Registration stays open, so it is limited rather than blocked.
+app.post(
+  ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh-token'],
+  authRateLimiter
+);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customCss: swaggerCss }));
 app.get('/api-docs.json', (_req: Request, res: Response) => {
   res.status(200).json(swaggerSpec);
