@@ -1,111 +1,61 @@
+# OS files
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
 
-# ==========================================
-# Dependencies
-# ==========================================
-node_modules/
-
-# ==========================================
-# Build output
-# ==========================================
-dist/
-build/
-out/
-.next/
-.nuxt/
-.output/
-*.tsbuildinfo
-
-# ==========================================
-# Test and coverage output
-# ==========================================
-coverage/
-.nyc_output/
-test-results/
-playwright-report/
-
-# ==========================================
-# Temporary files and backups
-# ==========================================
-temp/
-tmp/
-tmp-*
-*.tmp
-*.bak
-*.orig
+# Editor and IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 *~
 
-# ==========================================
-# Environment files and local secrets
-# ==========================================
+# Temporary and backup files
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.rej
+*.log
+
+# Environment files and secrets
 .env
 .env.*
 !.env.example
-!.env.*.example
-
-# ==========================================
-# Authentication keys and certificates
-# ==========================================
-**/keys/
 *.pem
 *.key
 *.p12
 *.pfx
+secrets/
+credentials/
 
-# ==========================================
-# Local databases
-# ==========================================
-*.db
-*.db-journal
-*.sqlite
-*.sqlite3
-
-# ==========================================
-# Logs and runtime files
-# ==========================================
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-*.pid
-*.pid.lock
-
-# ==========================================
-# Tool caches
-# ==========================================
+# Local tooling and caches
 .cache/
-.eslintcache
-.parcel-cache/
-.turbo/
-.nx/
+.temp/
+.tmp/
+coverage/
+.nyc_output/
 
-# ==========================================
-# Editor and IDE settings
-# ==========================================
-.idea/
-.vscode/
-*.iml
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Build and generated output
+dist/
+build/
+out/
+target/
 
-# ==========================================
-# Operating system files
-# ==========================================
-.DS_Store
-Thumbs.db
-Desktop.ini
+# Dependency directories (if tooling is added later)
+node_modules/
+vendor/
 
-# ==========================================
-# Local AI tool state
-# ==========================================
+# Python artifacts (if helper scripts are added later)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
 
-# Serena local state
-.serena/project.local.yml
-.serena/.indexing-complete
-
-# Temporary task state
-.ai-context/TASK-STATE.md
+# Archives and generated packages
+*.zip
+*.rar
+*.7z
