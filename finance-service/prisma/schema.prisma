@@ -66,3 +66,42 @@ model TaxDelivery {
   @@index([deliveredAt, nextRetryAt])
   @@map("tax_deliveries")
 }
+
+/// Audit trail for every write in this service.
+///
+/// The tax snapshot itself is recorded in `TaxEvent`. This table records
+/// who changed the data, which the event payload does not carry. A single
+/// generic table keeps the audit trail uniform across the whole platform, so a
+/// new module is audited without a schema migration.
+///
+/// The rows are append-only: there is no update or delete path in the
+/// application.
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  module         String   @db.VarChar(50)
+  entityType     String   @map("entity_type") @db.VarChar(50)
+  entityId       String   @map("entity_id") @db.Uuid
+  /// The version of the entity state this entry describes.
+  ///
+  /// Entities that carry their own version column record that number. The
+  /// entities without one record the timestamp of the change, so every write
+  /// still produces exactly one entry. A BigInt holds both.
+  version        BigInt
+  action         String   @db.VarChar(20)
+  before         Json?    @db.JsonB
+  after          Json     @db.JsonB
+  officeBranchId String?  @map("office_branch_id") @db.Uuid
+  createdById    String   @map("created_by_id") @db.Uuid
+  createdByName  String   @map("created_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Not unique: these entities have no version column, so the entry carries
+  // the millisecond timestamp of the change. Two writes to the same entity
+  // inside one millisecond would collide on a unique constraint and fail the
+  // write. The entry is written in the same transaction as the change, which
+  // already guarantees exactly one entry per committed write.
+  @@index([entityType, entityId, version])
+  @@index([module, entityType, entityId, createdAt])
+  @@index([officeBranchId, createdAt])
+  @@map("audit_logs")
+}

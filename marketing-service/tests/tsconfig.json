@@ -1,0 +1,21 @@
+{
+  // TypeScript project for the reliability test suite.
+  //
+  // The service tsconfig only includes "src/**/*", so the test files were not
+  // part of any TypeScript project. The editor therefore treated them as an
+  // inferred project without the Node type definitions, which produced
+  // "Cannot find name 'node:test'" and "Cannot find name 'node:assert/strict'".
+  //
+  // This project gives the tests their own type context. It never emits: the
+  // suite is executed by `node --test --import tsx`, not compiled.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"],
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules"]
+}

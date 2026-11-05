@@ -16,17 +16,17 @@ export const menuAccessController = {
   },
 
   async create(req: Request, res: Response): Promise<void> {
-    const access = await menuAccessService.create(res.locals.body as CreateMenuAccessInput);
+    const access = await menuAccessService.create(res.locals.body as CreateMenuAccessInput, res);
     res.status(201).json({ status: 201, success: true, message: 'Menu access created successfully', data: access, requestId: req.headers['x-request-id'] });
   },
 
   async update(req: Request, res: Response): Promise<void> {
-    const access = await menuAccessService.update((res.locals.params as MenuAccessParams).menuAccessId, res.locals.body as UpdateMenuAccessInput);
+    const access = await menuAccessService.update((res.locals.params as MenuAccessParams).menuAccessId, res.locals.body as UpdateMenuAccessInput, res);
     res.status(200).json({ status: 200, success: true, message: 'Menu access updated successfully', data: access, requestId: req.headers['x-request-id'] });
   },
 
   async delete(req: Request, res: Response): Promise<void> {
-    const access = await menuAccessService.delete((res.locals.params as MenuAccessParams).menuAccessId);
+    const access = await menuAccessService.delete((res.locals.params as MenuAccessParams).menuAccessId, res);
     res.status(200).json({ status: 200, success: true, message: 'Menu access deleted successfully', data: access, requestId: req.headers['x-request-id'] });
   },
 };

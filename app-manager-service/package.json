@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "db:migrate": "node scripts/apply-migrations.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

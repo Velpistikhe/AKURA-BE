@@ -4,7 +4,7 @@ import { lockCompanyBranch } from '../../utils/companyAudit.js';
 import { defineSortRules, findAll } from '../../utils/listQuery.js';
 import { CreateServiceInput, ListServicesInput, UpdateServiceInput } from './service.schemas.js';
 import { AuditActor } from '../../types/auth.types.js';
-import { recordCatalogAudit } from '../../utils/catalogAudit.js';
+import { recordCatalogAuditWithPlatform } from '../../utils/catalogAudit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { referenceKey } from '../items/item.schemas.js';
 
@@ -132,7 +132,7 @@ export const serviceRepository = {
     select: detailSelect,
     });
 
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', null, detailScopes(row), actor, 'CREATE');
+      await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', null, detailScopes(row), actor, 'CREATE');
       return detailScopes(row);
   }),
   update: (id: string, officeBranchId: string, data: UpdateServiceInput, actor: AuditActor) => prisma.$transaction(async (tx) => {
@@ -153,7 +153,7 @@ export const serviceRepository = {
     }
 
     const after = await tx.service.findFirstOrThrow({ where: { id, officeBranchId }, select: detailSelect });
-    await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'UPDATE');
+    await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'UPDATE');
     return detailScopes(after);
   }),
   async deactivate(id: string, version: number, officeBranchId: string, actor: AuditActor) {
@@ -170,11 +170,11 @@ export const serviceRepository = {
           isActive: false, effectiveUntil: new Date(Math.max(Date.now(), price.effectiveFrom.getTime())),
           version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name,
         } });
-        await recordCatalogAudit(tx, officeBranchId, 'ITEM_PRICE', price, closed, actor, 'DEACTIVATE');
+        await recordCatalogAuditWithPlatform(tx, officeBranchId, 'ITEM_PRICE', price, closed, actor, 'DEACTIVATE');
       }
       await tx.service.update({ where: { id, version }, data: { isActive: false, activeKey: null, version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       const after = await tx.service.findUniqueOrThrow({ where: { id }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'DEACTIVATE');
+      await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'DEACTIVATE');
       return detailScopes(after);
     });
   },
@@ -192,7 +192,7 @@ export const serviceRepository = {
         ? await tx.serviceScope.update({ where: { id: existing.id }, data: { revoked: false }, select: serviceScopeSelect })
         : await tx.serviceScope.create({ data: { serviceId, type, scope }, select: serviceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'MAINTENANCE_SCOPE_ADD');
+      await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'MAINTENANCE_SCOPE_ADD');
       return row;
     });
   },
@@ -206,7 +206,7 @@ export const serviceRepository = {
       if (current.revoked) throw new HttpError('Maintenance scope is already deleted', 409);
       const row = await tx.serviceScope.update({ where: { id: scopeId }, data: { revoked: true }, select: serviceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'MAINTENANCE_SCOPE_REMOVE');
+      await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'MAINTENANCE_SCOPE_REMOVE');
       return row;
     });
   },
@@ -222,7 +222,7 @@ export const serviceRepository = {
         ? await tx.serviceScope.update({ where: { id: existing.id }, data: { revoked: false }, select: serviceScopeSelect })
         : await tx.serviceScope.create({ data: { serviceId, type, scope: inspectionScope }, select: serviceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'INSPECTION_SCOPE_ADD');
+      await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'INSPECTION_SCOPE_ADD');
       return { ...row, inspectionScope: row.scope };
     });
   },
@@ -237,7 +237,7 @@ export const serviceRepository = {
       if (current.revoked) throw new HttpError('Inspection scope is already deleted', 409);
       const row = await tx.serviceScope.update({ where: { id: current.id }, data: { revoked: true }, select: serviceScopeSelect });
       const after = await tx.service.update({ where: { id: serviceId, version: before.version }, data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name }, select: detailSelect });
-      await recordCatalogAudit(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'INSPECTION_SCOPE_REMOVE');
+      await recordCatalogAuditWithPlatform(tx, officeBranchId, 'SERVICE', detailScopes(before), detailScopes(after), actor, 'INSPECTION_SCOPE_REMOVE');
       return { ...row, inspectionScope: row.scope };
     });
   },

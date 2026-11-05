@@ -1,4 +1,6 @@
+import { Response } from 'express';
 import { HttpError } from '../../../utils/httpError.js';
+import { getAuditActor } from '../../../utils/audit.js';
 import { CreateOfficeBranchInput, ListOfficeBranchesInput, UpdateOfficeBranchInput } from './office-branch.schemas.js';
 import { officeBranchRepository } from './office-branch.repository.js';
 import { ManagedOfficeBranch, OfficeBranchOption, PaginatedOfficeBranches } from './office-branch.types.js';
@@ -18,13 +20,13 @@ class OfficeBranchService {
     return officeBranch;
   }
 
-  async create(data: CreateOfficeBranchInput): Promise<ManagedOfficeBranch> {
-    return officeBranchRepository.create(data);
+  async create(data: CreateOfficeBranchInput, res: Response): Promise<ManagedOfficeBranch> {
+    return officeBranchRepository.create(data, getAuditActor(res));
   }
 
-  async update(id: string, data: UpdateOfficeBranchInput): Promise<ManagedOfficeBranch> {
+  async update(id: string, data: UpdateOfficeBranchInput, res: Response): Promise<ManagedOfficeBranch> {
     if (!await officeBranchRepository.findById(id)) throw new HttpError('Office branch not found', 404);
-    return officeBranchRepository.update(id, data);
+    return officeBranchRepository.update(id, data, getAuditActor(res));
   }
 }
 

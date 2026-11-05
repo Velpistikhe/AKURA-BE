@@ -1,6 +1,8 @@
 import { UserRole, UserSection } from '@prisma/client';
+import { Response } from 'express';
 import { prisma } from '../../../config/db.js';
 import { HttpError } from '../../../utils/httpError.js';
+import { getAuditActor } from '../../../utils/audit.js';
 import { CreateMenuInput, ListMenusInput, UpdateMenuInput } from './menu.schemas.js';
 import { menuRepository } from './menu.repository.js';
 import { ManagedMenu, MenusForUserResult, PaginatedMenus } from './menu.types.js';
@@ -16,7 +18,7 @@ class MenuService {
     return menu;
   }
 
-  async create(data: CreateMenuInput): Promise<ManagedMenu> {
+  async create(data: CreateMenuInput, res: Response): Promise<ManagedMenu> {
     const existing = await menuRepository.findByKey(data.key);
     if (existing) throw new HttpError(`Menu with key '${data.key}' already exists`, 409);
     if (data.hasItem) {
@@ -30,10 +32,10 @@ class MenuService {
       hasItem: data.hasItem,
       order: data.order,
       items: data.hasItem ? data.items : undefined,
-    });
+    }, getAuditActor(res));
   }
 
-  async update(id: string, data: UpdateMenuInput): Promise<ManagedMenu> {
+  async update(id: string, data: UpdateMenuInput, res: Response): Promise<ManagedMenu> {
     const existing = await menuRepository.findById(id);
     if (!existing) throw new HttpError('Menu not found', 404);
     if (data.key && data.key !== existing.key) {
@@ -44,13 +46,13 @@ class MenuService {
       const itemCount = await prisma.menuItem.count({ where: { menuId: id, isDeleted: false } });
       if (itemCount > 0) throw new HttpError('Menu with items cannot set hasItem to false', 409);
     }
-    return menuRepository.update(id, data);
+    return menuRepository.update(id, data, getAuditActor(res));
   }
 
-  async delete(id: string): Promise<ManagedMenu> {
+  async delete(id: string, res: Response): Promise<ManagedMenu> {
     const existing = await menuRepository.findById(id);
     if (!existing) throw new HttpError('Menu not found', 404);
-    return menuRepository.delete(id);
+    return menuRepository.delete(id, getAuditActor(res));
   }
 
   getMenusForUser(role: UserRole, section: UserSection | null): Promise<MenusForUserResult> {

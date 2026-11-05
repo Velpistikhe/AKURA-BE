@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../../config/db.js';
+import { recordAudit, serviceActor } from '../../utils/audit.js';
 import { env } from '../../config/env.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -33,6 +34,20 @@ export async function applyTaxEvent(input: unknown) {
     if (current && current.version >= event.version) return;
     await tx.taxCache.deleteMany({ where: { officeBranchId: event.officeBranchId } });
     if (event.taxes.length) await tx.taxCache.createMany({ data: event.taxes.map(({ updatedAt, ...row }) => ({ ...row, sourceUpdatedAt: updatedAt })) });
+    // The event is recorded in the platform-wide audit trail as well, so a
+    // tax change is traceable from the receiving service too. The actor is
+    // the sending service, because no user performed this change here.
+    await recordAudit(tx, {
+      module: 'taxes',
+      entityType: 'TAX',
+      entityId: event.officeBranchId,
+      version: event.version,
+      action: 'TAX_SYNC',
+      before: null,
+      after: { officeBranchId: event.officeBranchId, version: event.version, taxCount: event.taxes.length },
+      officeBranchId: event.officeBranchId,
+      actor: serviceActor('Finance Service'),
+    });
     await tx.taxCacheRevision.upsert({ where: { officeBranchId: event.officeBranchId },
       create: { officeBranchId: event.officeBranchId, version: event.version, eventId: event.eventId },
       update: { version: event.version, eventId: event.eventId } });

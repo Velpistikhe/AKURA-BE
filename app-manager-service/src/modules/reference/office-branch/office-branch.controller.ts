@@ -19,12 +19,13 @@ export const officeBranchController = {
     send(req, res, 200, 'Office branch retrieved successfully', await officeBranchService.get((res.locals.params as OfficeBranchParams).officeBranchId));
   },
   async create(req: Request, res: Response): Promise<void> {
-    send(req, res, 201, 'Office branch created successfully', await officeBranchService.create(res.locals.body as CreateOfficeBranchInput));
+    send(req, res, 201, 'Office branch created successfully', await officeBranchService.create(res.locals.body as CreateOfficeBranchInput, res));
   },
   async update(req: Request, res: Response): Promise<void> {
     send(req, res, 200, 'Office branch updated successfully', await officeBranchService.update(
       (res.locals.params as OfficeBranchParams).officeBranchId,
       res.locals.body as UpdateOfficeBranchInput,
+      res,
     ));
   },
 };

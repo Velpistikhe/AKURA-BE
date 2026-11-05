@@ -10,6 +10,7 @@ import { getAuthenticatedUserId } from '../../utils/authenticatedUser.js';
 import { clearTokenCookies, setTokenCookies } from '../../utils/cookies.js';
 import { HttpError, RefreshTokenRejectedError } from '../../utils/httpError.js';
 import { getAccessToken, getRefreshToken } from '../../utils/requestTokens.js';
+import { getAuditContext } from '../../utils/userHistory.js';
 
 export const authController = {
   async register(req: Request, res: Response): Promise<void> {
@@ -20,7 +21,8 @@ export const authController = {
       body.firstName,
       body.lastName,
       body.email,
-      body.telp
+      body.telp,
+      getAuditContext(req)
     );
     res.status(201).json({
       status: 201,
@@ -32,7 +34,7 @@ export const authController = {
 
   async login(req: Request, res: Response): Promise<void> {
     const body = req.body as LoginInput;
-    const result = await authService.login(body.username, body.password);
+    const result = await authService.login(body.username, body.password, getAuditContext(req));
     setTokenCookies(res, result.tokens);
     res.status(200).json({
       status: 200,
@@ -52,7 +54,7 @@ export const authController = {
       throw new HttpError('Refresh token is required in cookie or x-refresh-token header', 400);
     }
     try {
-      const tokens = await authService.refreshToken(refreshToken);
+      const tokens = await authService.refreshToken(refreshToken, getAuditContext(req));
       setTokenCookies(res, tokens);
       res.status(200).json({
         status: 200,
@@ -70,7 +72,7 @@ export const authController = {
   },
 
   async logout(req: Request, res: Response): Promise<void> {
-    await authService.logout(getRefreshToken(req));
+    await authService.logout(getRefreshToken(req), getAuditContext(req));
     clearTokenCookies(res);
     res.status(200).json({
       status: 200,

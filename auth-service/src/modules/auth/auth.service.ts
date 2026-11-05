@@ -11,7 +11,7 @@ import { HttpError, RefreshTokenRejectedError } from '../../utils/httpError.js';
 import { createRefreshTokenExpiry } from '../../utils/tokenExpiry.js';
 import { createAuthTokens, verifyRefreshToken } from '../../utils/tokens.js';
 import { sanitizeUser } from '../../utils/userMapper.js';
-import { saveUserHistory, UserAuditActor } from '../../utils/userHistory.js';
+import { saveUserHistory, saveSecurityAudit, UserAuditActor, type SecurityAuditContext } from '../../utils/userHistory.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 
@@ -28,26 +28,71 @@ class AuthService {
     firstName: string,
     lastName: string,
     email?: string | null,
-    telp?: string | null
+    telp?: string | null,
+    context?: SecurityAuditContext,
   ): Promise<void> {
     const passwordHash = await bcrypt.hash(password, 10);
 
     await prisma.$transaction(async (tx) => {
-      await authRepository.createUser(tx, username, passwordHash, firstName, lastName, email, telp);
+      const created = await authRepository.createUser(tx, username, passwordHash, firstName, lastName, email, telp);
+      // The registration is recorded in the same transaction as the user row,
+      // so the audit trail can never show a registration that did not happen.
+      await saveSecurityAudit(tx, {
+        module: 'auth',
+        eventType: 'REGISTER',
+        action: 'REGISTER',
+        outcome: 'SUCCESS',
+        userId: created?.id ?? null,
+        username,
+        context,
+      });
     });
   }
 
-  async login(username: string, password: string): Promise<AuthResult> {
+  async login(username: string, password: string, context?: SecurityAuditContext): Promise<AuthResult> {
     const user = await authRepository.findUserByUsername(username);
     if (!user?.password) {
+      // A login attempt for an unknown username is recorded, so a brute force
+      // attempt is visible in the audit trail.
+      await saveSecurityAudit(prisma, {
+        module: 'auth',
+        eventType: 'LOGIN_FAILED',
+        action: 'LOGIN',
+        outcome: 'FAILURE',
+        username,
+        context,
+        detail: { reason: 'unknown username' },
+      });
       throw new HttpError('Invalid username or password', 401);
     }
 
     if (!await bcrypt.compare(password, user.password.passwordHash)) {
+      await saveSecurityAudit(prisma, {
+        module: 'auth',
+        eventType: 'LOGIN_FAILED',
+        action: 'LOGIN',
+        outcome: 'FAILURE',
+        userId: user.id,
+        username,
+        officeBranchId: user.officeBranchId,
+        context,
+        detail: { reason: 'wrong password' },
+      });
       throw new HttpError('Invalid username or password', 401);
     }
 
     if (!user.isActive) {
+      await saveSecurityAudit(prisma, {
+        module: 'auth',
+        eventType: 'LOGIN_FAILED',
+        action: 'LOGIN',
+        outcome: 'FAILURE',
+        userId: user.id,
+        username,
+        officeBranchId: user.officeBranchId,
+        context,
+        detail: { reason: 'inactive account' },
+      });
       throw new HttpError('Account is inactive. Please contact administrator.', 403);
     }
 
@@ -59,15 +104,35 @@ class AuthService {
       createRefreshTokenExpiry(),
       uuidv4()
     );
+    await saveSecurityAudit(prisma, {
+      module: 'auth',
+      eventType: 'LOGIN',
+      action: 'LOGIN',
+      outcome: 'SUCCESS',
+      userId: user.id,
+      username: user.username,
+      officeBranchId: user.officeBranchId,
+      context,
+    });
     return { user: sanitizeUser(user), tokens };
   }
 
-  async refreshToken(refreshToken: string): Promise<AuthTokens> {
+  async refreshToken(refreshToken: string, context?: SecurityAuditContext): Promise<AuthTokens> {
     try {
       verifyRefreshToken(refreshToken);
     } catch (error) {
       if (error instanceof HttpError) {
         await authRepository.revokeRefreshToken(prisma, refreshToken);
+        // A rejected token is recorded: a replayed or tampered token is a
+        // security event.
+        await saveSecurityAudit(prisma, {
+          module: 'auth',
+          eventType: 'TOKEN_REFRESH_REJECTED',
+          action: 'TOKEN_REFRESH',
+          outcome: 'FAILURE',
+          context,
+          detail: { reason: error.message },
+        });
         throw new RefreshTokenRejectedError(error.message, error.statusCode);
       }
       throw error;
@@ -123,19 +188,48 @@ class AuthService {
         tokenRow.familyId,
         now
       );
+      // The rotation is recorded in the same transaction as the token change.
+      await saveSecurityAudit(tx, {
+        module: 'auth',
+        eventType: 'TOKEN_REFRESH',
+        action: 'TOKEN_REFRESH',
+        outcome: 'SUCCESS',
+        userId: user.id,
+        username: user.username,
+        officeBranchId: user.officeBranchId,
+        context,
+      });
       return { success: true, tokens };
     });
 
     if (!result.success) {
+      // Every refusal is recorded: a replayed or expired token is a security
+      // event that the operator has to be able to see.
+      await saveSecurityAudit(prisma, {
+        module: 'auth',
+        eventType: 'TOKEN_REFRESH_REJECTED',
+        action: 'TOKEN_REFRESH',
+        outcome: 'FAILURE',
+        context,
+        detail: { reason: result.message },
+      });
       throw new RefreshTokenRejectedError(result.message, result.statusCode);
     }
     return result.tokens;
   }
 
-  async logout(refreshToken?: string): Promise<void> {
+  async logout(refreshToken?: string, context?: SecurityAuditContext): Promise<void> {
     if (refreshToken) {
       await authRepository.revokeRefreshToken(prisma, refreshToken);
     }
+    // The logout is recorded, so the audit trail shows when a session ended.
+    await saveSecurityAudit(prisma, {
+      module: 'auth',
+      eventType: 'LOGOUT',
+      action: 'LOGOUT',
+      outcome: 'SUCCESS',
+      context,
+    });
   }
 
   async updateProfile(

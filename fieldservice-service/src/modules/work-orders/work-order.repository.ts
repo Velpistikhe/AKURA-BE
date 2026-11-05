@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
 import { QuotationSnapshot, ContractSnapshot, ItemSizeReference, validateContract, toQuotationSnapshot, toContractSnapshot, toWorkOrderItemSnapshot } from '../../integrations/gateway.js';
+import { recordAudit } from '../../utils/audit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
@@ -30,6 +31,19 @@ async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot,
   await tx.workOrderHistory.create({ data: { workOrderId: row.id, version: row.version, action,
     beforeSnapshot: before ? json(before) : Prisma.DbNull, snapshot: json(row), changes: json(changes),
     createdById: actor.id, createdByName: actor.name } });
+  // The generic audit entry records the same change in the platform-wide
+  // audit trail, so every module can be queried through one interface.
+  await recordAudit(tx, {
+    module: 'work-orders',
+    entityType: 'WORK_ORDER',
+    entityId: row.id,
+    version: row.version,
+    action,
+    before,
+    after: row,
+    officeBranchId: row.officeBranchId ?? null,
+    actor,
+  });
   return row;
 }
 const normalizeSnapshot = (value: unknown): unknown => {

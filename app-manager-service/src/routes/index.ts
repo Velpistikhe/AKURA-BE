@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import auditTrailRoutes from '../modules/audit-trail/audit-trail.routes.js';
 import menuItemRoutes from '../modules/menu/menu-items/menu-item.routes.js';
 import menuAccessRoutes from '../modules/menu/menu-accesses/menu-access.routes.js';
 import menuRoutes from '../modules/menu/menus/menu.routes.js';
@@ -6,6 +7,7 @@ import officeBranchRoutes from '../modules/reference/office-branch/office-branch
 
 const router = Router();
 
+router.use('/audit-trail', auditTrailRoutes);
 router.use('/menus', menuRoutes);
 router.use('/menu-items', menuItemRoutes);
 router.use('/menu-accesses', menuAccessRoutes);

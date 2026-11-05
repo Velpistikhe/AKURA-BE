@@ -3,7 +3,7 @@ import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { HttpError } from '../../utils/httpError.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
-import { recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
+import { recordCatalogAuditWithPlatform, requireCatalogVersion } from '../../utils/catalogAudit.js';
 import { currentBusinessDate } from '../../utils/businessDate.js';
 import { recordContractHistory } from './contract-history.js';
 
@@ -73,7 +73,7 @@ export const contractRepository = {
     const existing = await tx.companyContract.findFirst({ where: { companyId: data.companyId, isDeleted: false, status: { in: ['DRAFT', 'REJECTED'] } } });
     if (existing) throw new HttpError('The company already has a draft or approved contract', 409);
     const row = await tx.companyContract.create({ data: { ...data, status: 'DRAFT', companySnapshot: JSON.parse(JSON.stringify(owner)), createdById: actor.id } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', null, row, actor, 'CREATE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', null, row, actor, 'CREATE');
     await saveHistory(tx, null, row, actor, 'CREATE');
     return row;
   }),
@@ -86,7 +86,7 @@ export const contractRepository = {
     const contractPrice = await tx.companyContractPrice.findFirst({ where: { contractId: before.id, isActive: true }, select: { id: true } });
     if (!contractPrice) throw new HttpError('At least one active contract item price is required before submission', 409);
     const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'SUBMITTED', version: { increment: 1 }, updatedById: actor.id } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'SUBMIT');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'SUBMIT');
     await saveHistory(tx, before, after, actor, 'SUBMIT');
     return after;
   }),
@@ -97,7 +97,7 @@ export const contractRepository = {
     requireCatalogVersion(before, version);
     if (before.status !== 'SUBMITTED') throw new HttpError('Only SUBMITTED contracts can be rejected', 409);
     const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'REJECTED', version: { increment: 1 }, updatedById: actor.id } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'REJECT');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'REJECT');
     await saveHistory(tx, before, after, actor, 'REJECT');
     return after;
   }),
@@ -123,15 +123,15 @@ export const contractRepository = {
       oldUntil.setUTCDate(oldUntil.getUTCDate() - 1);
       if (oldUntil < old.effectiveFrom || oldUntil >= old.effectiveUntil) throw new HttpError('The revision period cannot replace the original contract period', 409);
       const oldAfter = await tx.companyContract.update({ where: { id: old.id, version: old.version }, data: { status: 'REVISED', effectiveUntil: oldUntil, version: { increment: 1 }, updatedById: actor.id } });
-      await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', old, oldAfter, actor, 'REVISED');
+      await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', old, oldAfter, actor, 'REVISED');
       await saveHistory(tx, old, oldAfter, actor, 'REVISED');
     } else {
       const oldAfter = await tx.companyContract.update({ where: { id: old.id, version: old.version }, data: { status: 'REVISED', effectiveUntil: old.effectiveFrom, version: { increment: 1 }, updatedById: actor.id } });
-      await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', old, oldAfter, actor, 'REVISED');
+      await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', old, oldAfter, actor, 'REVISED');
       await saveHistory(tx, old, oldAfter, actor, 'REVISED');
     }
     }
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'APPROVE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'APPROVE');
     await saveHistory(tx, before, after, actor, 'APPROVE');
     return after;
   }),
@@ -155,7 +155,7 @@ export const contractRepository = {
       effectiveFrom: data.effectiveFrom, effectiveUntil: data.effectiveUntil,
       updatedById: actor.id, version: { increment: 1 },
     } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'UPDATE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'UPDATE');
     await saveHistory(tx, before, after, actor, 'UPDATE');
     return after;
   }),
@@ -172,7 +172,7 @@ export const contractRepository = {
       effectiveFrom: data.effectiveFrom, effectiveUntil: data.effectiveUntil, status: 'DRAFT',
       companySnapshot: before.companySnapshot ?? Prisma.DbNull, revisionOfId: before.id, createdById: actor.id,
     } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', null, row, actor, 'REVISE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', null, row, actor, 'REVISE');
     await saveHistory(tx, null, row, actor, 'REVISE');
     return row;
   }),
@@ -184,7 +184,7 @@ export const contractRepository = {
     if (before.status !== 'APPROVED') throw new HttpError('Only approved contracts can be terminated', 409);
     if (terminatedAt < before.effectiveFrom || terminatedAt > before.effectiveUntil) throw new HttpError('terminatedAt must be within the contract period', 400);
     const after = await tx.companyContract.update({ where: { id, version }, data: { status: 'TERMINATED', effectiveUntil: terminatedAt, version: { increment: 1 }, updatedById: actor.id } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DEACTIVATE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DEACTIVATE');
     await saveHistory(tx, before, after, actor, 'TERMINATE');
     return after;
   }),
@@ -196,7 +196,7 @@ export const contractRepository = {
     if (before.status !== 'DRAFT' && before.status !== 'REJECTED') throw new HttpError('Only DRAFT or REJECTED contracts can be deleted', 409);
     if (before.isDeleted) throw new HttpError('Company contract is already deleted', 409);
     const after = await tx.companyContract.update({ where: { id, version }, data: { isDeleted: true, version: { increment: 1 }, updatedById: actor.id } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DELETE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', before, after, actor, 'DELETE');
     await saveHistory(tx, before, after, actor, 'DELETE');
     return after;
   }),

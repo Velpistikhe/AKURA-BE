@@ -125,3 +125,33 @@ model UserSyncDelivery {
   @@index([deliveredAt, nextRetryAt])
   @@map("user_sync_deliveries")
 }
+
+/// Audit trail for the events that are not user-profile edits.
+///
+/// The user profile changes are recorded in `UserHistory`. This table covers
+/// the security-relevant events of the other modules: registrations, logins,
+/// failed logins, token refreshes and logouts. A single generic table keeps
+/// the audit trail uniform across the whole platform, so a new module is
+/// audited without a schema migration.
+///
+/// The rows are append-only: there is no update or delete path in the
+/// application.
+model SecurityAuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  module         String   @db.VarChar(50)
+  eventType      String   @map("event_type") @db.VarChar(50)
+  action         String   @db.VarChar(20)
+  userId         String?  @map("user_id") @db.Uuid
+  username       String?  @db.VarChar(100)
+  officeBranchId String?  @map("office_branch_id") @db.Uuid
+  ipAddress      String?  @map("ip_address") @db.VarChar(64)
+  userAgent      String?  @map("user_agent") @db.VarChar(300)
+  outcome        String   @db.VarChar(20)
+  detail         Json?    @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([module, eventType, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("security_audit_logs")
+}

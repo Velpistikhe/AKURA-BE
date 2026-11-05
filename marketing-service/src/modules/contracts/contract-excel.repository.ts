@@ -5,7 +5,7 @@ import { prisma } from '../../config/db.js';
 import { AuditActor } from '../../types/auth.types.js';
 import { buildListQuery, defineSortRules } from '../../utils/listQuery.js';
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
-import { recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
+import { recordCatalogAuditWithPlatform, requireCatalogVersion } from '../../utils/catalogAudit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { currentBusinessDate } from '../../utils/businessDate.js';
 import { ExcelImportError, ExcelPriceRow, ExportItemSizesInput, MAX_EXCEL_ROWS } from './contract-excel.schemas.js';
@@ -106,7 +106,7 @@ export const contractExcelRepository = {
       ...prices.map(price => audit('COMPANY_CONTRACT_PRICE', null, price, 'IMPORT')),
     ] });
     const updated = await tx.companyContract.update({ where: { id: targetContractId, version: contract.version }, data: { updatedAt: now, updatedById: actor.id, version: { increment: 1 } } });
-    await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT', contract, updated, actor, 'IMPORT');
+    await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT', contract, updated, actor, 'IMPORT');
     await recordContractHistory(tx, contract, updated, actor, 'IMPORT');
     return { companyId, contractId: targetContractId, version: updated.version, imported: prices.length };
   }, { maxWait: 10000, timeout: 30000 }),

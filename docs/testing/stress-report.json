@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-11-05T07:12:38.921Z",
+  "scenario": "read-list",
+  "metrics": {
+    "concurrency": 20,
+    "totalRequests": 200,
+    "successful": 200,
+    "failed": 0,
+    "timeouts": 0,
+    "wallClockMs": 3462.158099999997,
+    "requestsPerSecond": 57.767437021434745,
+    "latency": {
+      "count": 200,
+      "minMs": 117.15369999999893,
+      "maxMs": 1836.786600000003,
+      "averageMs": 341.3715930000002,
+      "p50Ms": 212.112000000001,
+      "p95Ms": 1514.8963999999978,
+      "p99Ms": 1792.3423999999977
+    },
+    "statusCounts": {
+      "200": 200
+    },
+    "errorMessages": {}
+  }
+}

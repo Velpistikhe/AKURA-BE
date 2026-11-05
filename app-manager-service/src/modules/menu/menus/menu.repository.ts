@@ -3,6 +3,7 @@ import { Prisma, UserRole, UserSection } from '@prisma/client';
 import { prisma } from '../../../config/db.js';
 import { HttpError } from '../../../utils/httpError.js';
 import { buildListQuery, buildPagination, defineSortRules } from '../../../utils/listQuery.js';
+import { recordAudit, type AuditActor } from '../../../utils/audit.js';
 import { ListMenusInput } from './menu.schemas.js';
 import { ManagedMenu, MenuUpdate, MenusForUserResult, PaginatedMenus } from './menu.types.js';
 
@@ -11,6 +12,15 @@ const menuSelect = {
   id: true, key: true, label: true,
   hasItem: true, order: true, isActive: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.MenuSelect;
+
+/**
+ * The version of a menu row for the audit trail.
+ *
+ * The row has no version column, so the timestamp of the change is used. The
+ * audit entry is unique per (entity, version), and the timestamp changes on
+ * every write, so each write produces exactly one entry.
+ */
+const auditVersion = (row: { updatedAt: Date }): number => row.updatedAt.getTime();
 
 class MenuRepository {
   async list(input: ListMenusInput): Promise<PaginatedMenus> {
@@ -51,20 +61,36 @@ class MenuRepository {
     return prisma.menu.findUnique({ where: { key }, select: menuSelect });
   }
 
-  create(data: { key: string; label: string; hasItem: boolean; order: number; items?: { key: string; label: string; order: number }[] }): Promise<ManagedMenu> {
-    return menuWrite(tx => tx.menu.create({
-      data: {
-        key: data.key,
-        label: data.label,
-        hasItem: data.hasItem,
-        order: data.order,
-        items: data.items ? { create: data.items } : undefined,
-      },
-      select: menuSelect,
-    }));
+  create(
+    data: { key: string; label: string; hasItem: boolean; order: number; items?: { key: string; label: string; order: number }[] },
+    actor: AuditActor,
+  ): Promise<ManagedMenu> {
+    return menuWrite(async (tx) => {
+      const created = await tx.menu.create({
+        data: {
+          key: data.key,
+          label: data.label,
+          hasItem: data.hasItem,
+          order: data.order,
+          items: data.items ? { create: data.items } : undefined,
+        },
+        select: menuSelect,
+      });
+      await recordAudit(tx, {
+        module: 'menu',
+        entityType: 'MENU',
+        entityId: created.id,
+        version: auditVersion(created),
+        action: 'CREATE',
+        before: null,
+        after: created,
+        actor,
+      });
+      return created;
+    });
   }
 
-  async update(id: string, data: MenuUpdate): Promise<ManagedMenu> {
+  async update(id: string, data: MenuUpdate, actor: AuditActor): Promise<ManagedMenu> {
     return menuWrite(async (tx) => {
       const rows = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM "menus" WHERE id = ${id}::uuid FOR UPDATE
@@ -75,15 +101,27 @@ class MenuRepository {
       if (data.hasItem === false && await tx.menuItem.count({ where: { menuId: id, isDeleted: false } })) {
         throw new HttpError('Menu with items cannot set hasItem to false', 409);
       }
-      return tx.menu.update({
+      const before = await tx.menu.findUniqueOrThrow({ where: { id }, select: menuSelect });
+      const updated = await tx.menu.update({
         where: { id },
         data,
         select: menuSelect,
       });
+      await recordAudit(tx, {
+        module: 'menu',
+        entityType: 'MENU',
+        entityId: updated.id,
+        version: auditVersion(updated),
+        action: 'UPDATE',
+        before,
+        after: updated,
+        actor,
+      });
+      return updated;
     });
   }
 
-  delete(id: string): Promise<ManagedMenu> {
+  delete(id: string, actor: AuditActor): Promise<ManagedMenu> {
     return menuWrite(async tx => {
       const current = await tx.menu.findUnique({ where: { id } });
       if (!current) throw new HttpError('Menu not found', 404);
@@ -91,7 +129,19 @@ class MenuRepository {
       if (await tx.menuItem.count({ where: { menuId: id, isDeleted: false } })) {
         throw new HttpError('Menu with items cannot be deleted; delete its items first', 409);
       }
-      return tx.menu.update({ where: { id }, data: { isDeleted: true, isActive: false }, select: menuSelect });
+      const before = await tx.menu.findUniqueOrThrow({ where: { id }, select: menuSelect });
+      const deleted = await tx.menu.update({ where: { id }, data: { isDeleted: true, isActive: false }, select: menuSelect });
+      await recordAudit(tx, {
+        module: 'menu',
+        entityType: 'MENU',
+        entityId: deleted.id,
+        version: auditVersion(deleted),
+        action: 'DELETE',
+        before,
+        after: deleted,
+        actor,
+      });
+      return deleted;
     });
   }
 

@@ -3,6 +3,33 @@ import { z } from 'zod';
 
 dotenv.config();
 
+/**
+ * Refuses a development configuration that points at a remote system.
+ *
+ * The development environment must never reach a deployed database or a
+ * deployed service. A remote target in a development `.env` is almost always
+ * a copy/paste mistake, and it would let a local run modify real data.
+ */
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
+
+const assertLocalTarget = (label: string, value: string, context: z.RefinementCtx): void => {
+  let host: string;
+  try {
+    host = new URL(value.includes('://') ? value : `postgresql://${value}`).hostname;
+  } catch {
+    // A value that is not a URL cannot be checked here; the schema validates
+    // the format separately.
+    return;
+  }
+  if (host && !LOCAL_HOSTS.includes(host)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${label} must point at a local host in development, but it points at "${host}". `
+        + 'A development environment must never reach a deployed system.',
+    });
+  }
+};
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(5004),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -28,6 +55,16 @@ const envSchema = z.object({
 
 const result = envSchema.refine(value => !value.TAX_DELIVERY_TARGETS.length || !!value.TAX_SYNC_SECRET, 'TAX_SYNC_SECRET is required for delivery targets')
   .refine(value => !value.DIRECT_MFE_ACCESS || value.NODE_ENV === 'development', { message: 'DIRECT_MFE_ACCESS is only allowed when NODE_ENV is development', path: ['DIRECT_MFE_ACCESS'] })
+  .superRefine((value, context) => {
+    if (value.NODE_ENV !== 'development') return;
+    assertLocalTarget('DATABASE_URL', value.DATABASE_URL, context);
+    assertLocalTarget('API_GATEWAY_URL', value.API_GATEWAY_URL, context);
+    // Every delivery target must stay local, so a local run can never push a
+    // tax event to a deployed service.
+    for (const target of value.TAX_DELIVERY_TARGETS) {
+      assertLocalTarget(`TAX_DELIVERY_TARGETS[${target.name}]`, target.url, context);
+    }
+  })
   .safeParse(process.env);
 if (!result.success) {
   console.error('Invalid Finance environment variables:', JSON.stringify(result.error.format(), null, 2));

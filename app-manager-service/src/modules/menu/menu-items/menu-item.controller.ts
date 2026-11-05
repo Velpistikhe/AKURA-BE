@@ -16,17 +16,17 @@ export const menuItemController = {
   },
 
   async create(req: Request, res: Response): Promise<void> {
-    const item = await menuItemService.create(res.locals.body as CreateMenuItemInput);
+    const item = await menuItemService.create(res.locals.body as CreateMenuItemInput, res);
     res.status(201).json({ status: 201, success: true, message: 'Menu item created successfully', data: item, requestId: req.headers['x-request-id'] });
   },
 
   async update(req: Request, res: Response): Promise<void> {
-    const item = await menuItemService.update((res.locals.params as MenuItemParams).menuItemId, res.locals.body as UpdateMenuItemInput);
+    const item = await menuItemService.update((res.locals.params as MenuItemParams).menuItemId, res.locals.body as UpdateMenuItemInput, res);
     res.status(200).json({ status: 200, success: true, message: 'Menu item updated successfully', data: item, requestId: req.headers['x-request-id'] });
   },
 
   async delete(req: Request, res: Response): Promise<void> {
-    const item = await menuItemService.delete((res.locals.params as MenuItemParams).menuItemId);
+    const item = await menuItemService.delete((res.locals.params as MenuItemParams).menuItemId, res);
     res.status(200).json({ status: 200, success: true, message: 'Menu item deleted successfully', data: item, requestId: req.headers['x-request-id'] });
   },
 };

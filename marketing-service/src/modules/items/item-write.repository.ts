@@ -7,7 +7,7 @@ import { HttpError } from '../../utils/httpError.js';
 import { recordContractHistory } from '../contracts/contract-history.js';
 
 import { lockCompanyBranch } from '../../utils/companyAudit.js';
-import { CatalogEntity, recordCatalogAudit, requireCatalogVersion } from '../../utils/catalogAudit.js';
+import { CatalogEntity, recordCatalogAuditWithPlatform, requireCatalogVersion } from '../../utils/catalogAudit.js';
 import { AddItemSizeInput, CreateItemInput, CreateItemScopeInput, PriceInput, ContractPriceInput, createItemPriceSchema, createContractPriceSchema, referenceKey, UpdatePriceInput } from './item.schemas.js';
 
 type Tx = Prisma.TransactionClient;
@@ -30,7 +30,7 @@ const change = async (tx: Tx, branch: string, entity: ItemCatalogEntity, before:
   const after = await delegate.update({ where: { id: before.id, version: before.version }, data: {
     ...data, ...(entity === 'COMPANY_CONTRACT' ? contractUpdatedBy(actor) : updatedBy(actor)),
   } });
-  await recordCatalogAudit(tx, branch, entity, before, afterExtra ? { ...after, ...afterExtra } : after, actor, action);
+  await recordCatalogAuditWithPlatform(tx, branch, entity, before, afterExtra ? { ...after, ...afterExtra } : after, actor, action);
   if (entity === 'COMPANY_CONTRACT') await recordContractHistory(tx, before, after, actor, action);
   return after;
 };
@@ -104,7 +104,7 @@ const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemIn
   const latest = await tx.itemSize.findFirst({ where: { itemId: item.id, size }, orderBy: { effectiveFrom: 'desc' } });
   const effectiveFrom = new Date(Math.max(Date.now(), latest ? latest.effectiveFrom.getTime() + 1 : 0));
   const row = await tx.itemSize.create({ data: { itemId: item.id, size, activeKey, effectiveFrom, ...createdBy(actor) } });
-  await recordCatalogAudit(tx, branch, 'ITEM_SIZE', null, row, actor, 'CREATE');
+  await recordCatalogAuditWithPlatform(tx, branch, 'ITEM_SIZE', null, row, actor, 'CREATE');
   const hasPrice = priceServicePrimary !== undefined
     || priceServiceSisterCompany !== undefined
     || priceMaintenancePrimary !== undefined
@@ -118,7 +118,7 @@ const insertSize = async (tx: Tx, branch: string, item: any, input: CreateItemIn
       priceMaintenanceSisterCompany,
     } as PriceInput, item.service?.hasMaintenance ?? false);
     price = await tx.itemPrice.create({ data: { itemSizeId: row.id, ...prices, ...createdBy(actor) } });
-    await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, price, actor, 'CREATE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'ITEM_PRICE', null, price, actor, 'CREATE');
   }
   return { ...row, price };
 };
@@ -161,7 +161,7 @@ const createContract = async (tx: Tx, id: string, data: ContractPriceInput, bran
           effectiveFrom: new Date(),
         }, actor, 'REACTIVATE')
       : await tx.companyContractPrice.create({ data: { itemSizeId: id, ...prices, catalogSnapshot: catalogSnapshot({ ...size, item }), ...createdBy(actor) } });
-    if (!existing) await recordCatalogAudit(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
+    if (!existing) await recordCatalogAuditWithPlatform(tx, branch, 'COMPANY_CONTRACT_PRICE', null, result, actor, 'CREATE');
     await change(tx, branch, 'COMPANY_CONTRACT', contract, {}, actor, 'PRICE_UPDATE');
     await bumpSize(tx, branch, size, item, actor);
     return result;
@@ -201,7 +201,7 @@ export const itemWriteRepository = {
       // to a service. The schema rejects the other combinations before this write.
       scopes: { create: data.inspectionScopes.map(scope => ({ type: 'INSPECTION' as const, scope, revoked: false })) },
     } , include: { scopes: true } });
-    await recordCatalogAudit(tx, branch, 'ITEM', null, item, actor, 'CREATE');
+    await recordCatalogAuditWithPlatform(tx, branch, 'ITEM', null, item, actor, 'CREATE');
     const sizes = [];
     const sizeInputs = data.sizes.length ? data.sizes : [{ size: null }];
     for (const size of sizeInputs) sizes.push(await insertSize(tx, branch, { ...item, service }, size, actor));
@@ -309,7 +309,7 @@ export const itemWriteRepository = {
       if (before) throw new HttpError('Price already exists; use PATCH with its version', 409);
       const prices = standardPrices(input as PriceInput, item.service?.hasMaintenance ?? false);
       result = await tx.itemPrice.create({ data: { itemSizeId: id, ...prices, ...createdBy(actor) } });
-      await recordCatalogAudit(tx, branch, 'ITEM_PRICE', null, result, actor, 'CREATE');
+      await recordCatalogAuditWithPlatform(tx, branch, 'ITEM_PRICE', null, result, actor, 'CREATE');
     } else {
       if (!before) throw new HttpError('Item price not found', 404);
       if (!before.isActive && isActive !== true) throw new HttpError('Inactive price can only be reactivated', 409);

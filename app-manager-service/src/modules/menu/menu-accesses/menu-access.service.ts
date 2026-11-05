@@ -1,5 +1,7 @@
+import { Response } from 'express';
 import { prisma } from '../../../config/db.js';
 import { HttpError } from '../../../utils/httpError.js';
+import { getAuditActor } from '../../../utils/audit.js';
 import { CreateMenuAccessInput, ListMenuAccessesInput, UpdateMenuAccessInput } from './menu-access.schemas.js';
 import { menuAccessRepository } from './menu-access.repository.js';
 import { ManagedMenuAccess, PaginatedMenuAccesses } from './menu-access.types.js';
@@ -15,15 +17,15 @@ class MenuAccessService {
     return access;
   }
 
-  async create(data: CreateMenuAccessInput): Promise<ManagedMenuAccess> {
+  async create(data: CreateMenuAccessInput, res: Response): Promise<ManagedMenuAccess> {
     const menuItem = await prisma.menuItem.findUnique({ where: { id: data.menuItemId, isDeleted: false, isActive: true, menu: { isDeleted: false, isActive: true } }, select: { id: true } });
     if (!menuItem) throw new HttpError('Menu item not found', 404);
     const conflict = await menuAccessRepository.findByRule(data.menuItemId, data.role, data.section);
     if (conflict) throw new HttpError('Menu access rule already exists', 409);
-    return menuAccessRepository.create(data);
+    return menuAccessRepository.create(data, getAuditActor(res));
   }
 
-  async update(id: string, data: UpdateMenuAccessInput): Promise<ManagedMenuAccess> {
+  async update(id: string, data: UpdateMenuAccessInput, res: Response): Promise<ManagedMenuAccess> {
     const existing = await menuAccessRepository.findById(id);
     if (!existing) throw new HttpError('Menu access not found', 404);
     const menuItemId = data.menuItemId ?? existing.menuItemId;
@@ -35,13 +37,13 @@ class MenuAccessService {
     }
     const conflict = await menuAccessRepository.findByRule(menuItemId, role, section, id);
     if (conflict) throw new HttpError('Menu access rule already exists', 409);
-    return menuAccessRepository.update(id, data);
+    return menuAccessRepository.update(id, data, getAuditActor(res));
   }
 
-  async delete(id: string): Promise<ManagedMenuAccess> {
+  async delete(id: string, res: Response): Promise<ManagedMenuAccess> {
     const existing = await menuAccessRepository.findById(id);
     if (!existing) throw new HttpError('Menu access not found', 404);
-    return menuAccessRepository.delete(id);
+    return menuAccessRepository.delete(id, getAuditActor(res));
   }
 }
 

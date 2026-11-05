@@ -17,17 +17,17 @@ export const menuController = {
   },
 
   async create(req: Request, res: Response): Promise<void> {
-    const menu = await menuService.create(res.locals.body as CreateMenuInput);
+    const menu = await menuService.create(res.locals.body as CreateMenuInput, res);
     res.status(201).json({ status: 201, success: true, message: 'Menu created successfully', data: menu, requestId: req.headers['x-request-id'] });
   },
 
   async update(req: Request, res: Response): Promise<void> {
-    const menu = await menuService.update((res.locals.params as MenuParams).menuId, res.locals.body as UpdateMenuInput);
+    const menu = await menuService.update((res.locals.params as MenuParams).menuId, res.locals.body as UpdateMenuInput, res);
     res.status(200).json({ status: 200, success: true, message: 'Menu updated successfully', data: menu, requestId: req.headers['x-request-id'] });
   },
 
   async delete(req: Request, res: Response): Promise<void> {
-    const menu = await menuService.delete((res.locals.params as MenuParams).menuId);
+    const menu = await menuService.delete((res.locals.params as MenuParams).menuId, res);
     res.status(200).json({ status: 200, success: true, message: 'Menu deleted successfully', data: menu, requestId: req.headers['x-request-id'] });
   },
 

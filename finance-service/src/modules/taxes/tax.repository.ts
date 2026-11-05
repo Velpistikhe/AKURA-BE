@@ -1,7 +1,7 @@
 import { env } from '../../config/env.js';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/db.js';
-type AuditActor = { id: string; name: string };
+import { recordAudit, type AuditActor } from '../../utils/audit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { createTaxSchema } from './tax.schemas.js';
 
@@ -19,13 +19,41 @@ export const taxRepository = {
       if (latest && effectiveFrom.getTime() <= latest.effectiveFrom.getTime()) {
         throw new HttpError('Tax effectiveFrom must be later than the latest tax effectiveFrom in this branch', 409);
       }
-      if (latest) await tx.tax.update({ where: { id: latest.id }, data: {
-        effectiveUntil: new Date(effectiveFrom.getTime() - 86400000), updatedById: actor.id, updatedByName: actor.name,
-      } });
+      // Closing the previous period and opening the new one are two separate
+      // changes to two separate rows, so each gets its own audit entry.
+      if (latest) {
+        const closed = await tx.tax.update({ where: { id: latest.id }, data: {
+          effectiveUntil: new Date(effectiveFrom.getTime() - 86400000), updatedById: actor.id, updatedByName: actor.name,
+        } });
+        await recordAudit(tx, {
+          module: 'taxes',
+          entityType: 'TAX',
+          entityId: closed.id,
+          version: closed.updatedAt.getTime(),
+          action: 'CLOSE_PERIOD',
+          before: latest,
+          after: closed,
+          officeBranchId,
+          actor,
+        });
+      }
       const tax = await tx.tax.create({ data: {
         officeBranchId, percentage: new Prisma.Decimal(percentage), effectiveFrom,
         createdById: actor.id, createdByName: actor.name,
       } });
+      // The audit entry is written in the same transaction as the tax row, so
+      // the trail can never show a tax that was not committed.
+      await recordAudit(tx, {
+        module: 'taxes',
+        entityType: 'TAX',
+        entityId: tax.id,
+        version: tax.updatedAt.getTime(),
+        action: 'CREATE',
+        before: null,
+        after: tax,
+        officeBranchId,
+        actor,
+      });
       const event = await enqueueTaxSnapshot(tx, officeBranchId);
       return { tax, event };
     }, { maxWait: 10000, timeout: 20000 });

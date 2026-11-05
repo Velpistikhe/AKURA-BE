@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/db.js';
+import { recordAudit, serviceActor } from '../../utils/audit.js';
 import { env } from '../../config/env.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
@@ -64,6 +65,20 @@ export async function applyUserSyncEvent(input: unknown) {
       where: { userId: event.user.id },
       create: { userId: event.user.id, version: event.version, eventId: event.eventId },
       update: { version: event.version, eventId: event.eventId },
+    });
+    // The read-model change is recorded in the platform-wide audit trail. The
+    // actor is the sending service, because no user performed this change here:
+    // it is a replication of a user profile change made in Auth.
+    await recordAudit(tx, {
+      module: 'user-sync',
+      entityType: 'USER_SYNC',
+      entityId: event.user.id,
+      version: event.version,
+      action: 'USER_SYNC',
+      before: null,
+      after: { userId: event.user.id, version: event.version, officeBranchId: event.officeBranchId },
+      officeBranchId: event.officeBranchId,
+      actor: serviceActor('Auth Service'),
     });
   }, { maxWait: 5000, timeout: 20000 });
   logger.info('User sync event applied', { eventId: event.eventId, userId: event.user.id, officeBranchId: event.officeBranchId, version: event.version, eligible: isCandidate(event.user) });
