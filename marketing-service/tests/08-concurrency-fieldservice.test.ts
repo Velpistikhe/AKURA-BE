@@ -1,51 +1,35 @@
 /**
  * CONCURRENCY - fieldservice-service.
  *
- * Covers the work order identity allocation and the user read-model
- * synchronisation:
+ * Covers the work order identity allocation and the live Auth validation of
+ * the inspectors:
  *   - concurrent work order creation allocates distinct, gapless numbers
- *   - the user sync event is idempotent and rejects an outdated version
+ *   - the inspector directory is read live from Auth, never from a local
+ *     replica, so a deactivated user disappears from the options at once
  */
 import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { query, seedOfficeBranch } from './support/fixtures.js';
+import { GATEWAY, gatewayIdentityHeaders, loginAs, query, seedOfficeBranch, seedUser } from './support/fixtures.js';
 import { httpRequest } from './support/http.js';
 import { TEST_PORTS } from './support/env.js';
-import { TEST_GATEWAY_SECRETS, TEST_USER_SYNC_SECRET } from './support/harness.js';
+import { TEST_GATEWAY_SECRETS } from './support/harness.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
-import { startService } from './support/processes.js';
+import { startGateway, startService } from './support/processes.js';
 import type { ServiceProcess } from './support/harness.js';
 
-const FIELDSERVICE = `http://127.0.0.1:${TEST_PORTS.fieldservice}`;
-const FIELDSERVICE_HEADERS = { 'x-gateway-secret': TEST_GATEWAY_SECRETS.fieldservice };
-
+let auth: ServiceProcess;
 let fieldservice: ServiceProcess;
+let gateway: ServiceProcess;
 
 let branchId: string;
 
-/** Builds a valid FIELD_SERVICE user read-model event. */
-const userEvent = (version: number, overrides: Record<string, unknown> = {}) => ({
-  eventId: randomUUID(),
-  officeBranchId: branchId,
-  version,
-  user: {
-    id: randomUUID(),
-    username: `reltest_field_${randomUUID().slice(0, 8)}`,
-    firstName: 'Rel',
-    lastName: 'Test',
-    email: 'rel@reltest.local',
-    telp: '0000',
-    role: 'USER',
-    section: 'FIELD_SERVICE',
-    officeBranchId: branchId,
-    isActive: true,
-    version,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  },
-});
+/** Reads the inspector directory of the branch straight from Auth. */
+const authInspectorDirectory = async (token: string) => {
+  const response = await httpRequest(`${GATEWAY}/api/v1/auth/users/field-service/inspector-directory`, { token });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  return (response.body as { data: { inspectors: Array<{ id: string; firstName: string; lastName: string }> } }).data.inspectors;
+};
 
 describe('fieldservice-service concurrency', () => {
   // Every test starts from an empty field-service database.
@@ -53,11 +37,13 @@ describe('fieldservice-service concurrency', () => {
 
   before(async () => {
     await ensureDatabases();
+    auth = await startService('auth');
     fieldservice = await startService('fieldservice');
+    gateway = await startGateway();
   });
 
   after(async () => {
-    await fieldservice?.stop();
+    for (const process_ of [gateway, fieldservice, auth]) await process_?.stop();
   });
 
   beforeEach(async () => {
@@ -101,7 +87,6 @@ describe('fieldservice-service concurrency', () => {
       const expected = counters.map((_, index) => counters[0] + index);
       assert.deepEqual(counters, expected, `numbers must be gapless, got ${counters.join(', ')}`);
 
-      // The sequence counter must match the highest allocated number.
       const rows = await query<{ last_number: number }>(
         'fieldservice',
         'SELECT last_number FROM work_order_sequences WHERE office_branch_id = $1::uuid AND year = $2',
@@ -114,79 +99,72 @@ describe('fieldservice-service concurrency', () => {
     }
   });
 
-  test('IDEMPOTENCY: the same user event applied twice keeps one read-model row', async () => {
-    const event = userEvent(1);
-    const send = async () => httpRequest(`${FIELDSERVICE}/internal/users/events`, {
-      method: 'POST',
-      headers: { ...FIELDSERVICE_HEADERS, 'x-user-sync-secret': TEST_USER_SYNC_SECRET },
-      body: event,
-    });
+  test('LIVE DIRECTORY: the inspector options are read from Auth, not from a local replica', async () => {
+    const inspector = await seedUser({ role: 'USER', section: 'FIELD_SERVICE', officeBranchId: branchId });
+    const token = await loginAs(inspector);
 
-    const first = await send();
-    assert.equal(first.status, 200, JSON.stringify(first.body));
-    const second = await send();
-    assert.equal(second.status, 200, JSON.stringify(second.body));
-
-    const rows = await query<{ count: number }>(
-      'fieldservice',
-      'SELECT count(*)::int AS count FROM field_service_users WHERE id = $1::uuid',
-      event.user.id,
+    // Auth lists the inspector of the caller branch.
+    const directory = await authInspectorDirectory(token);
+    assert.ok(
+      directory.some((entry) => entry.id === inspector.id),
+      'Auth must list the active inspector of the branch',
     );
-    assert.equal(rows[0]?.count, 1, 'a repeated event must not duplicate the read-model row');
+
+    // Field Service exposes the same inspector through its options endpoint,
+    // read live from Auth.
+    const options = await httpRequest(`${GATEWAY}/api/v1/fieldservice/options/inspectors`, { token });
+    assert.equal(options.status, 200, JSON.stringify(options.body));
+    const inspectors = (options.body as { data: { inspectors: Array<{ id: string; firstName: string; lastName: string }> } }).data.inspectors;
+    const entry = inspectors.find((row) => row.id === inspector.id);
+    assert.ok(entry, 'the inspector options must contain the Auth user');
+    assert.equal(entry.firstName, 'Rel');
+    assert.equal(entry.lastName, 'Test');
   });
 
-  test('VERSION GUARD: an older user event must not overwrite a newer one', async () => {
-    const userId = randomUUID();
-    const base = {
-      id: userId,
-      username: `reltest_field_${randomUUID().slice(0, 8)}`,
-      firstName: 'Rel',
-      lastName: 'Test',
-      email: 'rel@reltest.local',
-      telp: '0000',
-      role: 'USER',
-      section: 'FIELD_SERVICE',
-      officeBranchId: branchId,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const send = async (version: number, firstName: string) => httpRequest(`${FIELDSERVICE}/internal/users/events`, {
-      method: 'POST',
-      headers: { ...FIELDSERVICE_HEADERS, 'x-user-sync-secret': TEST_USER_SYNC_SECRET },
-      body: {
-        eventId: randomUUID(),
-        officeBranchId: branchId,
-        version,
-        user: { ...base, version, firstName },
+  test('LIVE DIRECTORY: a deactivated inspector leaves the options immediately', async () => {
+    // The reader is a separate account: deactivating the inspector must not
+    // deactivate the caller, or the call itself would fail with 403.
+    const inspector = await seedUser({ role: 'USER', section: 'FIELD_SERVICE', officeBranchId: branchId });
+    const reader = await seedUser({ role: 'USER', section: 'FIELD_SERVICE', officeBranchId: branchId });
+    const token = await loginAs(reader);
+
+    const before = await httpRequest(`${GATEWAY}/api/v1/fieldservice/options/inspectors`, { token });
+    assert.equal(before.status, 200, JSON.stringify(before.body));
+    const listed = (before.body as { data: { inspectors: Array<{ id: string }> } }).data.inspectors;
+    assert.ok(listed.some((row) => row.id === inspector.id));
+
+    // Auth is the source of truth: deactivating the user removes it from the
+    // directory right away, because nothing is replicated any more.
+    await query('auth',
+      'UPDATE users SET is_active = false WHERE id = $1::uuid',
+      inspector.id);
+
+    const after = await httpRequest(`${GATEWAY}/api/v1/fieldservice/options/inspectors`, { token });
+    assert.equal(after.status, 200, JSON.stringify(after.body));
+    const remaining = (after.body as { data: { inspectors: Array<{ id: string }> } }).data.inspectors;
+    assert.ok(
+      !remaining.some((row) => row.id === inspector.id),
+      'a deactivated user must not appear in the inspector options',
+    );
+  });
+
+  test('SECURITY: the removed user event endpoint is no longer mounted', async () => {
+    const inspector = await seedUser({ role: 'USER', section: 'FIELD_SERVICE', officeBranchId: branchId });
+    const token = await loginAs(inspector);
+    // The caller is authenticated, so the request reaches the routing table
+    // and the service answers with its own 404.
+    const response = await httpRequest(
+      `http://127.0.0.1:${TEST_PORTS.fieldservice}/internal/users/events`,
+      {
+        method: 'POST',
+        token,
+        headers: {
+          'x-gateway-secret': TEST_GATEWAY_SECRETS.fieldservice,
+          ...gatewayIdentityHeaders(inspector),
+        },
+        body: { eventId: randomUUID() },
       },
-    });
-
-    assert.equal((await send(5, 'Newer')).status, 200);
-    assert.equal((await send(3, 'Older')).status, 200);
-
-    const rows = await query<{ user: string | { firstName: string; version: number }; source_version: number }>(
-      'fieldservice',
-      // "user" is a reserved word in PostgreSQL, so the column must be quoted.
-      'SELECT "user", source_version FROM field_service_users WHERE id = $1::uuid',
-      userId,
     );
-    assert.equal(rows.length, 1, 'exactly one read-model row must exist');
-    assert.equal(rows[0].source_version, 5, 'the newer version must be kept');
-    // A raw query returns the JSONB document as text; normalize it first.
-    const snapshot = typeof rows[0].user === 'string'
-      ? JSON.parse(rows[0].user) as { firstName: string; version: number }
-      : rows[0].user;
-    assert.equal(snapshot.firstName, 'Newer', 'an older event must not overwrite newer data');
-    assert.equal(snapshot.version, 5, 'the stored snapshot must carry the newer version');
-  });
-
-  test('SECURITY: a user event without the delivery secret is rejected with 403', async () => {
-    const response = await httpRequest(`${FIELDSERVICE}/internal/users/events`, {
-      method: 'POST',
-      headers: FIELDSERVICE_HEADERS,
-      body: userEvent(1),
-    });
-    assert.equal(response.status, 403);
+    assert.equal(response.status, 404, JSON.stringify(response.body));
   });
 });

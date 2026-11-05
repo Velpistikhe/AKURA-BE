@@ -165,18 +165,12 @@ describe('environment configuration', () => {
   });
 
   test('the shared sync secrets are consistent between the services that use them', async () => {
-    const auth = await readEnv('auth-service', '.env');
     const marketing = await readEnv('marketing-service', '.env');
     const finance = await readEnv('finance-service', '.env');
     const fieldservice = await readEnv('fieldservice-service', '.env');
 
     // The delivery pairs must share one secret, or the receiver rejects the
     // event with 403.
-    assert.equal(
-      marketing.get('USER_SYNC_SECRET'),
-      auth.get('USER_SYNC_SECRET'),
-      'the user sync secret must match between Auth and Marketing',
-    );
     assert.equal(
       marketing.get('TAX_SYNC_SECRET'),
       finance.get('TAX_SYNC_SECRET'),

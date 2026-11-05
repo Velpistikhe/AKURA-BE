@@ -281,7 +281,7 @@ Inbound copies of these headers are always stripped first
 | `FINANCE` | Finance; tax read/write (with ADMIN) |
 | `HRD_MANAGEMENT` | — |
 | `MARKETING` | Marketing mutations; Work Order creation; tax write (with ADMIN) |
-| `FIELD_SERVICE` | Work Order execution; user-sync target |
+| `FIELD_SERVICE` | Work Order execution |
 
 **VERIFIED** — `ADMIN` and `APP_MANAGER` bypass section checks in the
 authorization middleware (`marketing-service/src/middlewares/authorize.middleware.ts:54`,
@@ -300,13 +300,12 @@ authorization middleware (`marketing-service/src/middlewares/authorize.middlewar
 |---|---|---|
 | 1. Caller → gateway | `x-service-name` + `x-service-secret`, timing-safe compare | `api-gateway/src/middlewares/serviceCaller.middleware.ts:29-52` |
 | 2. Gateway → service | `x-gateway-secret` injected by the proxy, verified by the service | `*/src/middlewares/gateway.middleware.ts` |
-| 3. Service → service (events) | A per-flow shared secret in a dedicated header, timing-safe compare | `marketing-service/src/modules/user-sync/user-sync-events.routes.ts`, `.../tax-events.routes.ts`, `.../work-order-events.routes.ts`, `fieldservice-service/src/modules/user-sync/user-sync.routes.ts` |
+| 3. Service → service (events) | A per-flow shared secret in a dedicated header, timing-safe compare | `marketing-service/src/modules/taxes/tax-events.routes.ts`, `.../work-order-events.routes.ts` |
 
 Per-flow secrets:
 
 | Secret | Used by | Minimum length |
 |---|---|---|
-| `USER_SYNC_SECRET` | Auth → Marketing, Auth → Field Service | 32 |
 | `TAX_SYNC_SECRET` | Finance → Marketing | 32 |
 | `WORK_ORDER_SYNC_SECRET` | Field Service → Marketing | 32 |
 

@@ -1,6 +1,3 @@
-import { enqueueUserSync, isFieldServiceUserSyncCandidate, isMarketingUserSyncCandidate } from '../user-sync/user-sync.service.js';
-import { wakeUserSync } from '../user-sync/user-sync.delivery.js';
-
 import bcrypt from 'bcryptjs';
 import { User } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,7 +10,6 @@ import { createAuthTokens, verifyRefreshToken } from '../../utils/tokens.js';
 import { sanitizeUser } from '../../utils/userMapper.js';
 import { saveUserHistory, saveSecurityAudit, UserAuditActor, type SecurityAuditContext } from '../../utils/userHistory.js';
 import { env } from '../../config/env.js';
-import { logger } from '../../utils/logger.js';
 
 // Self-service mutations are always performed by the affected user.
 const selfActor = (user: User): UserAuditActor => ({
@@ -256,19 +252,8 @@ class AuthService {
       );
       // Self-service profile edit: the authenticated user is the actor.
       await saveUserHistory(tx, updated, user, selfActor(user), 'UPDATE');
-      if (isMarketingUserSyncCandidate(updated) || isMarketingUserSyncCandidate(user)
-        || isFieldServiceUserSyncCandidate(updated) || isFieldServiceUserSyncCandidate(user)) {
-        await enqueueUserSync(tx, updated, { previous: user });
-      } else {
-        logger.debug('Profile updated without user sync eligibility', {
-          userId, role: updated.role, section: updated.section, isActive: updated.isActive, officeBranchId: updated.officeBranchId,
-        });
-      }
       return updated;
     });
-    // The outbox row is committed; wake the delivery worker so it is pushed
-    // immediately instead of waiting for a restart (or a pre-existing schedule).
-    wakeUserSync();
     return sanitizeUser(updatedUser);
   }
 

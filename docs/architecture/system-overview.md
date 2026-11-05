@@ -145,9 +145,13 @@ The platform's single edge. **VERIFIED** responsibilities:
 - Manages users (APP_MANAGER-only), including role, section, and office-branch
   assignment (`src/modules/user-management/`).
 - Serves internal read-only lookups consumed by other services:
-  `GET /users/marketing-contacts` and `GET /users/field-service/inspectors`
-  (`src/modules/user-management/user-management.routes.ts:14,29`).
-- Owns the **user-sync outbox** (`user_sync_events`, `user_sync_deliveries`).
+  `GET /users/marketing-contacts`, `GET /users/field-service/inspectors` and
+  `GET /users/field-service/inspector-directory`
+  (`src/modules/user-management/user-management.routes.ts:14,29,32`).
+  Auth is the single source of truth for the user directory; nothing is
+  replicated.
+- Makes **no outbound service calls** — it only serves the profile and the
+  directory.
 - Writes `security_audit_logs` for login/register/logout events.
 
 ### App Manager Service — `app-manager-service` (port 5002)
@@ -175,10 +179,10 @@ The largest service. **VERIFIED** responsibilities:
   (`src/modules/contracts/`, `src/modules/contract-prices/`).
 - **Quotations**: lifecycle (draft → submit → approve/reject/revise), item lines,
   history, PDF generation via `pdfkit`, and S3 storage (`src/modules/quotations/`).
-- **Receives three asynchronous events**: user sync, tax snapshots, and
-  Work Order link state.
-- **Maintains the replicated read models** `marketing_admin_users` and
-  `tax_cache`.
+- **Receives two asynchronous events**: tax snapshots and Work Order link
+  state.
+- **Maintains the replicated read model** `tax_cache`, and reads the Marketing
+  contact directory live from Auth.
 - Owns the `audit_logs` and `catalog_audit_logs` tables.
 
 ### Finance Service — `finance-service` (port 5004)
@@ -206,9 +210,10 @@ the invoice and proforma invoice modules"* (`finance-service/src/integrations/ga
   (`src/modules/work-orders/`).
 - **Work Order options** for the creation form — live quotation and inspector
   lookups (`src/modules/options/`).
-- **Receives the Auth user-sync event** into the `field_service_users` read model.
+- Reads the **live Auth inspector directory** (`GET
+  auth/users/field-service/inspector-directory`); nothing is replicated.
 - Validates inspectors against **live Auth data** before a Work Order starts
-  (`src/integrations/gateway.ts:205-226`).
+  (`src/integrations/auth-directory.ts`).
 - Notifies Marketing of Work Order link state and revocation
   (`src/integrations/gateway.ts:181-203`).
 
@@ -263,7 +268,7 @@ Two properties of this flow are worth naming explicitly:
 | Service decomposition | **VERIFIED** — by domain, each with an independent database | `prisma/schema.prisma` per service |
 | Entry point | **VERIFIED** — single gateway | `api-gateway/src/app.ts` |
 | Inter-service transport | **VERIFIED** — HTTP through the gateway only | `*/src/utils/serviceUrl.ts` |
-| Async messaging | **VERIFIED** — HTTP + transactional outbox, **no broker** | `user-sync.delivery.ts`, `tax-delivery.ts` |
+| Async messaging | **VERIFIED** — HTTP + transactional outbox, **no broker** | `tax-delivery.ts` |
 | Consistency model | **VERIFIED** — strong within a service's transaction; **eventual** across services | outbox + version guards |
 | Data isolation | **VERIFIED** — database per service, no cross-DB FK | Prisma datasources |
 | Cross-cutting concern handling | **VERIFIED** — duplicated per service by convention, not shared code | identical middleware files per service |

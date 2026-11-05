@@ -4,8 +4,6 @@ import { HttpError } from '../../utils/httpError.js';
 import { saveUserHistory, UserAuditActor } from '../../utils/userHistory.js';
 import { ListUsersInput, UpdateUserInput } from './user-management.schemas.js';
 import { userManagementRepository } from './user-management.repository.js';
-import { enqueueUserSync, isFieldServiceUserSyncCandidate, isMarketingUserSyncCandidate } from '../user-sync/user-sync.service.js';
-import { wakeUserSync } from '../user-sync/user-sync.delivery.js';
 
 const ensureActiveVersion = (user: { version: number; isActive: boolean }, version: number): void => {
   if (user.version !== version) {
@@ -98,16 +96,8 @@ export const userManagementService = {
       if (statusChanged && data.isActive === false) {
         await userManagementRepository.revokeRefreshTokens(tx, userId);
       }
-      // Marketing and Field Service only cache eligible snapshots: enqueue when
-      // either the previous or resulting snapshot is a candidate, so eligible
-      // users are added/updated and users that lose eligibility are removed.
-      if (isMarketingUserSyncCandidate(user) || isMarketingUserSyncCandidate(updated)
-        || isFieldServiceUserSyncCandidate(user) || isFieldServiceUserSyncCandidate(updated)) {
-        await enqueueUserSync(tx, updated, { previous: user });
-      }
       return updated;
     });
-    wakeUserSync();
     return updated ? presentUser(updated) : updated;
   },
 };

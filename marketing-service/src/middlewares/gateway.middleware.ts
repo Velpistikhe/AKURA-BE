@@ -7,7 +7,7 @@ export const verifyGatewaySecret = (req: Request, res: Response, next: NextFunct
   const isMarketingMfeRoute = req.path === '/marketing' || req.path.startsWith('/marketing/');
 
   // Direct development access applies only to user-facing Marketing routes.
-  // Internal tax/user-sync endpoints remain gateway-only even in development.
+  // Internal tax endpoints remain gateway-only even in development.
   if (gatewaySecret === undefined && isMarketingMfeRoute && isDirectMfeAccess()) {
     next();
     return;

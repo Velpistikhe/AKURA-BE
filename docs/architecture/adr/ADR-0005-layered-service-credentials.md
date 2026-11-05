@@ -50,7 +50,6 @@ the receiver with `timingSafeEqual`:
 
 | Secret | Flow | Minimum length |
 |---|---|---|
-| `USER_SYNC_SECRET` | Auth → Marketing, Auth → Field Service | 32 |
 | `TAX_SYNC_SECRET` | Finance → Marketing | 32 |
 | `WORK_ORDER_SYNC_SECRET` | Field Service → Marketing | 32 |
 
@@ -95,7 +94,7 @@ App Manager's justification is in the source:
 - **Defence in depth.** A forged header, a stolen user token, and a direct
   connection to a service are each blocked by a different layer.
 - **Per-flow secrets limit blast radius.** Compromising the tax sync secret
-  does not grant access to the user-sync path.
+  does not grant access to the work-order callback path.
 - **Timing-safe comparison** removes the timing side channel from secret
   verification.
 - **Startup validation prevents secret reuse**, which is a common and
@@ -136,7 +135,7 @@ gap. Recorded here as an open question rather than a decision.
 | Gateway secret injection | `api-gateway/src/routes/proxy.routes.ts:32-46` |
 | Per-service gateway secret check | `*/src/middlewares/gateway.middleware.ts` |
 | `internalCaller` route guard | `api-gateway/src/routes/proxy.routes.ts:10-18` |
-| Event secret verification | `marketing-service/src/modules/user-sync/user-sync-events.routes.ts`, `.../tax-events.routes.ts`, `.../work-order-events.routes.ts`, `fieldservice-service/src/modules/user-sync/user-sync.routes.ts` |
+| Event secret verification | `marketing-service/src/modules/taxes/tax-events.routes.ts`, `.../work-order-events.routes.ts` |
 | Model A vs Model B | `marketing-service/src/middlewares/authorize.middleware.ts` vs `app-manager-service/src/middlewares/authorize.middleware.ts:28-53` |
 | Sync secret minimum length | `*/src/config/env.ts` |
 

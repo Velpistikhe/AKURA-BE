@@ -9,7 +9,6 @@ import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import { corsOrigin } from './utils/corsOrigin.js';
 import routes from './routes/index.js';
 import taxEvents from './modules/taxes/tax-events.routes.js';
-import userSyncEvents from './modules/user-sync/user-sync-events.routes.js';
 import workOrderEvents from './modules/quotations/work-order-events.routes.js';
 
 const app: Express = express();
@@ -21,7 +20,6 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(taxEvents);
-app.use(userSyncEvents);
 app.use(workOrderEvents);
 
 app.get('/health', (req: Request, res: Response) => {

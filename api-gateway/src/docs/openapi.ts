@@ -3,7 +3,6 @@ import { operationalPaths, operationalSchemas } from './operational-documents.js
 import { catalogPaths, catalogSchemas } from './catalog.js';
 import { quotationPaths, quotationSchemas } from './quotation.js';
 import { taxPaths } from './tax.js';
-import { userSyncPaths } from './user-sync.js';
 import { auditTrailPaths, auditTrailSchemas } from './audit-trail.js';
 
 import { groupByModule } from './module-tags.js';
@@ -565,60 +564,6 @@ export const openApiDocument = groupByModule({
               id: { type: 'string', format: 'uuid' }, name: { type: 'string', description: 'Canonical display name (firstName + lastName).' },
             } } },
           } },
-          requestId: { type: 'string', format: 'uuid' },
-        },
-      },
-      UserSyncDeliveryListResponse: {
-        type: 'object',
-        description: 'Monitoring view of the Auth user-sync outbox (user_sync_deliveries).',
-        required: ['status', 'success', 'message', 'data'],
-        properties: {
-          status: { type: 'integer', example: 200 },
-          success: { type: 'boolean', enum: [true] },
-          message: { type: 'string' },
-          data: {
-            type: 'object',
-            required: ['deliveries', 'pagination'],
-            properties: {
-              deliveries: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  required: ['id', 'eventId', 'targetService', 'attempts', 'nextRetryAt', 'deliveredAt', 'lastError', 'status', 'event'],
-                  properties: {
-                    id: { type: 'string', format: 'uuid' },
-                    eventId: { type: 'string', format: 'uuid' },
-                    targetService: { type: 'string', enum: ['marketing-service', 'fieldservice-service'] },
-                    attempts: { type: 'integer', minimum: 0 },
-                    nextRetryAt: { type: 'string', format: 'date-time', description: 'Next automatic retry time; only meaningful while status is pending.' },
-                    deliveredAt: { type: 'string', format: 'date-time', nullable: true, description: 'null means the delivery is still pending.' },
-                    lastError: { type: 'string', nullable: true, description: 'Most recent failure reason; cleared after a successful delivery.' },
-                    status: { type: 'string', enum: ['pending', 'delivered'] },
-                    event: {
-                      type: 'object',
-                      required: ['id', 'userId', 'version', 'createdAt'],
-                      properties: {
-                        id: { type: 'string', format: 'uuid' },
-                        userId: { type: 'string', format: 'uuid' },
-                        version: { type: 'integer', minimum: 1 },
-                        createdAt: { type: 'string', format: 'date-time' },
-                      },
-                    },
-                  },
-                },
-              },
-              pagination: {
-                type: 'object',
-                required: ['page', 'limit', 'total', 'totalPages'],
-                properties: {
-                  page: { type: 'integer' },
-                  limit: { type: 'integer' },
-                  total: { type: 'integer' },
-                  totalPages: { type: 'integer' },
-                },
-              },
-            },
-          },
           requestId: { type: 'string', format: 'uuid' },
         },
       },
@@ -1378,7 +1323,6 @@ export const openApiDocument = groupByModule({
   paths: {
     ...quotationPaths,
     ...taxPaths,
-    ...userSyncPaths,
     ...operationalPaths,
     ...workOrderPaths,
     ...catalogPaths,
@@ -1673,24 +1617,27 @@ export const openApiDocument = groupByModule({
         },
       },
     },
-    '/api/v1/auth/users/sync/deliveries': {
+    '/api/v1/auth/users/field-service/inspector-directory': {
       get: {
         tags: ['User Management'],
-        summary: 'Monitor user-sync outbox delivery status',
-        description: 'Read-only monitoring of the Auth user-sync outbox that pushes user snapshots to Marketing and Field Service. Requires an active account with role APP_MANAGER; section and office branch are not required and the listing is global across all branches. Before reading, up to five due retries are attempted so the status reflects the current outbox even when the background worker is idle. Pending deliveries are listed first, ordered by next retry time. `deliveredAt=null` means pending; failed deliveries retry automatically with exponential backoff capped at five minutes plus jitter.',
+        summary: 'List active Field Service inspectors of the caller branch',
+        description: 'Branch-scoped inspector directory consumed by the Field Service Work Order forms. Auth is the source of truth: the response holds the active users with section FIELD_SERVICE of the authenticated caller branch (at most 500), ordered by creation then ID. The branch always comes from the authenticated caller, never from a request parameter, so a caller can never read another branch. Requires an active account; the app manager role is not required.',
         security: protectedSecurity,
-        parameters: [
-          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
-          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
-          { in: 'query', name: 'status', schema: { type: 'string', enum: ['pending', 'delivered'] } },
-          { in: 'query', name: 'targetService', schema: { type: 'string', enum: ['marketing-service', 'fieldservice-service'] } },
-          { in: 'query', name: 'userId', description: 'Only deliveries of the events belonging to this user.', schema: { type: 'string', format: 'uuid' } },
-        ],
         responses: {
-          200: response('User sync deliveries retrieved', schemaRef('UserSyncDeliveryListResponse')),
-          400: errorResponse('Invalid query parameters'),
+          200: response('Field Service inspector directory retrieved', { type: 'object', required: ['status', 'success', 'message', 'data'], properties: {
+            status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
+            data: { type: 'object', required: ['inspectors'], properties: { inspectors: { type: 'array', items: { type: 'object', required: ['id', 'firstName', 'lastName'], properties: {
+              id: { type: 'string', format: 'uuid' }, username: { type: 'string' },
+              firstName: { type: 'string' }, lastName: { type: 'string' },
+              email: { type: 'string', format: 'email', nullable: true }, telp: { type: 'string', nullable: true },
+              role: { type: 'string' }, section: { type: 'string' },
+              officeBranchId: { type: 'string', format: 'uuid' }, isActive: { type: 'boolean' },
+              version: { type: 'integer' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+            } } } } },
+            requestId: { type: 'string', format: 'uuid' },
+          } }),
           401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Active app manager role is required'),
+          403: errorResponse('Account is inactive'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },

@@ -1,6 +1,6 @@
 %% Service Dependency Diagram - who calls whom
 %% VERIFIED: all outbound calls are built by src/utils/serviceUrl.ts and go through the Gateway.
-%% NOTE: arrows point in the DIRECTION OF THE CALL (caller -> callee).
+%% NOTE: arrows point in the DIRECTION OF THE CALL (caller to callee).
 
 graph LR
     Gateway["<b>api-gateway</b>"]
@@ -11,26 +11,23 @@ graph LR
     Finance["<b>finance-service</b>"]
     Field["<b>fieldservice-service</b>"]
 
-    Gateway --> Auth
-    Gateway --> AppMgr
-    Gateway --> Marketing
-    Gateway --> Finance
-    Gateway --> Field
+    Gateway > Auth
+    Gateway > AppMgr
+    Gateway > Marketing
+    Gateway > Finance
+    Gateway > Field
 
-    Auth -->|"SYNC: GET auth/me<br/>(live profile)"| Gateway
-    Auth -->|"ASYNC: user sync outbox<br/>POST marketing/internal/users/events"| Gateway
-    Auth -->|"ASYNC: user sync outbox<br/>POST fieldservice/internal/users/events"| Gateway
+    Marketing >|"SYNC: GET auth/me"| Gateway
+    Marketing >|"SYNC: GET auth/users/marketing-contacts<br/>(live contact directory)"| Gateway
+    Marketing >|"SYNC: POST fieldservice/work-orders<br/>(create) + DELETE (compensate)"| Gateway
 
-    Marketing -->|"SYNC: GET auth/me"| Gateway
-    Marketing -->|"SYNC: POST fieldservice/work-orders<br/>(create) + DELETE (compensate)"| Gateway
+    Field >|"SYNC: GET auth/me"| Gateway
+    Field >|"SYNC: GET auth/users/field-service/inspector-directory<br/>+ GET auth/users/field-service/inspectors"| Gateway
+    Field >|"SYNC: GET marketing/quotation-references/*<br/>GET marketing/contract-references/*<br/>GET marketing/item-size-references/*"| Gateway
+    Field >|"ASYNC: work-order link state<br/>POST marketing/internal/work-orders/events"| Gateway
 
-    Field -->|"SYNC: GET auth/me"| Gateway
-    Field -->|"SYNC: GET auth/users/field-service/inspectors"| Gateway
-    Field -->|"SYNC: GET marketing/quotation-references/*<br/>GET marketing/contract-references/*<br/>GET marketing/item-size-references/*"| Gateway
-    Field -->|"ASYNC: work-order link state<br/>POST marketing/internal/work-orders/events"| Gateway
-
-    Finance -->|"SYNC: GET auth/me"| Gateway
-    Finance -->|"ASYNC: tax snapshot outbox<br/>POST marketing/internal/taxes/events"| Gateway
+    Finance >|"SYNC: GET auth/me"| Gateway
+    Finance >|"ASYNC: tax snapshot outbox<br/>POST marketing/internal/taxes/events"| Gateway
 
     AppMgr -.->|"no outbound service calls<br/>VERIFIED: no API_GATEWAY_URL / fetch in src"| none["(none)"]
 

@@ -2,24 +2,27 @@
  * EVENT SYNCHRONISATION - idempotency and version guards.
  *
  * The internal event endpoints of marketing-service receive deliveries from
- * auth-service (user read model), finance-service (tax cache) and
- * fieldservice-service (Work Order link state). Each endpoint must be
- * idempotent and must never apply an outdated event.
+ * finance-service (tax cache) and fieldservice-service (Work Order link
+ * state). Each endpoint must be idempotent and must never apply an outdated
+ * event.
  *
- * These endpoints are protected by a shared secret and are not reachable
- * through the API Gateway with a user token, so the suite calls them
- * directly on the local service with the test secret.
+ * The user directory is no longer replicated: Auth is the source of truth and
+ * Marketing reads the quotation contacts live from Auth, so there is no user
+ * event endpoint left. These endpoints are protected by a shared secret and
+ * are not reachable through the API Gateway with a user token, so the suite
+ * calls them directly on the local service with the test secret.
  */
 import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import {
-  loginAs, prismaFor, seedMarketingTax, seedOfficeBranch, seedUser,
+  GATEWAY, gatewayIdentityHeaders, loginAs, prismaFor, seedMarketingTax,
+  seedOfficeBranch, seedUser,
   type SeededUser,
 } from './support/fixtures.js';
 import { httpRequest } from './support/http.js';
 import { TEST_PORTS } from './support/env.js';
-import { TEST_TAX_SYNC_SECRET, TEST_USER_SYNC_SECRET, TEST_GATEWAY_SECRETS } from './support/harness.js';
+import { TEST_TAX_SYNC_SECRET, TEST_GATEWAY_SECRETS } from './support/harness.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
 import type { ServiceProcess } from './support/harness.js';
@@ -38,29 +41,6 @@ let gateway: ServiceProcess;
 
 let admin: SeededUser;
 let branchId: string;
-
-/** Builds a valid user read-model event for the current branch. */
-const userEvent = (version: number, overrides: Record<string, unknown> = {}) => ({
-  eventId: randomUUID(),
-  officeBranchId: branchId,
-  version,
-  user: {
-    id: randomUUID(),
-    username: `reltest_user_${randomUUID().slice(0, 8)}`,
-    firstName: 'Rel',
-    lastName: 'Test',
-    email: 'rel@reltest.local',
-    telp: '0000',
-    role: 'ADMIN',
-    section: 'MARKETING',
-    officeBranchId: branchId,
-    isActive: true,
-    version,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  },
-});
 
 /** Builds a valid tax cache event for the current branch. */
 const taxEvent = (version: number, percentage = '10') => ({
@@ -101,96 +81,35 @@ describe('marketing-service event synchronisation', () => {
     await loginAs(admin);
   });
 
-  test('SECURITY: an event without the delivery secret is rejected with 403', async () => {
+  test('LIVE DIRECTORY: the quotation contacts are read from Auth, not from a local replica', async () => {
+    // A second Marketing admin of the same branch is the contact a quotation
+    // PDF footer lists. Auth is the source of truth, so the contact appears as
+    // soon as the user exists.
+    const contact = await seedUser({ role: 'ADMIN', section: 'MARKETING', officeBranchId: branchId });
+    await loginAs(contact);
+
+    const response = await httpRequest(`${GATEWAY}/api/v1/auth/users/marketing-contacts`, {
+      token: contact.accessToken,
+    });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const contacts = (response.body as { data: { contacts: Array<{ name: string }> } }).data.contacts;
+    assert.ok(
+      contacts.some((entry) => entry.name === 'Rel Test'),
+      'the active Marketing admin of the branch must be listed as a contact',
+    );
+  });
+
+  test('SECURITY: the removed user event endpoint is no longer mounted', async () => {
+    // The user read model is gone, so Marketing has no user event receiver.
+    // The caller is authenticated, so the request reaches the routing table
+    // and the service answers with its own 404.
     const response = await httpRequest(`${MARKETING}/internal/users/events`, {
       method: 'POST',
-      body: userEvent(1),
+      token: admin.accessToken,
+      headers: { ...MARKETING_HEADERS, ...gatewayIdentityHeaders(admin) },
+      body: { eventId: randomUUID() },
     });
-    assert.equal(response.status, 403);
-  });
-
-  test('IDEMPOTENCY: the same user event applied twice keeps one row and one revision', async () => {
-    const event = userEvent(1);
-    const prisma = prismaFor('marketing');
-    try {
-      const first = await httpRequest(`${MARKETING}/internal/users/events`, {
-        method: 'POST',
-        headers: { ...MARKETING_HEADERS, 'x-user-sync-secret': TEST_USER_SYNC_SECRET },
-        body: event,
-      });
-      assert.equal(first.status, 200, JSON.stringify(first.body));
-
-      const second = await httpRequest(`${MARKETING}/internal/users/events`, {
-        method: 'POST',
-        headers: { ...MARKETING_HEADERS, 'x-user-sync-secret': TEST_USER_SYNC_SECRET },
-        body: event,
-      });
-      assert.equal(second.status, 200, JSON.stringify(second.body));
-
-      const rows = await prisma.marketingAdminUser.count({ where: { id: event.user.id } });
-      assert.equal(rows, 1, 'a repeated event must not duplicate the read-model row');
-
-      const revision = await prisma.marketingUserSyncRevision.findUnique({
-        where: { userId: event.user.id },
-      });
-      assert.equal(revision?.version, 1);
-    } finally {
-      await prisma.$disconnect();
-    }
-  });
-
-  test('SECURITY: an event with a wrong delivery secret is rejected with 403', async () => {
-    const response = await httpRequest(`${MARKETING}/internal/users/events`, {
-      method: 'POST',
-      headers: { ...MARKETING_HEADERS, 'x-user-sync-secret': 'wrong-secret-value-that-is-long-enough-32' },
-      body: userEvent(1),
-    });
-    assert.equal(response.status, 403);
-  });
-
-  test('VERSION GUARD: an older user event must not overwrite a newer one', async () => {
-    const userId = randomUUID();
-    const base = {
-      id: userId,
-      username: `reltest_user_${randomUUID().slice(0, 8)}`,
-      firstName: 'Rel',
-      lastName: 'Test',
-      email: 'rel@reltest.local',
-      telp: '0000',
-      role: 'ADMIN',
-      section: 'MARKETING',
-      officeBranchId: branchId,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const send = async (version: number, firstName: string) => httpRequest(`${MARKETING}/internal/users/events`, {
-      method: 'POST',
-      headers: { ...MARKETING_HEADERS, 'x-user-sync-secret': TEST_USER_SYNC_SECRET },
-      body: {
-        eventId: randomUUID(),
-        officeBranchId: branchId,
-        version,
-        user: { ...base, version, firstName },
-      },
-    });
-
-    const newer = await send(5, 'Newer');
-    assert.equal(newer.status, 200, JSON.stringify(newer.body));
-    const older = await send(3, 'Older');
-    assert.equal(older.status, 200, JSON.stringify(older.body));
-
-    const prisma = prismaFor('marketing');
-    try {
-      const row = await prisma.marketingAdminUser.findUnique({ where: { id: userId } });
-      const snapshot = row?.user as { firstName: string; version: number };
-      assert.equal(snapshot.version, 5, 'the newer version must be kept');
-      assert.equal(snapshot.firstName, 'Newer', 'an older event must not overwrite newer data');
-      const revision = await prisma.marketingUserSyncRevision.findUnique({ where: { userId } });
-      assert.equal(revision?.version, 5);
-    } finally {
-      await prisma.$disconnect();
-    }
+    assert.equal(response.status, 404, JSON.stringify(response.body));
   });
 
   test('VERSION GUARD: a tax event with an older version must not replace the cache', async () => {

@@ -14,7 +14,7 @@ export interface AuditActor {
 /**
  * The modules that write to the audit trail.
  */
-export type AuditModule = 'options' | 'work-orders' | 'user-sync';
+export type AuditModule = 'options' | 'work-orders';
 
 /** The entities that write to the audit trail. */
 export type AuditEntity = 'WORK_ORDER' | 'WORK_ORDER_ITEM' | 'OPTION';

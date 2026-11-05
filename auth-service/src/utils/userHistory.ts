@@ -4,7 +4,7 @@ import { Request } from 'express';
 export type UserAuditActor = { id: string; name: string };
 
 /** The modules that write to the security audit trail. */
-export type SecurityAuditModule = 'auth' | 'user-management' | 'user-sync';
+export type SecurityAuditModule = 'auth' | 'user-management';
 
 /**
  * The security events that are recorded.
@@ -21,8 +21,7 @@ export type SecurityEventType =
   | 'LOGOUT'
   | 'PROMOTE'
   | 'DEACTIVATE'
-  | 'REACTIVATE'
-  | 'USER_SYNC_DELIVERED';
+  | 'REACTIVATE';
 
 /** Whether the event describes a success or a refusal. */
 export type SecurityOutcome = 'SUCCESS' | 'FAILURE';

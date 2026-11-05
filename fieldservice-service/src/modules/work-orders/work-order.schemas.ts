@@ -8,8 +8,8 @@ const quantity = z.number().finite().nonnegative().max(999999999999.999)
 const inspectorNames = z.array(z.string().trim().min(1).max(255)).max(100)
   .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
 // Create accepts [{ userId, name }] pairs taken from the inspector options
-// snapshot; the server re-validates every pair against the branch-scoped
-// FieldServiceUser read model and stores the confirmed idUser + name.
+// snapshot; the server re-validates every pair against the live Auth directory
+// of the caller branch and stores the confirmed idUser + name.
 const inspectorUsers = z.array(z.object({
   userId: z.string().uuid(),
   name: z.string().trim().min(1).max(255),

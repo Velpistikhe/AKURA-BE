@@ -18,6 +18,8 @@ export interface SeededUser {
   id: string;
   username: string;
   password: string;
+  firstName: string;
+  lastName: string;
   role: 'ADMIN' | 'USER' | 'APP_MANAGER';
   section: 'MARKETING' | 'FINANCE' | 'FIELD_SERVICE' | 'ACCOUNTING' | 'HRD_MANAGEMENT';
   officeBranchId: string;
@@ -82,6 +84,8 @@ export const seedUser = async (options: {
       id,
       username,
       password,
+      firstName: 'Rel',
+      lastName: 'Test',
       role: options.role,
       section: options.section,
       officeBranchId: options.officeBranchId,
@@ -91,6 +95,22 @@ export const seedUser = async (options: {
     await auth.$disconnect();
   }
 };
+
+/**
+ * Builds the identity headers the API Gateway adds to a proxied request.
+ *
+ * A direct call to a service bypasses the gateway, so the service cannot see
+ * the identity the gateway would have rebuilt from the token. The authorize
+ * guard compares those headers with the token payload, so a direct call must
+ * present them explicitly.
+ */
+export const gatewayIdentityHeaders = (user: SeededUser): Record<string, string> => ({
+  'x-user-id': user.id,
+  'x-user-role': user.role,
+  'x-user-section': user.section,
+  'x-user-name': `${user.firstName} ${user.lastName}`,
+  'x-office-branch-id': user.officeBranchId,
+});
 
 /** Logs a seeded user in and returns a fresh access token. */
 export const loginAs = async (user: SeededUser): Promise<string> => {

@@ -33,7 +33,7 @@ same transaction as the change it describes.**
 | Service | Tables | Scope |
 |---|---|---|
 | app-manager | `audit_logs` | Menus, menu items, menu accesses, office branches |
-| marketing | `audit_logs`, `catalog_audit_logs` | Companies, staff, services, items, contracts, quotations, taxes, user sync |
+| marketing | `audit_logs`, `catalog_audit_logs` | Companies, staff, services, items, contracts, quotations, taxes |
 | fieldservice | `audit_logs` | Work orders |
 | finance | *(none)* | — |
 

@@ -12,15 +12,6 @@ interface ServiceRouteConfig {
 
 export const servicesConfig: ServiceRouteConfig[] = [
   {
-    prefix: '/api/v1/marketing/internal/users/events',
-    target: env.MARKETING_SERVICE_URL,
-    gatewaySecret: env.MARKETING_SERVICE_GATEWAY_SECRET,
-    authRequired: false,
-    internalCaller: 'auth-service',
-    pathRewrite: { '^/': '/internal/users/events' },
-    description: 'Internal Auth user read-model delivery to Marketing',
-  },
-  {
     prefix: '/api/v1/marketing/internal/taxes/events',
     target: env.MARKETING_SERVICE_URL,
     gatewaySecret: env.MARKETING_SERVICE_GATEWAY_SECRET,
@@ -73,15 +64,6 @@ if (env.FINANCE_SERVICE_URL && env.FINANCE_SERVICE_GATEWAY_SECRET) {
   });
 }
 if (env.FIELDSERVICE_SERVICE_URL && env.FIELDSERVICE_SERVICE_GATEWAY_SECRET) {
-  servicesConfig.push({
-    prefix: '/api/v1/fieldservice/internal/users/events',
-    target: env.FIELDSERVICE_SERVICE_URL,
-    gatewaySecret: env.FIELDSERVICE_SERVICE_GATEWAY_SECRET,
-    authRequired: false,
-    internalCaller: 'auth-service',
-    pathRewrite: { '^/': '/internal/users/events' },
-    description: 'Internal Auth FIELD_SERVICE user read-model delivery to Field Service',
-  });
   servicesConfig.push({
     prefix: '/api/v1/fieldservice', target: env.FIELDSERVICE_SERVICE_URL,
     gatewaySecret: env.FIELDSERVICE_SERVICE_GATEWAY_SECRET, authRequired: true,

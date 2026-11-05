@@ -94,7 +94,7 @@ contract, and it is enforced by the process refusing to boot.
 | `PORT` | all | Listen port |
 | `NODE_ENV` | all | `development` \| `production` \| `test` |
 | `DATABASE_URL` | 5 domain services | PostgreSQL connection string |
-| `API_GATEWAY_URL` | auth, marketing, finance, fieldservice | Base URL for all outbound calls |
+| `API_GATEWAY_URL` | marketing, finance, fieldservice | Base URL for all outbound calls |
 | `AUTH_SERVICE_URL` | gateway | Auth service base URL |
 | `AUTH_JWKS_URL` | gateway, marketing, finance, fieldservice | JWKS endpoint |
 | `APP_MANAGER_SERVICE_URL` | gateway | App Manager base URL |
@@ -102,7 +102,6 @@ contract, and it is enforced by the process refusing to boot.
 | `FINANCE_SERVICE_URL` | gateway | Finance base URL (conditional) |
 | `FIELDSERVICE_SERVICE_URL` | gateway | Field Service base URL (conditional) |
 | `*_GATEWAY_SECRET` (×5) | gateway + each service | Per-service gateway authentication |
-| `USER_SYNC_SECRET` | auth, marketing, fieldservice | User-sync event authentication |
 | `TAX_SYNC_SECRET` | finance, marketing | Tax event authentication |
 | `WORK_ORDER_SYNC_SECRET` | fieldservice, marketing | Work-order event authentication |
 | `JWT_ACCESS_PRIVATE_KEY_PATH` / `..._BASE64` | auth | RSA signing key |
@@ -249,9 +248,9 @@ an answer:
 **VERIFIED** — the outbox delivery code explicitly supports a serverless
 deployment model:
 
-> *"Runs a bounded batch inside the HTTP invocation so committed events are
-> pushed even when the timer worker is not running (serverless/app import)."*
-> — `auth-service/src/modules/user-sync/user-sync.delivery.ts:72-73`
+> *"Run a bounded batch inside the HTTP invocation. This also works when the
+> Express app is imported without server.ts (and no timer worker is started)."*
+> — `finance-service/src/modules/taxes/tax-delivery.ts:42-43`
 
 **VERIFIED** — the counterpart in Finance:
 
@@ -265,8 +264,8 @@ in-request fallback delivers during the request that produced the event, and
 the timer worker handles the rest on a cold start.
 
 **Operational consequence:** on a serverless platform, delivery latency depends
-on whether a request that triggers the outbox is actually made. A user created
-but never touched again may not be replicated until the next request that
+on whether a request that triggers the outbox is actually made. A tax changed
+but never touched again may not reach Marketing until the next request that
 triggers a batch. **UNKNOWN** — whether a platform-level scheduler invokes the
 worker periodically was not established.
 
@@ -333,13 +332,11 @@ runbook**, which does not exist in this repository.
 - [ ] `JWT_ACCESS_KEY_ID` set — if it changes, all consumers must refetch the JWKS
 - [ ] `JWT_ISSUER` / `JWT_AUDIENCE` identical to every consumer's configuration
 - [ ] `JWT_REFRESH_SECRET` ≥ 32 characters
-- [ ] `USER_SYNC_SECRET` ≥ 32 characters and **identical** in Auth, Marketing, and Field Service
 
 ### 7.4 Marketing
 
 - [ ] `TAX_SYNC_SECRET` identical to Finance's
 - [ ] `WORK_ORDER_SYNC_SECRET` identical to Field Service's
-- [ ] `USER_SYNC_SECRET` identical to Auth's
 - [ ] S3 credentials and bucket configured; the 15-minute presigned URL policy confirmed acceptable
 - [ ] `DIRECT_MFE_ACCESS` left `false` in production
 
@@ -351,7 +348,6 @@ runbook**, which does not exist in this repository.
 ### 7.6 Field Service
 
 - [ ] `WORK_ORDER_SYNC_SECRET` identical to Marketing's
-- [ ] `USER_SYNC_SECRET` identical to Auth's
 - [ ] `DIRECT_MFE_ACCESS` left `false` in production
 
 ### 7.7 Cross-cutting

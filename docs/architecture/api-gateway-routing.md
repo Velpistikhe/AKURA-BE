@@ -39,21 +39,19 @@ holds no database and no business logic.
 
 | Prefix | Target service | `authRequired` | `internalCaller` | Path rewrite |
 |---|---|---|---|---|
-| `/api/v1/marketing/internal/users/events` | marketing | **false** | `auth-service` | `^/` → `/internal/users/events` |
 | `/api/v1/marketing/internal/taxes/events` | marketing | **false** | `finance-service` | `^/` → `/internal/taxes/events` |
 | `/api/v1/marketing/internal/work-orders/events` | marketing | **false** | `fieldservice-service` | `^/` → `/internal/work-orders/events` |
 | `/api/v1/auth` | auth | **false** | — | `^/api/v1/auth` → `''` |
 | `/api/v1/app-manager` | app-manager | **true** | — | `^/api/v1/app-manager` → `''` |
 | `/api/v1/marketing` | marketing | **true** | — | `^/api/v1/marketing` → `''` |
 | `/api/v1/finance`* | finance | **true** | — | `^/api/v1/finance` → `''` |
-| `/api/v1/fieldservice/internal/users/events`* | fieldservice | **false** | `auth-service` | `^/` → `/internal/users/events` |
 | `/api/v1/fieldservice`* | fieldservice | **true** | — | `^/api/v1/fieldservice` → `''` |
 
 \* Conditional — see §5.
 
-**Ordering matters.** The four `internal/...` prefixes are registered
+**Ordering matters.** The two `internal/...` prefixes are registered
 **before** their parent prefixes. Since Express matches `router.use` in
-registration order and `/api/v1/marketing/internal/users/events` is a strict
+registration order and `/api/v1/marketing/internal/taxes/events` is a strict
 prefix of `/api/v1/marketing`, the internal route wins for those exact paths.
 This ordering is load-bearing — reordering it would route internal events
 through the user-facing route and break authentication.
@@ -78,8 +76,8 @@ Net effect for a public route:
 Net effect for an internal route:
 
 ```
-/api/v1/marketing/internal/users/events  →  Express strips  →  /
-                                           →  pathRewrite    →  /internal/users/events
+/api/v1/marketing/internal/taxes/events  →  Express strips  →  /
+                                           →  pathRewrite    →  /internal/taxes/events
 ```
 
 The internal routes use `^/` → `/internal/...` rather than stripping the
@@ -254,7 +252,6 @@ mid-stream failure does not attempt to write a second response body
 | `quotation.ts` | 40 KB | Quotation lifecycle, PDF, work-order creation, internal work-order event |
 | `work-orders.ts` | 35 KB | Work Order lifecycle, options, and the Marketing reference endpoints Field Service uses |
 | `tax.ts` | 7 KB | Finance tax endpoints + the internal tax event endpoint |
-| `user-sync.ts` | 5 KB | Internal user-sync endpoints + inspector options |
 | `audit-trail.ts` | 5.5 KB | App Manager audit trail endpoints |
 | `operational-documents.ts` | 3 KB | Quotation and item-size reference endpoints |
 | `module-tags.ts` | 4.5 KB | Maps each path to an OpenAPI tag |
@@ -272,19 +269,18 @@ const protectedSecurity = [{ bearerAuth: [] }, { accessTokenCookie: [] }];
 
 Internal event endpoints declare `security: []` and instead document their
 required headers explicitly — e.g. `x-service-name`, `x-service-secret`, and
-the per-flow sync secret (`tax.ts:55`, `user-sync.ts:4-8`,
-`quotation.ts:198-200`).
+the per-flow sync secret (`tax.ts:55`, `quotation.ts:198-200`).
 
 ### Coverage by service
 
 | Service | Documented paths |
 |---|---|
-| Auth | 11 |
+| Auth | 14 |
 | App Manager | 13 |
-| Marketing | 29 |
+| Marketing | 58 |
 | Finance | 4 |
-| Field Service | 11 |
-| Internal event endpoints | 4 (counted within the above) |
+| Field Service | 9 |
+| Internal event endpoints | 2 (counted within the above) |
 
 **Note — the spec is the gateway's contract, not each service's own route
 table.** The gateway documents paths that individual services implement

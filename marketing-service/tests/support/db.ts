@@ -135,8 +135,7 @@ export const truncateTestTables = async (service: ServiceName): Promise<void> =>
             "company_contract_histories", "company_contract_prices", "company_contracts",
             "company_staff_histories", "company_staffs", "company_histories", "companies",
             "catalog_audit_logs", "audit_logs", "item_prices", "item_sizes", "items", "service_scopes", "services",
-            "quotation_sequences", "tax_cache", "tax_cache_revisions", "tax_sync_state",
-            "marketing_admin_users", "marketing_user_sync_revisions"
+            "quotation_sequences", "tax_cache", "tax_cache_revisions", "tax_sync_state"
           RESTART IDENTITY CASCADE
         `);
         break;
@@ -145,8 +144,7 @@ export const truncateTestTables = async (service: ServiceName): Promise<void> =>
         await prisma.$executeRawUnsafe(`
           TRUNCATE TABLE
             "work_order_histories", "work_order_inspectors", "work_order_items", "work_order",
-            "work_order_sequences", "field_service_users", "field_service_user_sync_revisions",
-            "audit_logs"
+            "work_order_sequences", "audit_logs"
           RESTART IDENTITY CASCADE
         `);
         break;
@@ -163,7 +161,7 @@ export const truncateTestTables = async (service: ServiceName): Promise<void> =>
       case 'auth': {
         await prisma.$executeRawUnsafe(`
           TRUNCATE TABLE
-            "user_histories", "security_audit_logs", "user_sync_deliveries", "user_sync_events",
+            "user_histories", "security_audit_logs",
             "refresh_tokens", "user_passwords", "users"
           RESTART IDENTITY CASCADE
         `);

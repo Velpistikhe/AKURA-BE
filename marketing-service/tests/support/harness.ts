@@ -61,7 +61,6 @@ export const TEST_GATEWAY_SECRETS = {
   fieldservice: `${TEST_SECRET_PREFIX}field-service-0123456789`,
 } as const;
 
-export const TEST_USER_SYNC_SECRET = 'reltest-local-user-sync-secret-0123456789ab';
 export const TEST_TAX_SYNC_SECRET = 'reltest-local-tax-sync-secret-0123456789abcd';
 export const TEST_WORK_ORDER_SYNC_SECRET = 'reltest-local-work-order-secret-0123456789';
 
@@ -71,8 +70,6 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
     NODE_ENV: 'development',
     GATEWAY_SECRET: TEST_GATEWAY_SECRETS.auth,
     DATABASE_URL: localDatabaseUrl('auth'),
-    API_GATEWAY_URL: localGatewayUrl(),
-    USER_SYNC_SECRET: TEST_USER_SYNC_SECRET,
     JWT_ISSUER: 'akura-auth',
     JWT_AUDIENCE: 'akura-api',
   }),
@@ -94,7 +91,6 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
     API_GATEWAY_URL: localGatewayUrl(),
     DIRECT_MFE_ACCESS: 'false',
     TAX_SYNC_SECRET: TEST_TAX_SYNC_SECRET,
-    USER_SYNC_SECRET: TEST_USER_SYNC_SECRET,
     WORK_ORDER_SYNC_SECRET: TEST_WORK_ORDER_SYNC_SECRET,
     JWT_ISSUER: 'akura-auth',
     JWT_AUDIENCE: 'akura-api',
@@ -119,7 +115,6 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
     DATABASE_URL: localDatabaseUrl('fieldservice'),
     API_GATEWAY_URL: localGatewayUrl(),
     DIRECT_MFE_ACCESS: 'false',
-    USER_SYNC_SECRET: TEST_USER_SYNC_SECRET,
     WORK_ORDER_SYNC_SECRET: TEST_WORK_ORDER_SYNC_SECRET,
     JWT_ISSUER: 'akura-auth',
     JWT_AUDIENCE: 'akura-api',

@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { Actor, requireActor, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus, validateInspectorsForStart } from '../../integrations/gateway.js';
+import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus } from '../../integrations/gateway.js';
+import { resolveInspectorIdentities, validateInspectorPairs, validateInspectorsForStart } from '../../integrations/auth-directory.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null };
@@ -38,7 +39,11 @@ router.post('/', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, 
   const itemSnapshots = !input.quotationId
     ? await Promise.all(input.items.map(async item => ({ ...item, snapshot: await loadItemSizeReference(req, item.itemSizeId) })))
     : undefined;
-  send(req, res, await repository.create(input, quotation, actor(res), itemSnapshots), 201);
+  // Auth is the source of truth for FIELD_SERVICE users: every submitted
+  // inspector pair is validated against the live Auth directory before the
+  // creation transaction starts, so the upstream call never holds locks.
+  const inspectorUsers = await validateInspectorPairs(req, input.inspectors);
+  send(req, res, await repository.create(input, quotation, actor(res), itemSnapshots, inspectorUsers), 201);
 }));
 router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id);
@@ -56,10 +61,16 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
 }));
 router.patch('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
-  await repository.get(id, actor(res));
+  const before = await repository.get(id, actor(res));
   const quotation = (input.quotationId !== undefined || input.contractId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;
-  send(req, res, await repository.update(id, input, quotation, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
+  // PATCH keeps the name-based contract, so the names are resolved against the
+  // live Auth directory before the transaction starts.
+  const names = input.inspectors !== undefined
+    ? input.inspectors
+    : before.inspectors.map((row) => row.name);
+  const resolvedInspectors = await resolveInspectorIdentities(req, names);
+  send(req, res, await repository.update(id, input, quotation, actor(res), resolvedInspectors, row => notifyMarketingWorkOrderStatus(row, req)));
 }));
 router.delete('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const { version } = deleteWorkOrderSchema.parse(req.body);

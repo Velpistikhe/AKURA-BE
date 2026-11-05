@@ -14,7 +14,7 @@ delivery.
 
 A broker is also a significant operational commitment: a new infrastructure
 dependency to run, secure, monitor, and pay for. For a platform at this size
-(three event flows), that cost may not be justified.
+(two event flows), that cost may not be justified.
 
 The hard requirement is that **a committed change must never be lost**. If a
 service writes a record and then crashes before publishing an event, the
@@ -25,13 +25,18 @@ event must still be delivered.
 **Use no broker. Deliver events as HTTP POSTs through the API Gateway, backed
 by a transactional outbox in the producer's own database.**
 
-The three flows:
+The two flows:
 
 | Producer | Consumer | Endpoint | Secret |
 |---|---|---|---|
-| auth | marketing | `POST /api/v1/marketing/internal/users/events` | `x-user-sync-secret` |
-| auth | fieldservice | `POST /api/v1/fieldservice/internal/users/events` | `x-user-sync-secret` |
 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` |
+| fieldservice | marketing | `POST /api/v1/marketing/internal/work-orders/events` | `x-work-order-sync-secret` (synchronous callback, see below) |
+
+The user directory is deliberately **not** replicated. Auth is the source of
+truth, and Marketing and Field Service read the contacts and the inspectors
+they need live from Auth (`GET auth/users/marketing-contacts`,
+`GET auth/users/field-service/inspector-directory`). A directory read is cheap
+and always current, so there is nothing left for an outbox to deliver.
 
 ### The mechanism
 
@@ -113,10 +118,10 @@ without Marketing knowing about it would be an inconsistent pair of records.
 
 | Claim | Location |
 |---|---|
-| Outbox delivery + advisory lock | `auth-service/src/modules/user-sync/user-sync.delivery.ts:42-70` |
-| Backoff formula | `user-sync.delivery.ts:15`, `finance-service/src/modules/taxes/tax-delivery.ts:10` |
-| Timer worker + in-request fallback | `user-sync.delivery.ts:72-116`, `tax-delivery.ts:42-89` |
-| Acknowledgement shape validation | `user-sync.delivery.ts:59-60` |
+| Outbox delivery + advisory lock | `finance-service/src/modules/taxes/tax-delivery.ts:42-70` |
+| Backoff formula | `finance-service/src/modules/taxes/tax-delivery.ts:10` |
+| Timer worker + in-request fallback | `tax-delivery.ts:42-89` |
+| Acknowledgement shape validation | `tax-delivery.ts:59-60` |
 | Receiver version guard | `marketing-service/src/modules/taxes/tax-events.routes.ts:33-51` |
 | Ack only after commit | `api-gateway/src/docs/tax.ts:56` |
 | Synchronous work-order callback | `fieldservice-service/src/integrations/gateway.ts:176-203` |

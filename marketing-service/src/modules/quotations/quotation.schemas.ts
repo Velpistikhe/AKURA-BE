@@ -31,7 +31,8 @@ const discountText = z.string()
 const discountValue = z.union([discountText, z.number().finite().nonnegative().transform(String).pipe(discountText)]);
 const note = z.string().trim().max(5000).nullable().optional();
 // Forwarded verbatim to Field Service, which re-validates every pair against
-// its FieldServiceUser snapshot and stores the confirmed idUser + name.
+// the live Auth directory of the caller branch and stores the confirmed
+// idUser + name.
 const inspectors = z.array(z.object({
   userId: z.string().uuid(),
   name: z.string().trim().min(1).max(255),

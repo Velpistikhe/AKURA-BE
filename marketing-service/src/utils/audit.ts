@@ -40,16 +40,14 @@ export type AuditModule =
   | 'items'
   | 'quotations'
   | 'services'
-  | 'taxes'
-  | 'user-sync';
+  | 'taxes';
 
 /** The entities that write to the audit trail. */
 export type AuditEntity =
   | 'COMPANY'
   | 'COMPANY_STAFF'
   | 'QUOTATION'
-  | 'TAX'
-  | 'USER_SYNC';
+  | 'TAX';
 
 /** The action that produced an audit entry. */
 export type AuditAction = string;

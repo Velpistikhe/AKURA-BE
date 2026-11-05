@@ -44,8 +44,6 @@ re-verified and found false; see
 | `UserPassword` | Password hash, separate from the user row |
 | `UserHistory` | Audit of user field changes |
 | `RefreshToken` | Issued refresh tokens; server-side revocable |
-| `UserSyncEvent` | Outbox of user-change events |
-| `UserSyncDelivery` | Per-target delivery attempts and retry schedule |
 | `SecurityAuditLog` | Login, register, logout, and failed-login records |
 | `UserRole` (enum) | `USER` \| `ADMIN` \| `APP_MANAGER` → `user_role` |
 | `UserSection` (enum) | `ACCOUNTING` \| `FINANCE` \| `HRD_MANAGEMENT` \| `MARKETING` \| `FIELD_SERVICE` → `user_section` |
@@ -73,8 +71,8 @@ re-verified and found false; see
 | Catalog | `Service`, `ServiceScope`, `Item`, `ItemSize`, `ItemPrice` |
 | Contracts | `CompanyContract`, `CompanyContractPrice`, contract-price history, `ContractCatalogSnapshot` |
 | Quotations | `Quotation`, `QuotationItem`, `QuotationHistory`, `QuotationPdf`, `QuotationSnapshot` |
-| Read models | `MarketingAdminUser` (from Auth), `TaxCache` (from Finance) |
-| Revisions | `MarketingUserSyncRevision`, `TaxCacheRevision` |
+| Read models | `TaxCache` (from Finance) |
+| Revisions | `TaxCacheRevision` |
 | Audit | `AuditLog`, `CatalogAuditLog` |
 | Orphan | `TaxSyncState` — see §5.2 |
 
@@ -101,8 +99,6 @@ re-verified and found false; see
 | `WorkOrderInspector` | Assigned inspectors with an ordered position |
 | `WorkOrderSequence` | Sequencing data |
 | `WorkOrderHistory` | Status-change history |
-| `FieldServiceUser` | Read model replicated from Auth |
-| `FieldServiceUserSyncRevision` | Version marker for the read model |
 | `AuditLog` | Work-order audit entries |
 
 ---
@@ -188,33 +184,29 @@ This is a deliberate data-minimisation control, not an accident of schema.
 
 ## 4. Read models (replicated projections)
 
-**VERIFIED** — three tables are replicas of another service's data, each
-maintained by an idempotent event receiver.
+**VERIFIED** — one table is a replica of another service's data, maintained by an
+idempotent event receiver.
 
 | Read model | Source of truth | Replicated by | Version marker |
 |---|---|---|---|
-| `marketing_admin_users` | `auth.users` | Auth outbox → `POST marketing/internal/users/events` | `marketing_user_sync_revisions` |
-| `field_service_users` | `auth.users` | Auth outbox → `POST fieldservice/internal/users/events` | `field_service_user_sync_revisions` |
 | `tax_cache` | `finance.taxes` | Finance outbox → `POST marketing/internal/taxes/events` | `tax_cache_revisions` |
+
+**The user directory is not replicated.** Auth owns the users table, and
+Marketing and Field Service read the contacts and inspectors they need live
+from Auth (`GET auth/users/marketing-contacts`,
+`GET auth/users/field-service/inspector-directory`). A directory read is cheap
+and always current, so a replica would only add staleness.
 
 ### 4.1 What the read models deliberately omit
 
-**VERIFIED** — `marketing-service/src/modules/user-sync/marketing-contact.repository.ts:4-10`:
-
-```ts
-interface MarketingAdminUserSnapshot {
-  firstName: string;
-  lastName: string;
-  email: string | null;
-  telp: string | null;
-}
-```
-
-Only four fields are replicated. Password hashes, roles, refresh tokens, and
-security audit logs never leave `akura_auth`.
-
 **VERIFIED** — the tax cache stores the tax rate rows only; Finance's
 `TaxRevision`, `TaxEvent`, and `TaxDelivery` tables are never replicated.
+
+**VERIFIED** — the same data-minimisation holds for the user directory, and
+more strongly: nothing is copied at all. Password hashes, roles, refresh
+tokens, and security audit logs never leave `akura_auth`; the contacts endpoint
+returns only the name, email and telephone number of the active Marketing
+users of the caller branch.
 
 ### 4.2 Read-model staleness handling
 
@@ -348,9 +340,8 @@ unions (`marketing-service/src/utils/audit.ts:35-48`):
 
 ```ts
 export type AuditModule = 'companies' | 'company-staff' | 'contract-prices'
-  | 'contracts' | 'items' | 'quotations' | 'services' | 'taxes' | 'user-sync';
-export type AuditEntity = 'COMPANY' | 'COMPANY_STAFF' | 'QUOTATION'
-  | 'TAX' | 'USER_SYNC';
+  | 'contracts' | 'items' | 'quotations' | 'services' | 'taxes';
+export type AuditEntity = 'COMPANY' | 'COMPANY_STAFF' | 'QUOTATION' | 'TAX';
 ```
 
 App Manager uses free-form `String` columns (`VarChar(50)`) with no enum.

@@ -8,11 +8,11 @@ graph TB
     end
 
     subgraph Domain["Domain Services"]
-        Auth["<b>Auth Service</b> :5001<br/>modules: auth, user-management, user-sync"]
+        Auth["<b>Auth Service</b> :5001<br/>modules: auth, user-management"]
         AppMgr["<b>App Manager Service</b> :5002<br/>modules: audit-trail, menu, reference"]
-        Marketing["<b>Marketing Service</b> :5003<br/>modules: companies, company-staff,<br/>contract-prices, contracts, items,<br/>quotations, services, taxes, user-sync"]
+        Marketing["<b>Marketing Service</b> :5003<br/>modules: companies, company-staff,<br/>contract-prices, contracts, items,<br/>quotations, services, taxes"]
         Finance["<b>Finance Service</b> :5004<br/>modules: taxes"]
-        Field["<b>Field Service</b> :5005<br/>modules: options, user-sync, work-orders"]
+        Field["<b>Field Service</b> :5005<br/>modules: options, work-orders"]
     end
 
     subgraph Data["Data Stores (one PostgreSQL DB per service)"]

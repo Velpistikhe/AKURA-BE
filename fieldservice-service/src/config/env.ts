@@ -42,7 +42,6 @@ const envSchema = z.object({
   DIRECT_MFE_ACCESS: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   DIRECT_MFE_ORIGIN: z.string().url().default('http://localhost:4173'),
   // Shared secret for Auth's FIELD_SERVICE user read-model delivery.
-  USER_SYNC_SECRET: z.string().min(32).optional(),
   WORK_ORDER_SYNC_SECRET: z.string().min(32).optional(),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
   JWT_AUDIENCE: z.string().min(1).default('akura-api'),

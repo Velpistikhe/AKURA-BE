@@ -9,18 +9,6 @@ export const listUsersSchema = z.object({
   ...USER_LIST_CONFIG.filterFields,
 }).strict();
 
-// Read-only monitoring query for the user-sync outbox. Access is restricted to
-// APP_MANAGER by the route middleware; section/branch are intentionally not
-// part of the contract because sync state is global across branches.
-export const USER_SYNC_TARGET_SERVICES = ['marketing-service', 'fieldservice-service'] as const;
-export const listUserSyncDeliveriesSchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-  status: z.enum(['pending', 'delivered']).optional(),
-  targetService: z.enum(USER_SYNC_TARGET_SERVICES).optional(),
-  userId: z.string().uuid('Invalid user ID').optional(),
-}).strict();
-
 // Batch inspector validation query for Field Service work-order creation:
 // comma-separated user IDs, 1 to 100 entries, unique UUIDs.
 export const inspectUsersQuerySchema = z.object({
@@ -69,5 +57,4 @@ export const updateUserSchema = z.object({
 });
 
 export type ListUsersInput = z.infer<typeof listUsersSchema>;
-export type ListUserSyncDeliveriesInput = z.infer<typeof listUserSyncDeliveriesSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;

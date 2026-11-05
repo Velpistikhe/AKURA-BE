@@ -46,7 +46,7 @@ export const recordCatalogAuditWithPlatform = async (
   await recordCatalogAudit(tx, officeBranchId, entityType, before, after, actor, action);
   await recordAudit(tx, {
     module: catalogModule(entityType),
-    entityType: entityType as 'COMPANY' | 'COMPANY_STAFF' | 'QUOTATION' | 'TAX' | 'USER_SYNC',
+    entityType: entityType as 'COMPANY' | 'COMPANY_STAFF' | 'QUOTATION' | 'TAX',
     entityId: after.id,
     version: after.version,
     action,

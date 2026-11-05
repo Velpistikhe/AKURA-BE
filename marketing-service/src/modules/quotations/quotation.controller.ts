@@ -7,7 +7,6 @@ import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../
 import { getAccessToken } from '../../utils/requestTokens.js';
 import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadMarketingContacts } from '../user-sync/marketing-contact.repository.js';
 import { hasActiveWorkOrder, notifyFieldServiceWorkOrderRevoked } from './work-order.integration.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
@@ -16,16 +15,9 @@ const send = (req: Request, res: Response, status: number, message: string, data
 const CONTACTS_PATH = 'auth/users/marketing-contacts';
 
 export interface QuotationContactDependencies {
-  branch: string;
   accessToken?: string;
-  loadLocal?: (branch: string) => Promise<MarketingContact[]>;
   fetchImpl?: typeof fetch;
 }
-
-const loadLocalContacts = async (branch: string): Promise<MarketingContact[]> => {
-  try { return await loadMarketingContacts(branch); }
-  catch { return []; }
-};
 
 const parseContacts = (payload: unknown): MarketingContact[] => {
   const contacts = (payload as { data?: { contacts?: unknown } } | null)?.data?.contacts;
@@ -39,32 +31,34 @@ const parseContacts = (payload: unknown): MarketingContact[] => {
 };
 
 /**
- * Local read model first; when it has no rows (for example, before the first
- * user-sync event is delivered), fall back to the legacy Auth directory. Branch
- * always comes from the caller's access token on the Auth side, never from the
- * client. Any failure returns the local result so PDF generation is never blocked.
+ * The Marketing contact directory, read live from Auth.
+ *
+ * Auth is the source of truth for the user directory, so the contacts are read
+ * from Auth on demand instead of from a local read model. The branch always
+ * comes from the caller's access token on the Auth side, never from the client.
+ * A failure returns no contacts, so PDF generation is never blocked by the
+ * directory.
  */
-export const loadQuotationContacts = async ({ branch, accessToken, loadLocal = loadLocalContacts, fetchImpl = fetch }: QuotationContactDependencies): Promise<MarketingContact[]> => {
-  const local = await loadLocal(branch);
-  if (local.length || !accessToken) return local;
+export const loadQuotationContacts = async ({ accessToken, fetchImpl = fetch }: QuotationContactDependencies): Promise<MarketingContact[]> => {
+  if (!accessToken) return [];
   try {
     const response = await fetchImpl(serviceUrl(CONTACTS_PATH), {
       method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000),
       headers: { authorization: `Bearer ${accessToken}`, ...serviceHeaders(CONTACTS_PATH) },
     });
-    if (!response.ok) return local;
+    if (!response.ok) return [];
     return parseContacts(await response.json());
-  } catch { return local; }
+  } catch { return []; }
 };
 
-/** Convenience wrapper for HTTP controllers: resolves branch + token from the request. */
-export const loadContactsFromRequest = (req: Request, branch: string): Promise<MarketingContact[]> =>
-  loadQuotationContacts({ branch, accessToken: getAccessToken(req) });
+/** Convenience wrapper for HTTP controllers: resolves the caller's token. */
+export const loadContactsFromRequest = (req: Request): Promise<MarketingContact[]> =>
+  loadQuotationContacts({ accessToken: getAccessToken(req) });
 
 export const quotationController = {
   async preview(req: Request, res: Response) {
     const branch = getOfficeBranchId(res);
-    const contacts = await loadContactsFromRequest(req, branch);
+    const contacts = await loadContactsFromRequest(req);
     const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, branch, getAuditActor(res), contacts);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
@@ -94,7 +88,7 @@ export const quotationController = {
   async approve(req: Request, res: Response) {
 
     const branch = getOfficeBranchId(res);
-    const contacts = await loadContactsFromRequest(req, branch);
+    const contacts = await loadContactsFromRequest(req);
     send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, branch, getAuditActor(res), contacts));
   },
   async list(req: Request, res: Response) {
@@ -121,8 +115,9 @@ export const quotationController = {
    * call, and the same access token is forwarded so Field Service re-validates
    * identity, branch and section. The payload carries quotationId with startDate,
    * endDate and inspectors as an array of { userId, name } pairs; Field Service
-   * re-validates every pair against its FieldServiceUser snapshot and stores the
-   * confirmed userId and name. Quotation content is resolved live by Field Service from
+   * re-validates every pair against the live Auth directory of the caller branch
+   * and stores the confirmed userId and name. Quotation content is resolved live by
+   * Field Service from
    * Marketing's quotation reference, so no quotation version is forwarded.
    *
    * The client only selects which quotation items become Work Order lines. The

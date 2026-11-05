@@ -18,7 +18,7 @@ Legend: **●** = hard runtime dependency · **—** = none
 | Caller ↓ / Callee → | api-gateway | auth | app-manager | marketing | finance | fieldservice |
 |---|---|---|---|---|---|---|
 | **api-gateway** | — | ● | ● | ● | ● | ● |
-| **auth** | ● | — | — | ● | — | ● |
+| **auth** | ● | — | — | — | — | — |
 | **app-manager** | — | — | — | — | — | — |
 | **marketing** | ● | ● | — | — | — | ● |
 | **finance** | ● | ● | — | — | — | — |
@@ -30,14 +30,15 @@ all five domain services.
 
 ### Reading the matrix
 
-- **auth → marketing, fieldservice**: asynchronous user-sync delivery.
 - **marketing → fieldservice**: synchronous Work Order creation plus a
   compensating delete.
 - **fieldservice → marketing**: synchronous quotation/contract/item reference
   reads, plus the asynchronous Work Order link-state callback.
 - **finance → marketing**: asynchronous tax snapshot delivery.
 - **marketing, finance, fieldservice → auth**: synchronous live-profile reads
-  (`GET auth/me`), plus JWKS reads.
+  (`GET auth/me`), plus JWKS reads. Marketing and Field Service also read the
+  user directory live: `GET auth/users/marketing-contacts` and
+  `GET auth/users/field-service/inspector-directory`.
 - **app-manager → (nothing)**: it is a leaf. It reads no other service and
   publishes nothing.
 
@@ -54,24 +55,12 @@ The gateway holds one target URL and one secret per service, and proxies
 This is the only dependency in the platform that is *not* routed back through
 the gateway itself.
 
-### 2.2 auth → marketing, fieldservice (async)
+### 2.2 auth: no outbound calls
 
-**VERIFIED** — `auth-service/src/modules/user-sync/user-sync.delivery.ts:7-10`.
-
-```
-USER_SYNC_PATHS = {
-  'marketing-service':   'marketing/internal/users/events',
-  'fieldservice-service': 'fieldservice/internal/users/events',
-}
-```
-
-The outbox lives in `akura_auth` (`user_sync_events`, `user_sync_deliveries`).
-Delivery is a `POST` to the gateway with `x-service-name: auth-service`,
-`x-service-secret`, and `x-user-sync-secret`.
-
-**Direction is one-way.** Marketing and Field Service never call Auth to
-*push* a user change; they only *pull* the live profile when they need
-authorisation context.
+**VERIFIED** — Auth makes no outbound service call. It used to push user
+snapshots to Marketing and Field Service through an outbox; that replication is
+gone. Auth now only serves the profile and the directory, and the consumers
+*pull* what they need.
 
 ### 2.3 marketing ↔ fieldservice (the only bidirectional pair)
 
@@ -163,22 +152,24 @@ and it depends on nobody.
 
 ### 3.2 The eventual-consistency seam
 
-**VERIFIED** — three read models are replicated rather than joined:
+**VERIFIED** — one read model is replicated rather than joined:
 
 | Read model | Source of truth | Replication |
 |---|---|---|
-| `marketing_admin_users` | `auth.users` | Auth outbox → Marketing |
-| `field_service_users` | `auth.users` | Auth outbox → Field Service |
 | `tax_cache` | `finance.taxes` | Finance outbox → Marketing |
 
+The user directory has no read model. Auth is the source of truth and the
+consumers read it live, so there is no seam to be eventually consistent
+across.
+
 Each carries a version marker so a stale or replayed event is ignored:
-`marketing_user_sync_revisions`, `field_service_user_sync_revisions`, and
 `tax_cache_revisions`.
 
-**Consequence:** a read model can be temporarily behind its source. The code
-handles this explicitly — e.g. Field Service re-validates inspectors against
-**live Auth data** before starting a Work Order rather than trusting its
-replicated copy (`fieldservice-service/src/integrations/gateway.ts:205-226`).
+**Consequence:** a read model can be temporarily behind its source. Only the
+tax cache is a read model now. The user directory has no replica at all, so the
+Field Service inspector options and the Marketing quotation contacts are read
+live from Auth (`fieldservice-service/src/integrations/auth-directory.ts`,
+`marketing-service/src/modules/quotations/quotation.controller.ts`).
 
 ### 3.3 Circular dependencies
 
@@ -199,7 +190,7 @@ why an outbox was chosen over a broker on the asynchronous legs.
 | Service | Fan-out (calls it makes) | Fan-in (called by) |
 |---|---|---|
 | api-gateway | 5 | 6 (all others, for outbound calls) |
-| auth | 2 | 5 |
+| auth | 0 | 5 |
 | marketing | 3 | 3 (gateway, auth, fieldservice) |
 | fieldservice | 5 | 3 (gateway, auth, marketing) |
 | finance | 2 | 2 (gateway, marketing via tax delivery) |
@@ -238,7 +229,7 @@ call from service A to service B:
 |---|---|---|
 | Marketing ↔ Field Service cycle | A failure in either blocks the other | Compensation (revoke), fail-closed `503`s, idempotent receivers |
 | Auth is on every authorisation path | Auth degradation blocks all writes | Local JWKS cache (~10 min) lets services keep verifying tokens |
-| Eventual consistency in read models | Stale user or tax data | Version guards; live re-validation before critical transitions |
+| Eventual consistency in read models | Stale tax data | Version guards on the tax cache; the user directory is read live, so it is never stale |
 | **No broker** → delivery depends on a reachable gateway | An outage delays sync until retry | Outbox persistence, exponential backoff, in-request batch fallback |
 | **Conditional routing** → a service can be absent | 404 instead of a clear error | `servicesConfig` only registers a service when URL + secret are both set — but nothing alerts on the omission |
 | No shared library | Fixes must be replicated across 6 packages | Documented conventions; `npm run typecheck` per service |

@@ -76,10 +76,10 @@ price or unvetted field can leak into a stored column.
 
 **Neutral**
 
-- Replicated read models (`marketing_admin_users`, `field_service_users`,
-  `tax_cache`) are deliberate projections. Each carries a version marker so a
-  stale or replayed event is ignored, and each is rebuilt from its source of
-  truth rather than being edited.
+- The replicated read model (`tax_cache`) is a deliberate projection. It
+  carries a version marker so a stale or replayed event is ignored, and it is
+  rebuilt from its source of truth rather than being edited. The user directory
+  is not replicated at all: it is read live from Auth.
 
 ## Known issue
 

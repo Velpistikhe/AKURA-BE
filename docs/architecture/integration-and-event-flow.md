@@ -16,7 +16,15 @@
 | Failure mode | Fails the caller's request | Retried in the background |
 | Consistency | Strong at the moment of the call | Eventual |
 | Used for | Reading data owned by another service | Replicating data into a read model |
-| Inventory | 11 distinct calls | 3 flows |
+
+**The user directory is read, not replicated.** Auth owns the users table, and
+the consumers pull the contacts and inspectors they need live. There is no
+replica of it and therefore no user event flow.
+
+**The user directory is read, not replicated.** Auth owns the users table, and
+the consumers pull the contacts and inspectors they need live. There is no
+replica of it and therefore no user event flow.
+| Inventory | 12 distinct calls | 2 flows |
 
 **Both patterns traverse the API Gateway.** There is no direct service-to-service
 URL anywhere in the codebase.
@@ -37,11 +45,15 @@ URL anywhere in the codebase.
 | 4 | marketing | `GET fieldservice/work-orders/by-quotation/:id` | Check for an existing live Work Order | `src/modules/quotations/quotation.controller.ts:89` |
 | 5 | finance | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
 | 6 | fieldservice | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
-| 7 | fieldservice | `GET auth/users/field-service/inspectors` | Validate inspectors | `src/integrations/gateway.ts:224` |
+| 7 | fieldservice | `GET auth/users/field-service/inspectors` | Validate inspectors | `src/integrations/auth-directory.ts` |
 | 8 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
 | 9 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
 | 10 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
 | 11 | fieldservice | `GET marketing/quotation-references` | Quotation options list | `src/integrations/gateway.ts:273` |
+| 12 | marketing | `GET auth/users/marketing-contacts` | Quotation contact directory | `src/modules/quotations/quotation.controller.ts` |
+| 13 | fieldservice | `GET auth/users/field-service/inspector-directory` | Inspector options | `src/integrations/auth-directory.ts` |
+| 12 | marketing | `GET auth/users/marketing-contacts` | Quotation contact directory | `src/modules/quotations/quotation.controller.ts` |
+| 13 | fieldservice | `GET auth/users/field-service/inspector-directory` | Inspector options | `src/integrations/auth-directory.ts` |
 | — | all services | `GET auth/.well-known/jwks.json` | Key material | `*/src/utils/tokens.ts:11` |
 
 ### 2.2 The standard call shape
@@ -171,23 +183,23 @@ Producer transaction:
     on failure  → attempts++, nextRetryAt = now + backoff, lastError = msg
 ```
 
-### 3.2 The three flows
+### 3.2 The one flow
 
 | # | Producer | Consumer | Endpoint | Secret header | Outbox tables |
 |---|---|---|---|---|---|
-| 1 | auth | marketing | `POST /api/v1/marketing/internal/users/events` | `x-user-sync-secret` | `user_sync_events`, `user_sync_deliveries` |
-| 2 | auth | fieldservice | `POST /api/v1/fieldservice/internal/users/events` | `x-user-sync-secret` | same tables, different `targetService` |
-| 3 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` | `tax_events`, `tax_deliveries` |
+| 1 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` | `tax_events`, `tax_deliveries` |
 
-**The fourth event endpoint** — `POST /api/v1/marketing/internal/work-orders/events`
+**The second event endpoint** — `POST /api/v1/marketing/internal/work-orders/events`
 — is **not** an outbox delivery. It is a synchronous callback made from inside
 the Field Service transaction. See §4.
 
+**The user event endpoints are gone.** Auth used to push user snapshots to
+Marketing and Field Service; the directory is now read live, so there is no
+user outbox, no `user_sync_events` table and no `x-user-sync-secret` header.
+
 ### 3.3 Retry and backoff
 
-**VERIFIED** — identical in both implementations
-(`auth-service/src/modules/user-sync/user-sync.delivery.ts:15`,
-`finance-service/src/modules/taxes/tax-delivery.ts:10`):
+**VERIFIED** — `finance-service/src/modules/taxes/tax-delivery.ts:10`:
 
 ```ts
 export const retryDelay = (attempt: number) =>
@@ -209,12 +221,11 @@ many deliveries come due at once.
 
 **There is no maximum attempt count and no dead-letter state.** A delivery that
 can never succeed retries every 5 minutes indefinitely. The `attempts` counter
-and `lastError` are observable through `GET /api/v1/auth/users/sync/deliveries`
-for user sync; the tax equivalent is `GET /api/v1/finance/taxes/deliveries`.
+and `lastError` are observable through `GET /api/v1/finance/taxes/deliveries`.
 
 ### 3.4 Single-delivery guarantee
 
-**VERIFIED** — `user-sync.delivery.ts:44-45`, `tax-delivery.ts:15-16`:
+**VERIFIED** — `tax-delivery.ts:15-16`:
 
 ```ts
 const [lock] = await tx.$queryRaw<Array<{ acquired: boolean }>>`
@@ -233,7 +244,7 @@ is released automatically.
 ### 3.5 Acknowledgement contract
 
 **VERIFIED** — the producer requires a specific acknowledgement shape
-(`user-sync.delivery.ts:59-60`, `tax-delivery.ts:30-31`):
+(`tax-delivery.ts:30-31`):
 
 ```ts
 const ack = await response.json() as { eventId?: string; success?: boolean };
@@ -251,22 +262,20 @@ receiver's version guard makes it a no-op.
 
 **VERIFIED** — two mechanisms run deliveries:
 
-**A. Timer worker** (`startUserSync` / `startTaxDelivery`), started from
-`src/server.ts`. It loops: fetch up to 20 due jobs, deliver them one at a
-time, then schedule the next run at the earliest `nextRetryAt`
-(`user-sync.delivery.ts:94-110`). On an internal error it schedules a retry in
-10 seconds.
+**A. Timer worker** (`startTaxDelivery`), started from `src/server.ts`. It
+loops: fetch up to 20 due jobs, deliver them one at a time, then schedule the
+next run at the earliest `nextRetryAt` (`tax-delivery.ts:94-110`). On an internal
+error it schedules a retry in 10 seconds.
 
-**B. In-request fallback** (`processDueUserSyncs` / `processDueTaxDeliveries`),
-called during a request that produced an event. It delivers a bounded batch
-(5 jobs) so committed events are pushed even when no timer worker is running
-— the serverless / "app imported without server.ts" case
-(`user-sync.delivery.ts:72-73`).
+**B. In-request fallback** (`processDueTaxDeliveries`), called during a request
+that produced an event. It delivers a bounded batch (5 jobs) so committed events
+are pushed even when no timer worker is running — the serverless / "app
+imported without server.ts" case (`tax-delivery.ts:72-73`).
 
-**Both mechanisms use the same `deliverUserSync` / `deliverTax` function**, so
-the advisory lock makes concurrent execution safe.
+**Both mechanisms use the same `deliverTax` function**, so the advisory lock
+makes concurrent execution safe.
 
-**`startUserSync()` calls `wakeUserSync()` on startup** with the comment
+**`startTaxDelivery()` calls `wakeTaxDelivery()` on startup** with the comment
 *"Recover committed outbox entries after restart"* — so a restart resumes
 outstanding deliveries.
 
@@ -320,9 +329,6 @@ if (event.taxes.length) await tx.taxCache.createMany({ data: ... });
 await tx.taxCacheRevision.upsert({ where: { officeBranchId: event.officeBranchId }, ... });
 ```
 
-The same pattern applies to user sync, using
-`marketing_user_sync_revisions` and `field_service_user_sync_revisions`.
-
 **Consequence:** at-least-once delivery is safe. The receiver converges to the
 producer's state regardless of how many times an event arrives.
 
@@ -352,7 +358,7 @@ after a network timeout is safe.
 **VERIFIED** — the receivers compare secrets with:
 
 ```ts
-const supplied = req.headers['x-user-sync-secret'];
+const supplied = req.headers['x-tax-sync-secret'];
 if (!supplied || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
     || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) { /* 403 */ }
 ```
@@ -393,10 +399,9 @@ would be an inconsistent pair of records.
 |---|---|---|---|
 | **No broker → delivery requires a reachable gateway** | Medium | If the gateway is down, outbox deliveries cannot be sent | Outbox persists across restarts; backoff + jitter; the in-request fallback covers the serverless case |
 | **No dead-letter queue** | Medium | A permanently failing delivery retries every 5 minutes forever, silently | `attempts` and `lastError` are exposed via the delivery-monitoring endpoints |
-| **User sync replicates only 4 fields** | Low | A new user attribute will not reach Marketing or Field Service | The read models are projections; add the field to the snapshot deliberately |
 | **Work Order changes fail when Marketing is down** | Medium | Field Service writes are coupled to Marketing availability | Deliberate: consistency over availability. The compensation path also depends on Marketing |
 | **No cross-service tracing** | Low | `x-request-id` propagates through the gateway and is forwarded on outbound calls, but there is no distributed tracing | Correlation IDs are present in every log line; enough to follow a request manually |
-| **Delivery target URLs are validated, but not the secret** | Low | Finance validates that the tax delivery target is the gateway URL (`tax-delivery.ts:22`); the user-sync path has no equivalent check | Both still require the gateway to route the request |
+| **Delivery target URLs are validated, but not the secret** | Low | Finance validates that the tax delivery target is the gateway URL (`tax-delivery.ts:22`) | The gateway still has to route the request |
 
 
 
