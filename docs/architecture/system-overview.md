@@ -274,7 +274,7 @@ Two properties of this flow are worth naming explicitly:
 | Cross-cutting concern handling | **VERIFIED** — duplicated per service by convention, not shared code | identical middleware files per service |
 | Shared library | **NONE** — no shared package, no monorepo | no root `package.json` |
 | Observability | **PARTIAL** — structured `winston` logs and `x-request-id` propagation; **no metrics/tracing** | `src/utils/logger.ts` |
-| API contract | **VERIFIED** — OpenAPI 3 spec served at the gateway, 65 path definitions | `api-gateway/src/docs/` |
+| API contract | **VERIFIED** — OpenAPI 3 spec served at the gateway, 102 path definitions | `api-gateway/src/docs/` |
 | Automated tests | **VERIFIED** — 11-file reliability suite in `marketing-service/tests/` | `marketing-service/package.json:14-16` |
 | CI/CD | **UNKNOWN** — no workflow file in the repository | no `.github/`, no CI config |
 | Containerization | **NONE** — no Dockerfile or compose file | verified by search |

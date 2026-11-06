@@ -35,7 +35,7 @@ found to be false:
 |---|---|
 | *"Auth and app-manager use `akura_auth`"* | Five separate databases. `akura_auth` and `akura_app_manager` are distinct. |
 | *"Test infrastructure — CONFIRMED ABSENT... No `*.test.*`/`*.spec.*` files or Jest/Vitest configs; no `test` script in any of the six service manifests"* | `marketing-service/tests/` contains an 11-file reliability suite, and `marketing-service/package.json` has a `test` script. |
-| Route counts quoted as "123" and later "129" | The OpenAPI document defines **65** path keys. |
+| Route counts quoted as "123" and later "129" | The OpenAPI document defines **102** path keys. |
 
 **Assessment:** the documentation was not merely deleted for being wrong — but
 it was also **not reliable when it existed**. A future reader who found
@@ -119,7 +119,7 @@ decision was made, not merely implemented).
 | "Test infrastructure CONFIRMED ABSENT" claim | `git show 'ec4484c^:.project-map/unknowns.md'` |
 | Five separate databases (current reality) | Each service's `DATABASE_URL` and `prisma/schema.prisma` |
 | Test suite exists (current reality) | `marketing-service/tests/`, `marketing-service/package.json` |
-| 65 documented path keys | `api-gateway/src/docs/*.ts` |
+| 102 documented path keys | `api-gateway/src/docs/*.ts` |
 
 ## Related
 

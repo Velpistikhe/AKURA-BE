@@ -70,7 +70,7 @@ layout, not an oversight in the docs.
 | Database | **None** — no Prisma, no `DATABASE_URL` |
 | Modules | `config/` (env, services, swagger), `middlewares/` (auth, serviceCaller, rateLimiter, requestId, logger, error), `routes/proxy.routes.ts`, `utils/` (tokens, requestTokens, logger, localOrigin, errorDetails), `docs/` (OpenAPI source) |
 | Self endpoints | `GET /health`, `GET /services`, `GET /api-docs`, `GET /api-docs.json` |
-| Proxied prefixes | `/api/v1/auth`, `/api/v1/app-manager`, `/api/v1/marketing`, `/api/v1/finance`*, `/api/v1/fieldservice`* + 4 internal event prefixes |
+| Proxied prefixes | `/api/v1/auth`, `/api/v1/app-manager`, `/api/v1/marketing`, `/api/v1/finance`*, `/api/v1/fieldservice`* + 2 internal event prefixes |
 | Outbound calls | To Auth's JWKS endpoint only (`src/utils/tokens.ts:10-15`) |
 | Key config | `AUTH_SERVICE_URL`, `AUTH_JWKS_URL`, `APP_MANAGER_SERVICE_URL`, `MARKETING_SERVICE_URL`, `FINANCE_SERVICE_URL`*, `FIELDSERVICE_SERVICE_URL`*, plus one `*_GATEWAY_SECRET` per service |
 
@@ -175,9 +175,10 @@ extracting every path key and grouping).
 |---|---|---|
 | Auth | 14 | `openapi.ts` |
 | App Manager | 13 | `openapi.ts`, `audit-trail.ts` |
-| Marketing | 58 | `catalog.ts`, `quotation.ts`, `operational-documents.ts`, `work-orders.ts`, `tax.ts` |
+| Marketing | 56 | `catalog.ts`, `quotation.ts`, `operational-documents.ts`, `work-orders.ts`, `tax.ts` |
 | Finance | 4 | `tax.ts` |
 | Field Service | 9 | `work-orders.ts`, `quotation.ts` |
+| Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | `openapi.ts` |
 | Internal event endpoints | 2 | `tax.ts`, `quotation.ts` |
 
 Per-endpoint detail, including the full routing table and header rules, is in

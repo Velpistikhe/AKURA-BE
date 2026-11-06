@@ -247,21 +247,26 @@ mid-stream failure does not attempt to write a second response body
 
 | File | Size | Contents |
 |---|---|---|
-| `openapi.ts` | 132 KB | Core spec + auth, app-manager, and marketing catalog paths |
+| `openapi.ts` | 127 KB | Core spec + auth, app-manager, and marketing catalog paths |
 | `catalog.ts` | 40 KB | Company, staff, service, item, and contract-price schemas/paths |
 | `quotation.ts` | 40 KB | Quotation lifecycle, PDF, work-order creation, internal work-order event |
 | `work-orders.ts` | 35 KB | Work Order lifecycle, options, and the Marketing reference endpoints Field Service uses |
 | `tax.ts` | 7 KB | Finance tax endpoints + the internal tax event endpoint |
 | `audit-trail.ts` | 5.5 KB | App Manager audit trail endpoints |
 | `operational-documents.ts` | 3 KB | Quotation and item-size reference endpoints |
-| `module-tags.ts` | 4.5 KB | Maps each path to an OpenAPI tag |
+| `module-tags.ts` | 4 KB | Maps each path to an OpenAPI tag |
 
-**Path count: 65 path definitions**, with **no duplicate path keys** between
-files (verified by extracting every path key and grouping by value).
+**Path count: 102 path definitions** (139 operations), with **no duplicate path
+keys** between files (verified by extracting every path key and grouping by
+value). The user directory is read live from Auth, so the spec documents
+`GET /api/v1/auth/users/marketing-contacts`,
+`GET /api/v1/auth/users/field-service/inspectors` and
+`GET /api/v1/auth/users/field-service/inspector-directory` instead of the
+removed user-sync delivery endpoints.
 
 ### Security schemes
 
-**VERIFIED** — `openapi.ts:25-33`. Protected operations declare:
+**VERIFIED** — `openapi.ts:25-31`. Protected operations declare:
 
 ```ts
 const protectedSecurity = [{ bearerAuth: [] }, { accessTokenCookie: [] }];
@@ -273,14 +278,15 @@ the per-flow sync secret (`tax.ts:55`, `quotation.ts:198-200`).
 
 ### Coverage by service
 
-| Service | Documented paths |
-|---|---|
-| Auth | 14 |
-| App Manager | 13 |
-| Marketing | 58 |
-| Finance | 4 |
-| Field Service | 9 |
-| Internal event endpoints | 2 (counted within the above) |
+| Service | Documented paths | Documented operations |
+|---|---|---|
+| Auth | 14 | 15 |
+| App Manager | 13 | 24 |
+| Marketing | 56 | 77 |
+| Finance | 4 | 5 |
+| Field Service | 9 | 12 |
+| Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | 4 |
+| Internal event endpoints | 2 (counted within the above) | 2 |
 
 **Note — the spec is the gateway's contract, not each service's own route
 table.** The gateway documents paths that individual services implement
