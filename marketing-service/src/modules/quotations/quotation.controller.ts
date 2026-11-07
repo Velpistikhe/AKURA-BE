@@ -2,64 +2,20 @@ import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
 import { ListQuotationsInput, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
-import { MarketingContact } from '../../types/auth.types.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 import { getAccessToken } from '../../utils/requestTokens.js';
-import { serviceHeaders, serviceUrl } from '../../utils/serviceUrl.js';
+import { serviceUrl } from '../../utils/serviceUrl.js';
 import { HttpError } from '../../utils/httpError.js';
 import { hasActiveWorkOrder, notifyFieldServiceWorkOrderRevoked } from './work-order.integration.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
 };
-const CONTACTS_PATH = 'auth/users/marketing-contacts';
-
-export interface QuotationContactDependencies {
-  accessToken?: string;
-  fetchImpl?: typeof fetch;
-}
-
-const parseContacts = (payload: unknown): MarketingContact[] => {
-  const contacts = (payload as { data?: { contacts?: unknown } } | null)?.data?.contacts;
-  if (!Array.isArray(contacts)) return [];
-  return contacts.flatMap((contact): MarketingContact[] => {
-    if (!contact || typeof contact !== 'object') return [];
-    const { name, email, telp } = contact as Record<string, unknown>;
-    if (typeof name !== 'string' || !name.trim()) return [];
-    return [{ name: name.trim(), email: typeof email === 'string' ? email : null, telp: typeof telp === 'string' ? telp : null }];
-  }).slice(0, 20);
-};
-
-/**
- * The Marketing contact directory, read live from Auth.
- *
- * Auth is the source of truth for the user directory, so the contacts are read
- * from Auth on demand instead of from a local read model. The branch always
- * comes from the caller's access token on the Auth side, never from the client.
- * A failure returns no contacts, so PDF generation is never blocked by the
- * directory.
- */
-export const loadQuotationContacts = async ({ accessToken, fetchImpl = fetch }: QuotationContactDependencies): Promise<MarketingContact[]> => {
-  if (!accessToken) return [];
-  try {
-    const response = await fetchImpl(serviceUrl(CONTACTS_PATH), {
-      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000),
-      headers: { authorization: `Bearer ${accessToken}`, ...serviceHeaders(CONTACTS_PATH) },
-    });
-    if (!response.ok) return [];
-    return parseContacts(await response.json());
-  } catch { return []; }
-};
-
-/** Convenience wrapper for HTTP controllers: resolves the caller's token. */
-export const loadContactsFromRequest = (req: Request): Promise<MarketingContact[]> =>
-  loadQuotationContacts({ accessToken: getAccessToken(req) });
 
 export const quotationController = {
-  async preview(req: Request, res: Response) {
+  async preview(_req: Request, res: Response) {
     const branch = getOfficeBranchId(res);
-    const contacts = await loadContactsFromRequest(req);
-    const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, branch, getAuditActor(res), contacts);
+    const { pdf, fileName } = await quotationApproval.preview(res.locals.params.quotationId, branch, getAuditActor(res));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
     res.setHeader('Content-Length', pdf.length);
@@ -88,8 +44,7 @@ export const quotationController = {
   async approve(req: Request, res: Response) {
 
     const branch = getOfficeBranchId(res);
-    const contacts = await loadContactsFromRequest(req);
-    send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, branch, getAuditActor(res), contacts));
+    send(req, res, 200, 'Quotation approved and PDF generated successfully', await quotationApproval.approve(res.locals.params.quotationId, res.locals.body, branch, getAuditActor(res)));
   },
   async list(req: Request, res: Response) {
     send(req, res, 200, 'Quotations retrieved successfully', await quotationRepository.list(restrictListVisibility(res, res.locals.query as ListQuotationsInput), getOfficeBranchId(res)));

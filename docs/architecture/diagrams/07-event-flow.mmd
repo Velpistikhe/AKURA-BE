@@ -4,7 +4,7 @@
 %% Shared mechanics: pg_try_advisory_xact_lock, exponential backoff + jitter,
 %% receiver-side version guard for idempotency, ack shape { eventId, success: true }.
 %% NOTE: the user directory is NOT replicated. Auth is the source of truth and
-%% Marketing and Field Service read the contacts and inspectors they need live.
+%% no service reads it over the network.
 
 graph TB
     subgraph Producers["Producers (own the outbox)"]
@@ -27,10 +27,6 @@ graph TB
 
     R2 > M2["tax_cache<br/>+ tax_cache_revisions"]
     R3 > M3["quotations.has_work_order / work_order_id /<br/>work_order_status / work_order_snapshot"]
-
-    AUTH["<b>auth-service</b><br/>users (source of truth)"]
-    AUTH >|"SYNC: GET auth/users/marketing-contacts<br/>(no replica, no event flow)"| M4["marketing quotation PDF contacts"]
-    AUTH >|"SYNC: GET auth/users/field-service/inspector-directory<br/>(no replica, no event flow)"| M5["field service inspector options"]
 
     classDef producer fill:#fff8e1,stroke:#f9a825,stroke-width:1px
     classDef gw fill:#ede7f6,stroke:#4527a0,stroke-width:2px

@@ -1,4 +1,4 @@
-import { workOrderSchemas, workOrderPaths } from './work-orders.js';
+﻿import { workOrderSchemas, workOrderPaths } from './work-orders.js';
 import { operationalPaths, operationalSchemas } from './operational-documents.js';
 import { catalogPaths, catalogSchemas } from './catalog.js';
 import { quotationPaths, quotationSchemas } from './quotation.js';
@@ -552,18 +552,6 @@ export const openApiDocument = groupByModule({
               },
             },
           },
-          requestId: { type: 'string', format: 'uuid' },
-        },
-      },
-      FieldServiceInspectorListResponse: {
-        type: 'object', required: ['status', 'success', 'message', 'data'],
-        properties: {
-          status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
-          data: { type: 'object', required: ['inspectors'], properties: {
-            inspectors: { type: 'array', items: { type: 'object', required: ['id', 'name'], properties: {
-              id: { type: 'string', format: 'uuid' }, name: { type: 'string', description: 'Canonical display name (firstName + lastName).' },
-            } } },
-          } },
           requestId: { type: 'string', format: 'uuid' },
         },
       },
@@ -1598,51 +1586,6 @@ export const openApiDocument = groupByModule({
         },
       },
     },
-    '/api/v1/auth/users/field-service/inspectors': {
-      get: {
-        tags: ['User Management'],
-        summary: 'Validate Field Service inspectors for the caller branch',
-        description: 'Branch-scoped inspector validation used by Field Service when a work order starts. Auth is the source of truth: given a comma-separated list of user IDs (1-100 unique UUIDs), returns only the IDs that are currently active users with section FIELD_SERVICE in the caller branch, each with its canonical display name (firstName + lastName). IDs that are unknown, inactive, in another section, or in another branch are silently omitted so callers can compare the requested IDs against the returned set and display names. Requires an active account; the branch always comes from the authenticated caller, never from the request.',
-        security: protectedSecurity,
-        parameters: [
-          { in: 'query', name: 'ids', required: true, description: 'Comma-separated user IDs (max 100, unique UUIDs).', schema: { type: 'string', minLength: 1, maxLength: 4100, example: '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000a2' } },
-        ],
-        responses: {
-          200: response('Field Service inspectors validated', schemaRef('FieldServiceInspectorListResponse')),
-          400: errorResponse('Invalid query parameters'),
-          401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Access denied'),
-          429: errorResponse('Rate limit exceeded'),
-          500: errorResponse('Internal server error'),
-        },
-      },
-    },
-    '/api/v1/auth/users/field-service/inspector-directory': {
-      get: {
-        tags: ['User Management'],
-        summary: 'List active Field Service inspectors of the caller branch',
-        description: 'Branch-scoped inspector directory consumed by the Field Service Work Order forms. Auth is the source of truth: the response holds the active users with section FIELD_SERVICE of the authenticated caller branch (at most 500), ordered by creation then ID. The branch always comes from the authenticated caller, never from a request parameter, so a caller can never read another branch. Requires an active account; the app manager role is not required.',
-        security: protectedSecurity,
-        responses: {
-          200: response('Field Service inspector directory retrieved', { type: 'object', required: ['status', 'success', 'message', 'data'], properties: {
-            status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
-            data: { type: 'object', required: ['inspectors'], properties: { inspectors: { type: 'array', items: { type: 'object', required: ['id', 'firstName', 'lastName'], properties: {
-              id: { type: 'string', format: 'uuid' }, username: { type: 'string' },
-              firstName: { type: 'string' }, lastName: { type: 'string' },
-              email: { type: 'string', format: 'email', nullable: true }, telp: { type: 'string', nullable: true },
-              role: { type: 'string' }, section: { type: 'string' },
-              officeBranchId: { type: 'string', format: 'uuid' }, isActive: { type: 'boolean' },
-              version: { type: 'integer' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
-            } } } } },
-            requestId: { type: 'string', format: 'uuid' },
-          } }),
-          401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Account is inactive'),
-          429: errorResponse('Rate limit exceeded'),
-          500: errorResponse('Internal server error'),
-        },
-      },
-    },
     '/api/v1/auth/users/{userId}': {
       get: {
         tags: ['User Management'],
@@ -1677,27 +1620,6 @@ export const openApiDocument = groupByModule({
           403: errorResponse('Active app manager role is required'),
           404: errorResponse('User not found'),
           409: errorResponse('Inactive user, self-update, last-app-manager, or concurrent update conflict'),
-          429: errorResponse('Rate limit exceeded'),
-          500: errorResponse('Internal server error'),
-        },
-      },
-    },
-    '/api/v1/auth/users/marketing-contacts': {
-      get: {
-        tags: ['User Management'],
-        summary: 'Get active Marketing admin contacts for the current branch',
-        description: 'Read-only directory used by downstream services (Marketing quotation PDF footer). Branch derives from the authenticated user current database assignment. Query parameters do not override it. App manager role is not required. Returns at most 20 active ADMIN users in the MARKETING section of that branch, ordered by creation then ID. Users without a branch receive an empty contacts array.',
-        security: protectedSecurity,
-        responses: {
-          200: response('Marketing contacts retrieved', { type: 'object', required: ['status', 'success', 'message', 'data'], properties: {
-            status: { type: 'integer', example: 200 }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' },
-            data: { type: 'object', required: ['contacts'], properties: { contacts: { type: 'array', items: { type: 'object', required: ['name'], properties: {
-              name: { type: 'string', example: 'Artha' }, email: { type: 'string', format: 'email', nullable: true }, telp: { type: 'string', nullable: true },
-            } } } } },
-            requestId: { type: 'string', format: 'uuid' },
-          } }),
-          401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Account is inactive'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },

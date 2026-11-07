@@ -45,15 +45,10 @@ URL anywhere in the codebase.
 | 4 | marketing | `GET fieldservice/work-orders/by-quotation/:id` | Check for an existing live Work Order | `src/modules/quotations/quotation.controller.ts:89` |
 | 5 | finance | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
 | 6 | fieldservice | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
-| 7 | fieldservice | `GET auth/users/field-service/inspectors` | Validate inspectors | `src/integrations/auth-directory.ts` |
-| 8 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
-| 9 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
-| 10 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
-| 11 | fieldservice | `GET marketing/quotation-references` | Quotation options list | `src/integrations/gateway.ts:273` |
-| 12 | marketing | `GET auth/users/marketing-contacts` | Quotation contact directory | `src/modules/quotations/quotation.controller.ts` |
-| 13 | fieldservice | `GET auth/users/field-service/inspector-directory` | Inspector options | `src/integrations/auth-directory.ts` |
-| 12 | marketing | `GET auth/users/marketing-contacts` | Quotation contact directory | `src/modules/quotations/quotation.controller.ts` |
-| 13 | fieldservice | `GET auth/users/field-service/inspector-directory` | Inspector options | `src/integrations/auth-directory.ts` |
+| 7 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
+| 8 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
+| 9 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
+| 10 | fieldservice | `GET marketing/quotation-references` | Quotation options list | `src/integrations/gateway.ts:273` |
 | — | all services | `GET auth/.well-known/jwks.json` | Key material | `*/src/utils/tokens.ts:11` |
 
 ### 2.2 The standard call shape

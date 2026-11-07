@@ -36,9 +36,7 @@ all five domain services.
   reads, plus the asynchronous Work Order link-state callback.
 - **finance → marketing**: asynchronous tax snapshot delivery.
 - **marketing, finance, fieldservice → auth**: synchronous live-profile reads
-  (`GET auth/me`), plus JWKS reads. Marketing and Field Service also read the
-  user directory live: `GET auth/users/marketing-contacts` and
-  `GET auth/users/field-service/inspector-directory`.
+  (`GET auth/me`), plus JWKS reads.
 - **app-manager → (nothing)**: it is a leaf. It reads no other service and
   publishes nothing.
 
@@ -166,10 +164,10 @@ Each carries a version marker so a stale or replayed event is ignored:
 `tax_cache_revisions`.
 
 **Consequence:** a read model can be temporarily behind its source. Only the
-tax cache is a read model now. The user directory has no replica at all, so the
-Field Service inspector options and the Marketing quotation contacts are read
-live from Auth (`fieldservice-service/src/integrations/auth-directory.ts`,
-`marketing-service/src/modules/quotations/quotation.controller.ts`).
+tax cache is a read model now. The user directory has no replica at all, and
+no service reads it over the network any more: the directory lookups have
+been removed, so the inspector names and the quotation contacts are entered
+by the client instead.
 
 ### 3.3 Circular dependencies
 

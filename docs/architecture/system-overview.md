@@ -144,14 +144,9 @@ The platform's single edge. **VERIFIED** responsibilities:
   (`src/app.ts:41-44`, `src/config/accessKey.ts`).
 - Manages users (APP_MANAGER-only), including role, section, and office-branch
   assignment (`src/modules/user-management/`).
-- Serves internal read-only lookups consumed by other services:
-  `GET /users/marketing-contacts`, `GET /users/field-service/inspectors` and
-  `GET /users/field-service/inspector-directory`
-  (`src/modules/user-management/user-management.routes.ts:14,29,32`).
-  Auth is the single source of truth for the user directory; nothing is
+- Auth is the single source of truth for the user directory; nothing is
   replicated.
-- Makes **no outbound service calls** — it only serves the profile and the
-  directory.
+- Makes **no outbound service calls** — it only serves the profile.
 - Writes `security_audit_logs` for login/register/logout events.
 
 ### App Manager Service — `app-manager-service` (port 5002)
@@ -208,12 +203,10 @@ the invoice and proforma invoice modules"* (`finance-service/src/integrations/ga
   `COMPLETED` / `CANCELED`, with soft revocation, per-branch numbering,
   inspectors, item snapshots, and history
   (`src/modules/work-orders/`).
-- **Work Order options** for the creation form — live quotation and inspector
-  lookups (`src/modules/options/`).
-- Reads the **live Auth inspector directory** (`GET
-  auth/users/field-service/inspector-directory`); nothing is replicated.
-- Validates inspectors against **live Auth data** before a Work Order starts
-  (`src/integrations/auth-directory.ts`).
+- **Work Order options** for the creation form — live quotation lookups
+  (`src/modules/options/`).
+- Stores the inspectors by display name; no user directory is read over the
+  network, so nothing is replicated.
 - Notifies Marketing of Work Order link state and revocation
   (`src/integrations/gateway.ts:181-203`).
 

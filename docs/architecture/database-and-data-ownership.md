@@ -131,12 +131,6 @@ verified token and the live Auth profile — never from a request parameter.
 > *"Branch ownership is checked before updating a quotation."*
 > — `api-gateway/src/docs/quotation.ts:196`
 
-And in the Auth marketing-contacts lookup:
-
-> *"Read-only; branch always comes from the calling authenticated user, never
-> from a request parameter."*
-> — `auth-service/src/modules/user-management/user-management.routes.ts:12-13`
-
 **Risk:** if a branch is deleted or renamed in App Manager, records in three
 other databases keep pointing at it. No cascading delete, no orphan detection,
 and no reconciliation job exist. **UNKNOWN** — whether branch deletion is
@@ -149,7 +143,6 @@ blocked in App Manager when references exist elsewhere was not established.
 | `quotationId` | `WorkOrder` | `Quotation` (Marketing) | Application: Field Service re-fetches the live quotation and validates branch + `APPROVED` status (`fieldservice-service/src/integrations/gateway.ts:144-169`) |
 | `contractId` | `WorkOrder` | `CompanyContract` (Marketing) | Application: contract snapshot captured at creation |
 | `itemSizeId` | `WorkOrderItem` | `ItemSize` (Marketing) | Application: item snapshot captured at creation |
-| `userId` | `WorkOrderInspector` | `User` (Auth) | Application: live re-validation before start (`fieldservice-service/src/integrations/gateway.ts:205-226`) |
 | `companyId` | `CompanyContract` | `Company` (Marketing) | **Same database** — real FK, `onDelete: Restrict` |
 
 **The pattern is consistent:** cross-database references are validated in
@@ -191,11 +184,8 @@ idempotent event receiver.
 |---|---|---|---|
 | `tax_cache` | `finance.taxes` | Finance outbox → `POST marketing/internal/taxes/events` | `tax_cache_revisions` |
 
-**The user directory is not replicated.** Auth owns the users table, and
-Marketing and Field Service read the contacts and inspectors they need live
-from Auth (`GET auth/users/marketing-contacts`,
-`GET auth/users/field-service/inspector-directory`). A directory read is cheap
-and always current, so a replica would only add staleness.
+**The user directory is not replicated.** Auth owns the users table, and no
+service reads it over the network, so no copy of the users can go stale.
 
 ### 4.1 What the read models deliberately omit
 
@@ -204,9 +194,8 @@ and always current, so a replica would only add staleness.
 
 **VERIFIED** — the same data-minimisation holds for the user directory, and
 more strongly: nothing is copied at all. Password hashes, roles, refresh
-tokens, and security audit logs never leave `akura_auth`; the contacts endpoint
-returns only the name, email and telephone number of the active Marketing
-users of the caller branch.
+tokens, and security audit logs never leave `akura_auth`, and no directory
+lookup exposes them to another service any more.
 
 ### 4.2 Read-model staleness handling
 
@@ -234,11 +223,10 @@ This makes the receivers **idempotent** and safe to retry.
 ### 4.3 A read model is not authoritative
 
 **VERIFIED** — where correctness depends on fresh data, the code re-reads from
-the source of truth instead of trusting the replica. Field Service validates
-inspectors against **live Auth** before starting a Work Order, explicitly
-noting that the stored snapshot "must still exist in Auth as an active
-FIELD_SERVICE user of the caller branch with the same canonical display name"
-(`fieldservice-service/src/integrations/gateway.ts:205-210`).
+the source of truth instead of trusting the replica. Field Service re-fetches
+the quotation from **live Marketing** before starting a Work Order and rejects
+it unless it still belongs to the caller branch and is `APPROVED`
+(`fieldservice-service/src/integrations/gateway.ts:144-169`).
 
 ---
 
@@ -439,7 +427,7 @@ recorded in the audit trail.
 |---|---|
 | `npm run db:generate` | `prisma generate` — regenerate the client |
 | `npm run db:push` | `prisma db push` — apply the schema directly |
-| `npm run db:migrate` | *(App Manager only)* — apply the hand-written SQL migration via `scripts/apply-migrations.mjs` |
+| `npm run db:migrate` | *(App Manager and Field Service only)* — apply the hand-written SQL migrations via `scripts/apply-migrations.mjs` |
 | `npm run db:studio` | `prisma studio` |
 | `npm run db:seed` | Seed data |
 
@@ -454,10 +442,11 @@ rollout has no ordered, replayable set of migrations to apply — only a
 schema-state diff. **UNKNOWN** — what the production rollout procedure
 actually is was not established from the repository.
 
-**App Manager is the exception**: it maintains one hand-written SQL migration
-in `prisma/sql/`, applied by `scripts/apply-migrations.mjs`. The script is
-idempotent (`CREATE UNIQUE INDEX IF NOT EXISTS`) and fails loudly if the
-table does not exist yet.
+**App Manager and Field Service are the exceptions**: they maintain
+hand-written SQL migrations in `prisma/sql/`, applied by
+`scripts/apply-migrations.mjs`. The scripts are idempotent
+(`CREATE UNIQUE INDEX IF NOT EXISTS`, `DROP COLUMN IF EXISTS`) and fail loudly
+if the table does not exist yet.
 
 **Recommendation:** adopt `prisma migrate` (or at minimum a versioned SQL
 migration directory) for production, and resolve the `taxes` ownership

@@ -256,13 +256,11 @@ mid-stream failure does not attempt to write a second response body
 | `operational-documents.ts` | 3 KB | Quotation and item-size reference endpoints |
 | `module-tags.ts` | 4 KB | Maps each path to an OpenAPI tag |
 
-**Path count: 102 path definitions** (139 operations), with **no duplicate path
+**Path count: 98 path definitions** (135 operations), with **no duplicate path
 keys** between files (verified by extracting every path key and grouping by
-value). The user directory is read live from Auth, so the spec documents
-`GET /api/v1/auth/users/marketing-contacts`,
-`GET /api/v1/auth/users/field-service/inspectors` and
-`GET /api/v1/auth/users/field-service/inspector-directory` instead of the
-removed user-sync delivery endpoints.
+value). The user directory is not read over the network: Auth owns the users
+table, and the directory lookups that other services used to consume have been
+removed, so no service reads the user directory any more.
 
 ### Security schemes
 
@@ -280,18 +278,18 @@ the per-flow sync secret (`tax.ts:55`, `quotation.ts:198-200`).
 
 | Service | Documented paths | Documented operations |
 |---|---|---|
-| Auth | 14 | 15 |
+| Auth | 11 | 12 |
 | App Manager | 13 | 24 |
 | Marketing | 56 | 77 |
 | Finance | 4 | 5 |
-| Field Service | 9 | 12 |
+| Field Service | 8 | 11 |
 | Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | 4 |
 | Internal event endpoints | 2 (counted within the above) | 2 |
 
 **Note — the spec is the gateway's contract, not each service's own route
 table.** The gateway documents paths that individual services implement
-directly (e.g. `/api/v1/auth/users/field-service/inspectors` is a real Auth
-route), but it is the single published contract for the platform.
+directly (e.g. `/api/v1/auth/users/{userId}` is a real Auth route), but it is
+the single published contract for the platform.
 
 **UNKNOWN** — whether the published contract is intentionally complete was not
 established from the repository. The previous `.project-map/api-endpoints.md`

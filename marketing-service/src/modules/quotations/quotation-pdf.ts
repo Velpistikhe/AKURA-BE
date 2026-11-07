@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import { Prisma } from '@prisma/client';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { AuditActor, MarketingContact } from '../../types/auth.types.js';
+import { AuditActor } from '../../types/auth.types.js';
 import { groupQuotationItems } from './quotation-service-groups.js';
 import { quotationNumberYear } from './quotation-number.js';
 // Side-effect import: anchors pdfkit standard font metrics for serverless file tracing.
@@ -39,7 +39,7 @@ const dateText = (date: Date) => date.toLocaleDateString('en-GB', { day: 'numeri
 const money = (value: Prisma.Decimal) => value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const months = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
-export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor, approvedAt: Date, preview = false, contacts: MarketingContact[] = []): Promise<Buffer> {
+export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor, approvedAt: Date, preview = false): Promise<Buffer> {
   if (!preview && (quote.no === null || quote.numberYear === null)) throw new Error('Quotation must be numbered by approval before PDF generation');
   const doc = new PDFDocument({ size: 'A4', margins: { top: 110, right: 30, bottom: 45, left: 30 }, bufferPages: true,
     info: { Title: `Quotation ${quote.no} R${quote.revision}`, Author: 'PT. AKURA BINA CITRA' } });
@@ -306,25 +306,6 @@ export async function renderQuotationPdf(quote: PdfQuotation, actor: AuditActor,
     // Small gap so the footnote does not touch the table's bottom border.
     y += 6;
     paragraph('*) Without additional job, proper handling, good weather condition, security during in service, etc', false, width, fontSizes.footnote);
-    if (contacts.length) {
-      // Keep the contact block visually separated from the footnote above and the closing paragraph below.
-      y += 8;
-      paragraph('If you have any question(s), please do not hesitate to contact us :');
-      doc.font(fonts.regular).fontSize(fontSizes.body).fillColor('black');
-      const longest = Math.max(...contacts.map(contact => doc.widthOfString(contact.name)));
-      for (const contact of contacts) {
-        const details = [contact.email, contact.telp].filter(Boolean).join('  ');
-        if (y + lineHeight(fontSizes.body) + 2 > bottom) newPage();
-        doc.font(fonts.regular).fontSize(fontSizes.body)
-          .text(contact.name, left + 10, y, { width: longest + 10, lineBreak: false });
-        // Deliberate gap after the name and after the dash for clearer contact details.
-        const dashX = left + 20 + longest + 8;
-        doc.text('–', dashX, y, { lineBreak: false });
-        doc.text(details, dashX + 14, y, { lineBreak: false });
-        y += lineHeight(fontSizes.body) + 5;
-      }
-      y += 10;
-    }
     paragraph('Thank you for (opportunities) doing business with you. We look forward to render service to your company.');
     const footerHeaders = ['Prepared By', 'Reviewed and Approved By', 'Date Submitted'];
     const footerValues = [actor.name, 'Matthews', dateText(documentDate)];

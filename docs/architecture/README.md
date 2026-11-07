@@ -39,7 +39,7 @@ API Gateway, each owning its own PostgreSQL database.
 2. **There is no message broker.** Asynchronous delivery is an HTTP POST to the
    Gateway, backed by a transactional outbox in the producer's own database.
    The user directory is not replicated at all: Auth is the source of truth and
-   the consumers read the contacts and inspectors they need live.
+   no service reads it over the network.
 
 ---
 

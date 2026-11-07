@@ -4,20 +4,18 @@ const date = { type: 'string', format: 'date' };
 const timestamp = { type: 'string', format: 'date-time' };
 const version = { type: 'integer', minimum: 0, maximum: 2147483646 };
 const status = { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED'], default: 'DRAFT' };
-const inspectorNames = { type: 'array', maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 255 }, description: 'Inspector names in display order. Case-insensitive duplicates are rejected. PATCH replaces the full list; [] clears it.' };
-const inspectorPairs = { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['userId', 'name'], properties: { userId: uuid, name: { type: 'string', minLength: 1, maxLength: 255 } } }, description: 'Inspector user pairs in display order, taken verbatim from GET /api/v1/fieldservice/options/inspectors for the authenticated branch (each item is a live Auth user snapshot; send its id as userId and firstName+lastName as name). At least one inspector is required for every creation, quotation or contract basis. After all other validations pass, Field Service re-validates every pair against the live Auth directory of the authenticated branch, before the creation transaction starts: the submitted name must exactly equal the Auth display name (firstName lastName), and the confirmed userId and name are stored in the Work Order. Unknown IDs, IDs outside the branch, or names that no longer match return 400. Duplicate userId values are rejected. The Work Order is always created with status DRAFT.' };
+const inspectorNames = { type: 'array', maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 255 }, description: 'Inspector names in display order. The display name (firstName + lastName) is the only inspector reference a Work Order keeps. Case-insensitive duplicates are rejected. PATCH replaces the full list; [] clears it.' };
 const fields = {
   contractId: { ...uuid, nullable: true, writeOnly: true, description: 'Contract reference, fetched live from Marketing when supplied.' },
   quotationId: { ...uuid, nullable: true, description: 'APPROVED quotation fetched live from Marketing when supplied.' },
   startDate: date, endDate: { ...date, nullable: true, description: 'Must be on or after startDate. Required when quotationId is supplied.' },
-  status: { ...status, description: 'PATCH accepts DRAFT, COMPLETED and CANCELED only. IN_PROGRESS is rejected (400): use POST /{id}/start, which re-validates the inspector snapshot against Auth and the quotation snapshot against Marketing first.' }, inspectors: inspectorNames,
+  status: { ...status, description: 'PATCH accepts DRAFT, COMPLETED and CANCELED only. IN_PROGRESS is rejected (400): use POST /{id}/start, which re-validates the quotation snapshot against Marketing first.' }, inspectors: inspectorNames,
 };
 const envelope = (data: object) => ({ type: 'object', properties: { status: { type: 'integer' }, success: { type: 'boolean' }, message: { type: 'string' }, requestId: { type: 'string' }, data } });
 // Create never accepts status; the server stores DRAFT, and DRAFT -> IN_PROGRESS only via POST /{id}/start.
-// Create takes inspector { userId, name } pairs (re-validated and stored server-side);
-// PATCH keeps the display-name array contract.
+// Create requires at least one inspector name; PATCH keeps the same display-name array contract.
 const { status: _createStatus, ..._patchFields } = fields;
-const createFields = { ..._patchFields, endDate: { ...date, description: 'Optional for contract basis; required for quotation basis. Null is rejected on creation.' }, inspectors: inspectorPairs, items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId','quantityInspection','quantityMaintenance'], properties: { itemSizeId: uuid, quantityInspection:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001}, quantityMaintenance:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001} } } } };
+const createFields = { ..._patchFields, endDate: { ...date, description: 'Optional for contract basis; required for quotation basis. Null is rejected on creation.' }, inspectors: { ...inspectorNames, minItems: 1, description: 'Inspector names in display order. At least one inspector is required for every creation, quotation or contract basis. The names are stored on the Work Order and are the only inspector reference it keeps. Case-insensitive duplicates are rejected. The Work Order is always created with status DRAFT.' }, items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId','quantityInspection','quantityMaintenance'], properties: { itemSizeId: uuid, quantityInspection:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001}, quantityMaintenance:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001} } } } };
 const { inspectors: _listInspectors, startDate: _listStartDate, endDate: _listEndDate, ..._listBaseFields } = fields;
 const workOrderListRowFields = { ..._listBaseFields, startDate: date, endDate: { ...date, nullable: true } };
 export const workOrderSchemas = {
@@ -37,10 +35,10 @@ export const workOrderSchemas = {
   } }),
   WorkOrderCreate: { type: 'object', additionalProperties: false, required: ['startDate', 'inspectors', 'items'], anyOf: [{ required: ['quotationId'] }, { required: ['contractId'] }], properties: createFields,
     example: { quotationId: '00000000-0000-4000-8000-000000000001', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [
-      { userId: '00000000-0000-4000-8000-0000000000a1', name: 'Budi Santoso' },
-      { userId: '00000000-0000-4000-8000-0000000000a2', name: 'Agus Wijaya' },
+      'Budi Santoso',
+      'Agus Wijaya',
     ], items: [{ itemSizeId:'00000000-0000-4000-8000-000000000002', quantityInspection:1,quantityMaintenance:0 }] },
-    description: 'Creates a Work Order with status DRAFT. Every item contains only itemSizeId, quantityInspection and quantityMaintenance. When quotationId is supplied, Field Service fetches the approved quotation from Marketing, validates its branch and builds each WorkOrderItem.item from the quotation description/scopes; the other bases resolve the item size from Marketing. Client-supplied descriptions are rejected. Inspector IDs are checked against branch snapshots.' },
+    description: 'Creates a Work Order with status DRAFT. Every item contains only itemSizeId, quantityInspection and quantityMaintenance. When quotationId is supplied, Field Service fetches the approved quotation from Marketing, validates its branch and builds each WorkOrderItem.item from the quotation description/scopes; the other bases resolve the item size from Marketing. Client-supplied descriptions are rejected. At least one inspector name is required; the names are stored on the Work Order and identify the inspectors.' },
   WorkOrderUpdate: { type: 'object', additionalProperties: false, required: ['version'], minProperties: 2, properties: { ...fields, version } },
   WorkOrderDelete: { type: 'object', additionalProperties: false, required: ['version'], properties: { version } },
   WorkOrderStart: {
@@ -106,20 +104,6 @@ export const workOrderSchemas = {
   WorkOrderHistoryResponse: envelope({ type: 'object', required: ['history', 'pagination'], properties: { history: { type: 'array', items: ref('WorkOrderHistory') }, pagination: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' } } } } }),
   WorkOrderResponse: envelope(ref('WorkOrder')),
   WorkOrderList: envelope({ type: 'object', required: ['workOrders', 'pagination'], properties: { workOrders: { type: 'array', items: { type: 'object', description: 'List row includes quotationNo, quotationDate, contractNumber, contractDate, companyId and company from stored snapshots (null when unavailable), and omits inspectors, quotationSnapshot and contractSnapshot; date fields are date-only strings.', properties: { ...workOrderListRowFields, quotationNo: { type: 'integer', nullable: true }, quotationDate: { ...date, nullable: true }, contractNumber: { type: 'string', nullable: true }, contractDate: { ...date, nullable: true }, companyId: { ...uuid, nullable: true }, company: { type: 'string', nullable: true }, id: uuid, officeBranchId: uuid, number: { type: 'string' }, date, contractId: { ...uuid, nullable: true }, revoked: { type: 'boolean' }, version, createdById: uuid, createdByName: { type: 'string' }, updatedById: { ...uuid, nullable: true }, updatedByName: { type: 'string', nullable: true }, createdAt: timestamp, updatedAt: timestamp } } }, pagination: { type: 'object', properties: { page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' } } } } }),
-  AuthUserSnapshot: {
-    description: 'Raw Auth user, read live from the Auth service (Auth is the source of truth; future Auth field additions appear without a schema change).',
-    type: 'object', additionalProperties: true,
-    required: ['id', 'username', 'firstName', 'lastName', 'role', 'section', 'officeBranchId', 'isActive', 'version', 'createdAt', 'updatedAt'],
-    properties: {
-      id: uuid, username: { type: 'string', example: 'budi' },
-      firstName: { type: 'string', example: 'Budi' }, lastName: { type: 'string', example: 'Santoso' },
-      email: { type: 'string', format: 'email', nullable: true }, telp: { type: 'string', nullable: true },
-      role: { type: 'string', enum: ['USER', 'ADMIN', 'APP_MANAGER'] },
-      section: { type: 'string', nullable: true, enum: ['ACCOUNTING', 'FINANCE', 'HRD_MANAGEMENT', 'MARKETING', 'FIELD_SERVICE'] },
-      officeBranchId: uuid, isActive: { type: 'boolean' }, version: version,
-      createdAt: timestamp, updatedAt: timestamp,
-    } },
-  InspectorOptionList: envelope({ type: 'object', required: ['inspectors'], properties: { inspectors: { type: 'array', items: ref('AuthUserSnapshot') } } }),
   QuotationOption: { type: 'object', required: ['id', 'subject'], properties: {
     id: uuid, number: { ...version, nullable: true, description: 'Quotation number; null until approved numbering.' },
     numberYear: { ...version, nullable: true, description: 'Number year; null until approved numbering.' },
@@ -218,14 +202,6 @@ export const workOrderPaths = {
         502: { description: 'Invalid Marketing response' },
         503: { description: 'Marketing service is currently unavailable; retry later' },
       },
-    },
-  },
-  '/api/v1/fieldservice/options/inspectors': {
-    get: {
-      summary: 'List inspector options for the current branch', tags: ['Work Order'],
-      security: [{ bearerAuth: [] }, { accessTokenCookie: [] }], parameters: [],
-      description: 'Returns the active users with section FIELD_SERVICE of the authenticated branch, read live from the Auth service (Auth is the source of truth, so nothing is replicated and a change is visible immediately): each array item is the complete Auth user (id, username, firstName, lastName, email, telp, role, section, officeBranchId, isActive, version, createdAt, updatedAt and any future Auth fields). Requires an active profile and current authenticated branch; records from other branches are never included. Ordered by user creation time then ID, limited to 500 rows. Copy each item id as userId and firstName+lastName as name when creating a Work Order.',
-      responses: { 200: { description: 'Branch-scoped inspector options', content: { 'application/json': { schema: ref('InspectorOptionList') } } }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 502: { description: 'Invalid upstream response or branch mismatch' }, 503: { description: 'Referenced service unavailable' } },
     },
   },
   '/api/v1/fieldservice/options/quotations': {

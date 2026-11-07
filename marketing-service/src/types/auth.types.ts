@@ -15,12 +15,6 @@ export interface AuthenticatedRequest extends Request {
   user?: AccessTokenPayload;
 }
 
-export interface MarketingContact {
-  name: string;
-  email: string | null;
-  telp: string | null;
-}
-
 export interface AuthUser {
   id: string;
   username: string;

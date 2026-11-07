@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
 import { QuotationSnapshot, ContractSnapshot, ItemSizeReference, validateContract, toQuotationSnapshot, toContractSnapshot, toWorkOrderItemSnapshot } from '../../integrations/gateway.js';
-import { InspectorIdentity } from '../../integrations/auth-directory.js';
 import { recordAudit } from '../../utils/audit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
@@ -68,8 +67,8 @@ const quotationContent = (snapshot: Record<string, unknown>) => {
   return content;
 };
 
-const inspectorRows = (rows: { userId: string | null; name: string }[]) =>
-  rows.map(({ userId, name }, position) => ({ userId, name, position }));
+const inspectorRows = (names: string[]) =>
+  names.map((name, position) => ({ name, position }));
 /**
  * Builds the persisted basis columns from the live Marketing payload the route
  * resolved. Exactly one basis is required, it must belong to the actor branch, and
@@ -145,41 +144,35 @@ async function assertQuotationNotInUse(tx: Prisma.TransactionClient, officeBranc
   if (existing) throw new HttpError(`Quotation already has an active work order (${existing.number}); revoke it before creating another`, 409);
 }
 /**
- * Advisory lock keys for the inspector schedule. Both the Auth user ID and the
- * case-insensitive display name are used, so a name-only PATCH and an
- * ID-carrying creation serialize against each other instead of booking the
- * same person twice. The keys are acquired in a stable sorted order, so two
- * requests that share inspectors in a different order cannot deadlock.
+ * Advisory lock keys for the inspector schedule. Inspectors are identified by
+ * their case-insensitive display name, so two requests that book the same
+ * person serialize against each other instead of double-booking them. The keys
+ * are acquired in a stable sorted order, so two requests that share inspectors
+ * in a different order cannot deadlock.
  */
-const inspectorLockKeys = (officeBranchId: string, inspectors: InspectorIdentity[]): string[] => {
+const inspectorLockKeys = (officeBranchId: string, inspectors: string[]): string[] => {
   const keys = new Set<string>();
-  for (const { userId, name } of inspectors) {
-    if (userId) keys.add(`work-order-inspector:${officeBranchId}:${userId}`);
+  for (const name of inspectors) {
     if (name) keys.add(`work-order-inspector-name:${officeBranchId}:${name.toLowerCase()}`);
   }
   return [...keys].sort();
 };
 /** Inclusive date ranges; a missing end date leaves the schedule open-ended. */
 async function assertInspectorsAvailable(tx: Prisma.TransactionClient, officeBranchId: string,
-  inspectors: InspectorIdentity[], startDate: Date, endDate?: Date | null, excludeId?: string) {
+  inspectors: string[], startDate: Date, endDate?: Date | null, excludeId?: string) {
   if (!inspectors.length) return;
   for (const key of inspectorLockKeys(officeBranchId, inspectors)) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
   }
-  const ids = [...new Set(inspectors.map(inspector => inspector.userId).filter((id): id is string => Boolean(id)))];
-  const names = [...new Set(inspectors.map(inspector => inspector.name).filter(Boolean))];
-  if (!ids.length && !names.length) return;
+  const names = [...new Set(inspectors.filter(Boolean))];
+  if (!names.length) return;
   const existing = await tx.workOrder.findFirst({
     where: {
       officeBranchId, revoked: false,
       ...(excludeId ? { id: { not: excludeId } } : {}),
       ...(endDate ? { startDate: { lte: endDate } } : {}),
       OR: [{ endDate: null }, { endDate: { gte: startDate } }],
-      inspectors: { some: { OR: [
-        ...(ids.length ? [{ userId: { in: ids } }] : []),
-        // Legacy/PATCH rows have no user ID; retain their name-based schedule.
-        ...names.map(name => ({ userId: null, name: { equals: name, mode: 'insensitive' as const } })),
-      ] } },
+      inspectors: { some: { OR: names.map(name => ({ name: { equals: name, mode: 'insensitive' as const } })) } },
     },
     select: { number: true },
   });
@@ -200,8 +193,7 @@ export const workOrderRepository = {
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor,
-    itemReferences?: Array<CreateWorkOrderInput['items'][number] & { snapshot: ItemSizeReference }>,
-    inspectorUsers: { userId: string; name: string }[] = []) {
+    itemReferences?: Array<CreateWorkOrderInput['items'][number] & { snapshot: ItemSizeReference }>) {
     const { inspectors = [], items, quotationId: _quotationId, contractId: _contractId, ...fields } = input;
     const quotation = reference(input, quote, actor);
     checkDates(input.startDate, input.endDate);
@@ -214,10 +206,10 @@ export const workOrderRepository = {
       // Inspectors are locked separately: two different quotations may still
       // conflict when they share an inspector in an overlapping period.
       if (quotation.quotationId) await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId);
-      await assertInspectorsAvailable(tx, actor.officeBranchId, inspectorUsers, input.startDate, input.endDate);
+      await assertInspectorsAvailable(tx, actor.officeBranchId, inspectors, input.startDate, input.endDate);
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
       const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
-        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectorUsers) },
+        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectors) },
         items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       return saveHistory(tx, row, null, actor, 'CREATE');
@@ -270,7 +262,7 @@ export const workOrderRepository = {
     return workOrder;
   },
   async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor,
-    resolvedInspectors: InspectorIdentity[] | null, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
+    beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
     const { version, inspectors, quotationId, contractId, ...fields } = input;
     const quotation = (quotationId !== undefined || contractId !== undefined)
       ? reference({ quotationId, contractId }, quote, actor) : {};
@@ -296,20 +288,14 @@ export const workOrderRepository = {
       // inspector list never conflicts with the row being edited.
       const scheduleChanged = inspectors !== undefined || fields.startDate !== undefined || fields.endDate !== undefined;
       if (scheduleChanged) {
-        // The identities are resolved against the live Auth directory by the
-        // route layer, because Auth is the source of truth and the resolution
-        // must not happen while the transaction holds locks.
-        const identities = resolvedInspectors ?? [];
-        await assertInspectorsAvailable(tx, actor.officeBranchId, identities,
+        await assertInspectorsAvailable(tx, actor.officeBranchId, inspectors ?? [],
           fields.startDate ?? current.startDate,
           fields.endDate !== undefined ? fields.endDate : current.endDate, id);
       }
       if (inspectors !== undefined) {
         await tx.workOrderInspector.deleteMany({ where: { workOrderId: id } });
-        // PATCH keeps the name-based contract; rows edited this way have no
-        // resolved Auth user ID (userId stays null).
         if (inspectors.length) {
-          const rows = inspectorRows(inspectors.map(name => ({ userId: null, name })));
+          const rows = inspectorRows(inspectors);
           await tx.workOrderInspector.createMany({ data: rows.map(row => ({ ...row, workOrderId: id })) });
         }
       }

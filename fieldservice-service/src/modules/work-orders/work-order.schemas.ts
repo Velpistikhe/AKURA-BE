@@ -5,21 +5,20 @@ const version = z.number().int().min(0).max(2147483646);
 // Matches PostgreSQL Decimal(15,3), avoiding implicit rounding or database errors.
 const quantity = z.number().finite().nonnegative().max(999999999999.999)
   .refine(value => /^\d{1,12}(\.\d{1,3})?$/.test(String(value)), 'Quantity must have at most three decimal places');
-const inspectorNames = z.array(z.string().trim().min(1).max(255)).max(100)
-  .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
-// Create accepts [{ userId, name }] pairs taken from the inspector options
-// snapshot; the server re-validates every pair against the live Auth directory
-// of the caller branch and stores the confirmed idUser + name.
-const inspectorUsers = z.array(z.object({
-  userId: z.string().uuid(),
-  name: z.string().trim().min(1).max(255),
-}).strict()).min(1, 'At least one inspector is required').max(100)
-  .refine(rows => new Set(rows.map(({ userId }) => userId.toLowerCase())).size === rows.length, 'Inspector user IDs must be unique');
+// Inspector names are the inspector identity: the display name (firstName +
+// lastName) is the only reference a Work Order keeps. Case-insensitive
+// duplicates are rejected so the same person cannot be booked twice.
+const inspectorNameList = z.array(z.string().trim().min(1).max(255)).max(100);
+const uniqueInspectorNames = (names: string[]) =>
+  new Set(names.map(name => name.toLowerCase())).size === names.length;
+const inspectorNames = inspectorNameList
+  .refine(uniqueInspectorNames, 'Inspector names must be unique');
 const fields = {
   contractId: z.string().uuid().nullable().optional(),
   quotationId: z.string().uuid().nullable().optional(),
   startDate: date,
   endDate: date.optional(),
+  // PATCH replaces the full list, so an empty array clears the inspectors.
   inspectors: inspectorNames.optional(),
 };
 type Reference = {
@@ -29,9 +28,9 @@ const validReference = (value: Reference) =>
   Number(!!value.quotationId) + Number(!!value.contractId) >= 1;
 // Creation always starts at DRAFT; status transitions are edits, never part of create.
 // The quotation/contract content is snapshotted by the server, so clients only send IDs.
-// Every creation carries the inspector pairs; at least one is required for
-// both quotation and contract bases (PATCH keeps the name-based array and []).
-export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorUsers, items: z.array(z.object({
+// Every creation carries the inspector names; at least one is required for
+// both quotation and contract bases (PATCH keeps the same array and []).
+export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorNameList.min(1, 'At least one inspector is required').refine(uniqueInspectorNames, 'Inspector names must be unique'), items: z.array(z.object({
   itemSizeId: z.string().uuid(),
   quantityInspection: quantity,
   quantityMaintenance: quantity,

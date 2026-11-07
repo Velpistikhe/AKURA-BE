@@ -30,14 +30,11 @@ const discountText = z.string()
   .refine(value => Number(value) <= 100, 'Discount must be between 0 and 100');
 const discountValue = z.union([discountText, z.number().finite().nonnegative().transform(String).pipe(discountText)]);
 const note = z.string().trim().max(5000).nullable().optional();
-// Forwarded verbatim to Field Service, which re-validates every pair against
-// the live Auth directory of the caller branch and stores the confirmed
-// idUser + name.
-const inspectors = z.array(z.object({
-  userId: z.string().uuid(),
-  name: z.string().trim().min(1).max(255),
-}).strict()).min(1, 'At least one inspector is required').max(100)
-  .refine(rows => new Set(rows.map(({ userId }) => userId)).size === rows.length, 'Inspector user IDs must be unique');
+// Forwarded verbatim to Field Service, which stores the inspector display
+// names on the Work Order. The names are the only inspector reference a Work
+// Order keeps, so they must be unique.
+const inspectors = z.array(z.string().trim().min(1).max(255)).min(1, 'At least one inspector is required').max(100)
+  .refine(rows => new Set(rows.map(row => row.toLowerCase())).size === rows.length, 'Inspector names must be unique');
 const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
   note,

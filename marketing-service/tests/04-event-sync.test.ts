@@ -6,9 +6,10 @@
  * state). Each endpoint must be idempotent and must never apply an outdated
  * event.
  *
- * The user directory is no longer replicated: Auth is the source of truth and
- * Marketing reads the quotation contacts live from Auth, so there is no user
- * event endpoint left. These endpoints are protected by a shared secret and
+ * The user directory is no longer replicated and is no longer read over the
+ * network: Auth is the source of truth, but the contact and inspector
+ * lookups that consumed it have been removed, so there is no user event
+ * endpoint left either. These endpoints are protected by a shared secret and
  * are not reachable through the API Gateway with a user token, so the suite
  * calls them directly on the local service with the test secret.
  */
@@ -16,7 +17,7 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import {
-  GATEWAY, gatewayIdentityHeaders, loginAs, prismaFor, seedMarketingTax,
+  gatewayIdentityHeaders, loginAs, prismaFor, seedMarketingTax,
   seedOfficeBranch, seedUser,
   type SeededUser,
 } from './support/fixtures.js';
@@ -79,24 +80,6 @@ describe('marketing-service event synchronisation', () => {
     await seedMarketingTax(branchId);
     admin = await seedUser({ role: 'ADMIN', section: 'MARKETING', officeBranchId: branchId });
     await loginAs(admin);
-  });
-
-  test('LIVE DIRECTORY: the quotation contacts are read from Auth, not from a local replica', async () => {
-    // A second Marketing admin of the same branch is the contact a quotation
-    // PDF footer lists. Auth is the source of truth, so the contact appears as
-    // soon as the user exists.
-    const contact = await seedUser({ role: 'ADMIN', section: 'MARKETING', officeBranchId: branchId });
-    await loginAs(contact);
-
-    const response = await httpRequest(`${GATEWAY}/api/v1/auth/users/marketing-contacts`, {
-      token: contact.accessToken,
-    });
-    assert.equal(response.status, 200, JSON.stringify(response.body));
-    const contacts = (response.body as { data: { contacts: Array<{ name: string }> } }).data.contacts;
-    assert.ok(
-      contacts.some((entry) => entry.name === 'Rel Test'),
-      'the active Marketing admin of the branch must be listed as a contact',
-    );
   });
 
   test('SECURITY: the removed user event endpoint is no longer mounted', async () => {

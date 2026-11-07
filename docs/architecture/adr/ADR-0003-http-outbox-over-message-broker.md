@@ -33,10 +33,8 @@ The two flows:
 | fieldservice | marketing | `POST /api/v1/marketing/internal/work-orders/events` | `x-work-order-sync-secret` (synchronous callback, see below) |
 
 The user directory is deliberately **not** replicated. Auth is the source of
-truth, and Marketing and Field Service read the contacts and the inspectors
-they need live from Auth (`GET auth/users/marketing-contacts`,
-`GET auth/users/field-service/inspector-directory`). A directory read is cheap
-and always current, so there is nothing left for an outbox to deliver.
+truth, and no service reads it over the network: the directory lookups have
+been removed, so there is nothing left for an outbox to deliver.
 
 ### The mechanism
 

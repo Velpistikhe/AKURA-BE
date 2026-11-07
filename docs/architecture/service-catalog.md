@@ -87,9 +87,9 @@ the promise across requests (`src/routes/proxy.routes.ts:23-26, 81-86`).
 | Entry point | `auth-service/src/server.ts` → `src/app.ts` |
 | Runtime deps | `@prisma/client`, `bcryptjs`, `jsonwebtoken` 9.0.2, `uuid` |
 | Database | `akura_auth` |
-| Modules | `auth/` (login, register, refresh, logout, profile, password), `user-management/` (CRUD, inspectors, marketing contacts, inspector directory) |
+| Modules | `auth/` (login, register, refresh, logout, profile, password), `user-management/` (CRUD) |
 | Public endpoints | `POST /register`, `POST /login`, `POST /refresh-token`, `POST /logout`, `GET /me`, `PUT /profile`, `PUT /password` |
-| Internal endpoints | `GET /users/marketing-contacts`, `GET /users/field-service/inspectors`, `GET /users/field-service/inspector-directory`, `GET /.well-known/jwks.json` |
+| Internal endpoints | `GET /.well-known/jwks.json` |
 | APP_MANAGER-only | `GET /users`, `GET /users/:userId`, `PATCH /users/:userId` |
 | Key config | `JWT_ACCESS_PRIVATE_KEY_PATH` / `JWT_ACCESS_PRIVATE_KEY_BASE64`, `JWT_ACCESS_KEY_ID` (default `akura-access-key-1`), `JWT_ISSUER` (default `akura-auth`), `JWT_AUDIENCE` (default `akura-api`), `JWT_ACCESS_EXPIRES_IN` (default `15m`), `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN` (default `7d`), `JWT_REFRESH_IDLE_TIMEOUT_MINUTES` (default `60`) |
 
@@ -125,7 +125,7 @@ See [`authentication-flow.md`](./authentication-flow.md#4-two-authorization-mode
 | Database | `akura_marketing` |
 | Modules | `companies/`, `company-staff/`, `contract-prices/`, `contracts/`, `items/`, `quotations/`, `services/`, `taxes/` |
 | Inbound event endpoints | `POST /internal/taxes/events`, `POST /internal/work-orders/events` — mounted **before** `authenticate` (`src/app.ts:23-25`) |
-| Outbound calls | `GET auth/me` (live profile check), `GET auth/users/marketing-contacts` (live contact directory), `POST fieldservice/work-orders`, `DELETE fieldservice/work-orders/:id` (compensation), `GET auth/.well-known/jwks.json` |
+| Outbound calls | `GET auth/me` (live profile check), `POST fieldservice/work-orders`, `DELETE fieldservice/work-orders/:id` (compensation), `GET auth/.well-known/jwks.json` |
 | Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `DIRECT_MFE_ACCESS`/`DIRECT_MFE_ORIGIN`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
 | Special | The only service with a test suite. Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
 
@@ -157,27 +157,27 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 | Runtime deps | `@prisma/client`, `jose`, `express`, `zod`, `winston` |
 | Database | `akura_fieldservice` |
 | Modules | `work-orders/`, `options/` |
-| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `GET /work-orders/by-quotation/:quotationId`, `POST /work-orders`, `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start`, `GET /options/inspectors`, `GET /options/quotations`, `GET /options/quotations/:quotationId` |
-| Outbound calls | `GET auth/me`, `GET auth/users/field-service/inspector-directory`, `GET auth/users/field-service/inspectors`, `GET marketing/quotation-references*`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
+| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `GET /work-orders/by-quotation/:quotationId`, `POST /work-orders`, `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start`, `GET /options/quotations`, `GET /options/quotations/:quotationId` |
+| Outbound calls | `GET auth/me`, `GET marketing/quotation-references*`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
 | Key config | `WORK_ORDER_SYNC_SECRET`, `DIRECT_MFE_ACCESS`/`DIRECT_MFE_ORIGIN` |
-| Special | `requireWorkOrderReferenceActor` admits sections MARKETING, FIELD_SERVICE, FINANCE, ACCOUNTING for read-only reference access; `requireActor` for mutations admits only MARKETING and FIELD_SERVICE (`src/middlewares/actor.middleware.ts:22-23`) |
+| Special | `requireWorkOrderReferenceActor` admits sections MARKETING, FIELD_SERVICE, FINANCE, ACCOUNTING for read-only reference access; `requireActor` for mutations admits only MARKETING and FIELD_SERVICE (`src/middlewares/actor.middleware.ts:22-23`). Has a hand-written SQL migration: `prisma/sql/0001_drop_work_order_inspector_user_id.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), dropping the inspector user ID column |
 
 ---
 
 ## 4. Endpoint index by service
 
 **VERIFIED** — assembled from the gateway's OpenAPI source
-(`api-gateway/src/docs/*.ts`). The gateway documents **102 path definitions**
+(`api-gateway/src/docs/*.ts`). The gateway documents **98 path definitions**
 across 7 files, with **no duplicate path keys** between files (verified by
 extracting every path key and grouping).
 
 | Service | Documented path count | Source files |
 |---|---|---|
-| Auth | 14 | `openapi.ts` |
+| Auth | 11 | `openapi.ts` |
 | App Manager | 13 | `openapi.ts`, `audit-trail.ts` |
 | Marketing | 56 | `catalog.ts`, `quotation.ts`, `operational-documents.ts`, `work-orders.ts`, `tax.ts` |
 | Finance | 4 | `tax.ts` |
-| Field Service | 9 | `work-orders.ts`, `quotation.ts` |
+| Field Service | 8 | `work-orders.ts`, `quotation.ts` |
 | Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | `openapi.ts` |
 | Internal event endpoints | 2 | `tax.ts`, `quotation.ts` |
 

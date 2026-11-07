@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { Actor, requireActor } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { loadQuotationForBasis, loadQuotationOptions } from '../../integrations/gateway.js';
-import { loadInspectorOptions } from '../../integrations/auth-directory.js';
 
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
@@ -13,16 +12,6 @@ const send = (req: Request, res: Response, data: unknown) => res.status(200).jso
 });
 
 router.use(requireActor);
-
-/**
- * Branch-scoped active inspector options, read live from Auth. Auth is the
- * source of truth for FIELD_SERVICE users, so the directory is fetched on
- * demand instead of being cached in a local read model.
- */
-router.get('/inspectors', asyncHandler(async (req, res) => {
-  const inspectors = await loadInspectorOptions(req);
-  send(req, res, { inspectors });
-}));
 
 /**
  * Branch-scoped quotation detail used by the Work Order creation form: the
