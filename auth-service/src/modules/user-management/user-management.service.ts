@@ -3,7 +3,7 @@ import { prisma } from '../../config/db.js';
 import { HttpError } from '../../utils/httpError.js';
 import { saveUserHistory, UserAuditActor } from '../../utils/userHistory.js';
 import { ListUsersInput, UpdateUserInput } from './user-management.schemas.js';
-import { userManagementRepository } from './user-management.repository.js';
+import { UserListScope, userManagementRepository } from './user-management.repository.js';
 
 const ensureActiveVersion = (user: { version: number; isActive: boolean }, version: number): void => {
   if (user.version !== version) {
@@ -16,15 +16,19 @@ const ensureActiveVersion = (user: { version: number; isActive: boolean }, versi
 
 
 // Exposes the stored office branch display name under the public `branch` key
-// while keeping officeBranchId for assignment/filtering.
+// while keeping officeBranchId for assignment/filtering. The summary projection
+// carries the branch name under the same public key, so a caller reads one
+// shape for the branch in both roles.
 const presentUser = <T extends { officeBranchName?: string | null }>({ officeBranchName, ...user }: T): Omit<T, 'officeBranchName'> & { branch: string | null } => ({
   ...user,
   branch: officeBranchName ?? null,
 });
 
 export const userManagementService = {
-  list: async (input: ListUsersInput) => {
-    const result = await userManagementRepository.list(input);
+  list: async (input: ListUsersInput, scope: UserListScope) => {
+    const result = await userManagementRepository.list(input, scope);
+    // An app manager reads the full profile; any other caller reads the
+    // summary projection, which the repository already selected.
     return { ...result, users: result.users.map(presentUser) };
   },
   async get(userId: string) {

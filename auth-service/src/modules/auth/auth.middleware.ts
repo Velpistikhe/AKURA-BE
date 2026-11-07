@@ -9,6 +9,10 @@ export interface AuthenticatedRequest extends Request {
     name?: string;
     username?: string;
     role?: string;
+    // The office branch the access token was issued for. It is part of the
+    // signed token, so it is the branch the caller was authenticated against,
+    // and it is what scopes a read to the caller's own branch.
+    officeBranchId?: string | null;
   };
 }
 
@@ -62,6 +66,7 @@ export const authenticate = async (
       name: decoded.name,
       username: decoded.username,
       role: decoded.role,
+      officeBranchId: decoded.officeBranchId,
     };
     next();
   } catch (error) {

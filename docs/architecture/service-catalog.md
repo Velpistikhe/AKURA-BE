@@ -90,7 +90,8 @@ the promise across requests (`src/routes/proxy.routes.ts:23-26, 81-86`).
 | Modules | `auth/` (login, register, refresh, logout, profile, password), `user-management/` (CRUD) |
 | Public endpoints | `POST /register`, `POST /login`, `POST /refresh-token`, `POST /logout`, `GET /me`, `PUT /profile`, `PUT /password` |
 | Internal endpoints | `GET /.well-known/jwks.json` |
-| APP_MANAGER-only | `GET /users`, `GET /users/:userId`, `PATCH /users/:userId` |
+| APP_MANAGER-only | `GET /users/:userId`, `PATCH /users/:userId` |
+| Branch-scoped read | `GET /users` — an app manager sees every user of every branch, including the deactivated ones, with the full user shape. Any other caller sees only the active users of their own branch, with the reduced shape (id, firstName, lastName, email, telp, role, section, branch); the `officeBranchId` and `isActive` filters cannot widen that scope. A caller without a branch assignment receives an empty list. |
 | Key config | `JWT_ACCESS_PRIVATE_KEY_PATH` / `JWT_ACCESS_PRIVATE_KEY_BASE64`, `JWT_ACCESS_KEY_ID` (default `akura-access-key-1`), `JWT_ISSUER` (default `akura-auth`), `JWT_AUDIENCE` (default `akura-api`), `JWT_ACCESS_EXPIRES_IN` (default `15m`), `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN` (default `7d`), `JWT_REFRESH_IDLE_TIMEOUT_MINUTES` (default `60`) |
 
 The RSA key must be at least 2048 bits and is enforced at load time

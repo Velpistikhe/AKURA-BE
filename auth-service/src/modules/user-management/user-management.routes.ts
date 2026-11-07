@@ -7,8 +7,11 @@ import { userManagementController } from './user-management.controller.js';
 import { listUsersSchema, updateUserSchema, userIdSchema } from './user-management.schemas.js';
 
 const router = Router();
-router.use(authenticate, asyncHandler(requireAppManager));
+// Every route requires a valid access token. The list is available to any
+// authenticated caller, because the visibility scope follows the caller's role;
+// reading and updating a single user stay reserved for an app manager.
+router.use(authenticate);
 router.get('/', validate('query', listUsersSchema), asyncHandler(userManagementController.list));
-router.get('/:userId', validate('params', userIdSchema), asyncHandler(userManagementController.get));
-router.patch('/:userId', validate('params', userIdSchema), validate('body', updateUserSchema), asyncHandler(userManagementController.update));
+router.get('/:userId', asyncHandler(requireAppManager), validate('params', userIdSchema), asyncHandler(userManagementController.get));
+router.patch('/:userId', asyncHandler(requireAppManager), validate('params', userIdSchema), validate('body', updateUserSchema), asyncHandler(userManagementController.update));
 export default router;

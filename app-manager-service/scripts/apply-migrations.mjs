@@ -38,16 +38,51 @@ const databaseUrl = await loadDatabaseUrl();
  *
  * Prisma sends a prepared statement, and PostgreSQL accepts only one command
  * per prepared statement. The split must not cut inside a dollar-quoted
- * string, so the dollar-quoted blocks are copied over as a whole.
+ * string, a line comment, or a quoted literal, so those regions are copied
+ * over as a whole. A semicolon in a comment is text, not a terminator.
  */
 const splitStatements = (sql) => {
   const statements = [];
   let current = '';
   let inDollarQuote = false;
   let dollarTag = '';
+  let inLineComment = false;
+  let inBlockComment = false;
+  let quote = '';
 
   for (let index = 0; index < sql.length; index += 1) {
     const character = sql[index];
+    const next = sql[index + 1];
+
+    if (inLineComment) {
+      current += character;
+      if (character === '\n') inLineComment = false;
+      continue;
+    }
+
+    if (inBlockComment) {
+      current += character;
+      if (character === '*' && next === '/') {
+        current += next;
+        index += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (quote) {
+      current += character;
+      if (character === quote) {
+        // A doubled quote is an escaped quote, not the end of the literal.
+        if (next === quote) {
+          current += next;
+          index += 1;
+        } else {
+          quote = '';
+        }
+      }
+      continue;
+    }
 
     if (inDollarQuote) {
       current += character;
@@ -57,6 +92,29 @@ const splitStatements = (sql) => {
         inDollarQuote = false;
         dollarTag = '';
       }
+      continue;
+    }
+
+    // A line comment runs to the end of the line.
+    if (character === '-' && next === '-') {
+      current += character + next;
+      index += 1;
+      inLineComment = true;
+      continue;
+    }
+
+    // A block comment is delimited by slash star and star slash.
+    if (character === '/' && next === '*') {
+      current += character + next;
+      index += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    // A quoted literal may contain a semicolon, so it is copied as a whole.
+    if (character === "'" || character === '"') {
+      quote = character;
+      current += character;
       continue;
     }
 

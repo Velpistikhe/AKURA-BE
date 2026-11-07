@@ -295,6 +295,21 @@ export const openApiDocument = groupByModule({
           requestId: { type: 'string', format: 'uuid' },
         },
       },
+      UserSummary: {
+        type: 'object',
+        description: 'The user shape returned to a caller that is not an app manager. It carries the contact details and the assignment of the user, but not the account metadata.',
+        required: ['id', 'firstName', 'lastName', 'email', 'telp', 'role', 'section', 'branch'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          firstName: { type: 'string', example: 'John' },
+          lastName: { type: 'string', example: 'Doe' },
+          email: { type: 'string', format: 'email', nullable: true, example: 'user@example.com' },
+          telp: { type: 'string', nullable: true, example: '+62 811 1234 5678' },
+          role: schemaRef('UserRole'),
+          section: schemaRef('NullableUserSection'),
+          branch: { type: 'string', maxLength: 200, nullable: true, example: 'Kantor Pusat', description: 'Display name of the assigned office branch.' },
+        },
+      },
       UserProfile: {
         type: 'object',
         required: [
@@ -530,6 +545,7 @@ export const openApiDocument = groupByModule({
       },
       UserListResponse: {
         type: 'object',
+        description: 'The users visible to the caller. An app manager receives the full UserProfile shape; any other caller receives the UserSummary shape.',
         required: ['status', 'success', 'message', 'data'],
         properties: {
           status: { type: 'integer', example: 200 },
@@ -539,7 +555,11 @@ export const openApiDocument = groupByModule({
             type: 'object',
             required: ['users', 'pagination'],
             properties: {
-              users: { type: 'array', items: schemaRef('UserProfile') },
+              users: {
+                type: 'array',
+                description: 'An app manager receives the full UserProfile shape; any other caller receives the UserSummary shape.',
+                items: { oneOf: [schemaRef('UserProfile'), schemaRef('UserSummary')] },
+              },
               pagination: {
                 type: 'object',
                 required: ['page', 'limit', 'total', 'totalPages'],
@@ -1564,7 +1584,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['User Management'],
         summary: 'List users',
-        description: 'Proxied through the Gateway to Auth Service. Requires an active app manager account.',
+        description: 'Proxied through the Gateway to Auth Service. The visibility scope follows the role of the caller. An app manager receives every user of every office branch, including the deactivated ones, with the full user shape. Any other caller receives only the active users of their own office branch, with the reduced user shape; a client-supplied officeBranchId or isActive filter cannot widen that scope. A caller without an office branch assignment receives an empty list. Filters, pagination, and sorting (default createdAt descending) apply to both roles.',
         security: protectedSecurity,
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
@@ -1572,15 +1592,15 @@ export const openApiDocument = groupByModule({
           { in: 'query', name: 'search', description: 'Case-insensitive search in username, firstName, and lastName.', schema: { type: 'string', minLength: 1, maxLength: 100 } },
           { in: 'query', name: 'role', schema: schemaRef('UserRole') },
           { in: 'query', name: 'section', schema: schemaRef('UserSection') },
-          { in: 'query', name: 'officeBranchId', schema: { type: 'string', format: 'uuid' } },
-          { in: 'query', name: 'isActive', schema: { type: 'string', enum: ['true', 'false'] } },
+          { in: 'query', name: 'officeBranchId', description: 'Filters by office branch. An app manager may filter any branch; for any other caller the filter is overridden with the branch of the access token.', schema: { type: 'string', format: 'uuid' } },
+          { in: 'query', name: 'isActive', description: 'Filters by activation state. For any caller other than an app manager the filter is overridden with true, so only active users are returned.', schema: { type: 'string', enum: ['true', 'false'] } },
           ...listSortParameters(['username', 'firstName', 'lastName', 'role', 'section', 'officeBranchId', 'isActive', 'updatedAt']),
         ],
         responses: {
           200: response('Users retrieved', schemaRef('UserListResponse')),
           400: errorResponse('Invalid query parameters'),
           401: errorResponse('Missing or invalid access token'),
-          403: errorResponse('Active app manager role is required'),
+          403: errorResponse('Account is inactive'),
           429: errorResponse('Rate limit exceeded'),
           500: errorResponse('Internal server error'),
         },

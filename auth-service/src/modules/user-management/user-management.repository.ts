@@ -11,9 +11,41 @@ const select = {
 
 export type ManagedUser = Prisma.UserGetPayload<{ select: typeof select }>;
 
+/**
+ * The projection returned to a caller that is not an app manager.
+ *
+ * It exposes the contact details and the assignment of a user, but not the
+ * account metadata: the username, the branch id, the version, and the
+ * activation state are all omitted.
+ */
+const summarySelect = {
+  id: true, firstName: true, lastName: true, email: true, telp: true, role: true, section: true,
+  officeBranchName: true,
+} satisfies Prisma.UserSelect;
+
+export type ManagedUserSummary = Prisma.UserGetPayload<{ select: typeof summarySelect }>;
+
+/**
+ * The visibility scope of a list request.
+ *
+ * An app manager sees every user of every branch, including the deactivated
+ * ones. Any other caller sees only the active users of their own branch, and
+ * only the summary projection.
+ */
+export interface UserListScope {
+  isAppManager: boolean;
+  officeBranchId: string | null;
+}
+
 export const userManagementRepository = {
-  async list(input: ListUsersInput) {
-    const query = buildListQuery(input, {
+  async list(input: ListUsersInput, scope: UserListScope) {
+    // The branch and the activation filter are part of the response of a
+    // non-app-manager caller, so a client-supplied value for either of them
+    // cannot widen the scope: the filter is overridden, not merged.
+    const scopedInput = scope.isAppManager
+      ? input
+      : { ...input, officeBranchId: undefined, isActive: undefined };
+    const query = buildListQuery(scopedInput, {
       filters: {
         role: (role) => ({ role }),
         section: (section) => ({ section }),
@@ -37,9 +69,21 @@ export const userManagementRepository = {
         updatedAt: (direction) => ({ updatedAt: direction }),
       }),
     });
+    // A non-app-manager caller is scoped to their own branch and to the active
+    // users only. A caller without a branch assignment has no branch to scope
+    // to, so the list stays empty for them. The empty case is handled here
+    // rather than with a null branch filter, because a null filter matches the
+    // users without a branch instead of matching nothing.
+    if (!scope.isAppManager && !scope.officeBranchId) {
+      return { users: [], pagination: buildPagination(input.page, input.limit, 0) };
+    }
+    const where = scope.isAppManager
+      ? query.where
+      : { AND: [{ officeBranchId: scope.officeBranchId as string }, { isActive: true }, query.where] } satisfies Prisma.UserWhereInput;
+    const projection = scope.isAppManager ? select : summarySelect;
     const [users, total] = await Promise.all([
-      prisma.user.findMany({ ...query, select }),
-      prisma.user.count({ where: query.where }),
+      prisma.user.findMany({ ...query, where, select: projection }),
+      prisma.user.count({ where }),
     ]);
     return { users, pagination: buildPagination(input.page, input.limit, total) };
   },
