@@ -82,6 +82,26 @@ const collectTypeScriptFiles = async (directory: string): Promise<string[]> => {
 };
 
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
+const DEPLOYED_API_GATEWAY_HOST = 'akura-api-gateway.vercel.app';
+
+/** Domain services that approve Neon and the deployed gateway without a .env allowlist. */
+const HYBRID_DEVELOPMENT_SERVICES = new Set([
+  'app-manager-service',
+  'marketing-service',
+  'finance-service',
+  'fieldservice-service',
+]);
+
+const isHybridDevelopmentApprovedHost = (host: string): boolean => {
+  const normalized = host.toLowerCase();
+  if (LOCAL_HOSTS.includes(normalized)) return true;
+  if (normalized.endsWith('.neon.tech')) return true;
+  if (normalized === DEPLOYED_API_GATEWAY_HOST) return true;
+  return false;
+};
+
+const hybridHostRejection = (service: string, name: string, host: string): string =>
+  `${service}/.env ${name} points at "${host}", which is not a local, Neon (*.neon.tech), or deployed gateway host`;
 
 /** The hosts a service may reach in development besides the local machine. */
 const allowedRemoteHosts = (value: string | undefined): string[] =>
@@ -89,6 +109,11 @@ const allowedRemoteHosts = (value: string | undefined): string[] =>
     .split(',')
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean);
+
+const hostAllowedForService = (service: string, host: string, listed: string[]): boolean => {
+  if (HYBRID_DEVELOPMENT_SERVICES.has(service)) return isHybridDevelopmentApprovedHost(host);
+  return LOCAL_HOSTS.includes(host) || listed.includes(host);
+};
 
 describe('environment configuration', () => {
   test('every service ships a .env.example template', async () => {
@@ -122,9 +147,7 @@ describe('environment configuration', () => {
   test('the local .env files only target an allowed host', async () => {
     for (const service of SERVICES) {
       const values = await readEnv(service, '.env');
-      // The development environment is hosted, so a remote host is reachable only
-      // when the service lists it in DEV_ALLOWED_REMOTE_HOSTS.
-      const allowed = allowedRemoteHosts(values.get('DEV_ALLOWED_REMOTE_HOSTS'));
+      const listed = allowedRemoteHosts(values.get('DEV_ALLOWED_REMOTE_HOSTS'));
       const targets = [
         ['DATABASE_URL', values.get('DATABASE_URL')],
         ['API_GATEWAY_URL', values.get('API_GATEWAY_URL')],
@@ -140,8 +163,10 @@ describe('environment configuration', () => {
         if (!value) continue;
         const host = hostOf(value);
         assert.ok(
-          LOCAL_HOSTS.includes(host) || allowed.includes(host),
-          `${service}/.env ${name} points at "${host}", which is neither local nor listed in DEV_ALLOWED_REMOTE_HOSTS`,
+          hostAllowedForService(service, host, listed),
+          HYBRID_DEVELOPMENT_SERVICES.has(service)
+            ? hybridHostRejection(service, name, host)
+            : `${service}/.env ${name} points at "${host}", which is neither local nor listed in DEV_ALLOWED_REMOTE_HOSTS`,
         );
       }
 
@@ -152,8 +177,10 @@ describe('environment configuration', () => {
         for (const target of parsed) {
           const host = hostOf(target.url);
           assert.ok(
-            LOCAL_HOSTS.includes(host) || allowed.includes(host),
-            `${service}/.env TAX_DELIVERY_TARGETS[${target.name}] points at "${host}", which is neither local nor listed in DEV_ALLOWED_REMOTE_HOSTS`,
+            hostAllowedForService(service, host, listed),
+            HYBRID_DEVELOPMENT_SERVICES.has(service)
+              ? hybridHostRejection(service, `TAX_DELIVERY_TARGETS[${target.name}]`, host)
+              : `${service}/.env TAX_DELIVERY_TARGETS[${target.name}] points at "${host}", which is neither local nor listed in DEV_ALLOWED_REMOTE_HOSTS`,
           );
         }
       }
@@ -164,7 +191,8 @@ describe('environment configuration', () => {
     // The allowlist is per host: naming one development host never opens the
     // door to another. This keeps the hosted development environment from
     // reaching a production branch or deployment by accident.
-    for (const service of SERVICES) {
+    const envAllowlistServices = SERVICES.filter((service) => !HYBRID_DEVELOPMENT_SERVICES.has(service));
+    for (const service of envAllowlistServices) {
       const schema = await readFile(
         resolve(process.cwd(), '..', service, 'src', 'config', 'env.ts'),
         'utf8',
@@ -183,6 +211,33 @@ describe('environment configuration', () => {
         schema,
         /parseAllowedRemoteHosts/,
         `${service} must parse the allowlist before it validates a target`,
+      );
+    }
+
+    for (const service of HYBRID_DEVELOPMENT_SERVICES) {
+      const schema = await readFile(
+        resolve(process.cwd(), '..', service, 'src', 'config', 'env.ts'),
+        'utf8',
+      );
+      assert.doesNotMatch(
+        schema,
+        /DEV_ALLOWED_REMOTE_HOSTS/,
+        `${service} must not require a per-machine host allowlist`,
+      );
+      assert.match(
+        schema,
+        /\.neon\.tech/,
+        `${service} must allow Neon development hosts`,
+      );
+      assert.match(
+        schema,
+        /DEPLOYED_API_GATEWAY_HOST/,
+        `${service} must allow the deployed API gateway`,
+      );
+      assert.match(
+        schema,
+        /isApprovedDevelopmentHost/,
+        `${service} must gate remote targets through a fixed development policy`,
       );
     }
   });
