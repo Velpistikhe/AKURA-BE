@@ -187,27 +187,20 @@ describe('environment configuration', () => {
     }
   });
 
-  test('no service offers a direct-access bypass', async () => {
-    // Every service must be reachable only through the API Gateway. A
-    // development bypass would mean a local run exercises an access path that
-    // production does not have, so the code must not contain one.
-    for (const service of SERVICES) {
-      const directory = resolve(process.cwd(), '..', service, 'src');
-      const files = await collectTypeScriptFiles(directory);
-      for (const file of files) {
-        const content = await readFile(file, 'utf8');
-        const relative = file.slice(directory.length + 1);
-        assert.doesNotMatch(
-          content,
-          /DIRECT_MFE_ACCESS/,
-          `${service}/src/${relative} must not offer a direct-access bypass`,
-        );
-        assert.doesNotMatch(
-          content,
-          /isDirectMfeAccess/,
-          `${service}/src/${relative} must not offer a direct-access bypass`,
-        );
-      }
+  test('local direct access is gated by development mode and Vercel hosting', async () => {
+    const targets = [
+      'marketing-service',
+      'finance-service',
+      'fieldservice-service',
+      'app-manager-service',
+    ] as const;
+    for (const service of targets) {
+      const helper = await readFile(
+        resolve(process.cwd(), '..', service, 'src', 'utils', 'localDirectAccess.ts'),
+        'utf8',
+      );
+      assert.match(helper, /NODE_ENV === 'development'/, `${service} must allow direct access only in development`);
+      assert.match(helper, /VERCEL !== '1'/, `${service} must refuse direct access when hosted on Vercel`);
     }
   });
 

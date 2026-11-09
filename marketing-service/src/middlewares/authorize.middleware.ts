@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { serviceUrl, serviceHeaders } from '../utils/serviceUrl.js';
 import { AuthenticatedRequest, AuthUser } from '../types/auth.types.js';
 import { getAccessToken } from '../utils/requestTokens.js';
+import { fetchGatewayAuthMe } from '../utils/gatewayAuthMe.js';
 
 const requireSectionAccess = (sections: readonly string[]) => async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const token = getAccessToken(req);
@@ -12,31 +13,36 @@ const requireSectionAccess = (sections: readonly string[]) => async (req: Reques
     return;
   }
 
-  const gatewayUserId = req.headers['x-user-id'];
-  const gatewayUserRole = req.headers['x-user-role'];
-  const gatewayOfficeBranchId = req.headers['x-office-branch-id'];
-  if (
-    gatewayUserId !== tokenPayload.sub
-    || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)
-    || (tokenPayload.officeBranchId && gatewayOfficeBranchId !== tokenPayload.officeBranchId)
-  ) {
-    res.status(401).json({
-      status: 401,
-      success: false,
-      message: 'Unauthorized: gateway identity does not match access token',
-      requestId,
-    });
-    return;
+  const viaGateway = res.locals.arrivedViaGateway === true;
+  if (viaGateway) {
+    const gatewayUserId = req.headers['x-user-id'];
+    const gatewayUserRole = req.headers['x-user-role'];
+    const gatewayOfficeBranchId = req.headers['x-office-branch-id'];
+    if (
+      gatewayUserId !== tokenPayload.sub
+      || (tokenPayload.role && gatewayUserRole !== tokenPayload.role)
+      || (tokenPayload.officeBranchId && gatewayOfficeBranchId !== tokenPayload.officeBranchId)
+    ) {
+      res.status(401).json({
+        status: 401,
+        success: false,
+        message: 'Unauthorized: gateway identity does not match access token',
+        requestId,
+      });
+      return;
+    }
   }
 
   try {
-    const response = await fetch(serviceUrl('auth/me'), {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...serviceHeaders('auth/me'),
-        ...(requestId ? { 'x-request-id': requestId } : {}),
-      },
-    });
+    const response = viaGateway
+      ? await fetch(serviceUrl('auth/me'), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...serviceHeaders('auth/me'),
+          ...(requestId ? { 'x-request-id': requestId } : {}),
+        },
+      })
+      : await fetchGatewayAuthMe(token, requestId);
     if (!response.ok) {
       res.status(response.status === 403 ? 403 : 401).json({ status: response.status === 403 ? 403 : 401, success: false, message: 'Unable to validate the authenticated user', requestId });
       return;

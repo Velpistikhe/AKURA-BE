@@ -58,6 +58,9 @@ const envSchema = z.object({
   DEV_ALLOWED_REMOTE_HOSTS: z.string().default(''),
   GATEWAY_SECRET: z.string().min(1, 'GATEWAY_SECRET is required'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  API_GATEWAY_URL: z.string({ required_error: 'API_GATEWAY_URL is required' })
+    .url('API_GATEWAY_URL must be a valid URL')
+    .transform((value) => value.replace(/\/$/, '')),
 }).superRefine((value, context) => {
   if (value.DEV_ALLOWED_REMOTE_HOSTS && value.NODE_ENV !== 'development') {
     console.warn('[app-manager-service] DEV_ALLOWED_REMOTE_HOSTS is ignored outside development.');
@@ -65,6 +68,7 @@ const envSchema = z.object({
   if (value.NODE_ENV !== 'development') return;
   const allowedRemoteHosts = parseAllowedRemoteHosts(value.DEV_ALLOWED_REMOTE_HOSTS);
   assertAllowedTarget('DATABASE_URL', value.DATABASE_URL, context, allowedRemoteHosts);
+  assertAllowedTarget('API_GATEWAY_URL', value.API_GATEWAY_URL, context, allowedRemoteHosts);
 });
 
 const result = envSchema.safeParse(process.env);

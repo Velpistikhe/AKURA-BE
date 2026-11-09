@@ -11,13 +11,28 @@ export async function gatewayGet(path: string, req: Request): Promise<unknown> {
   if (!token) throw new HttpError('Access token is required', 401);
   const user = (req as AuthenticatedRequest).user;
   if (!user) throw new HttpError('Verified user is required', 401);
+  const viaGateway = req.res?.locals.arrivedViaGateway === true;
+  const requestId = String(req.headers['x-request-id'] ?? '');
   let response: globalThis.Response;
   try {
-    response = await fetch(serviceUrl(path), {
-      headers: { Authorization: `Bearer ${token}`, ...serviceHeaders(path),
-        'x-request-id': String(req.headers['x-request-id'] ?? '') },
-      signal: AbortSignal.timeout(5000),
-    });
+    if (path === 'auth/me' && !viaGateway) {
+      response = await fetch(`${env.API_GATEWAY_URL}/api/v1/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(requestId ? { 'x-request-id': requestId } : {}),
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+    } else {
+      response = await fetch(serviceUrl(path), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...serviceHeaders(path),
+          ...(requestId ? { 'x-request-id': requestId } : {}),
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+    }
   } catch { throw new HttpError('Referenced service is unavailable; retry later', 503); }
   if (!response.ok) {
     // A 400/422 means the upstream rejected the reference we sent, so the

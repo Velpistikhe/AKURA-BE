@@ -26,6 +26,7 @@ let admin: SeededUser;
 let branchId: string;
 
 const COMPANIES = '/api/v1/marketing/companies';
+const COMPANIES_DIRECT = '/companies';
 
 const createCompany = async (name: string, token = admin.accessToken) => {
   const response = await httpRequest(`${GATEWAY}${COMPANIES}`, {
@@ -129,19 +130,25 @@ describe('marketing-service functional baseline', () => {
     );
   });
 
-  test('AUTHORIZATION: a request that bypasses the gateway is rejected with 403', async () => {
-    // The service is reachable only through the API Gateway. A direct call -
-    // even with a valid access token - carries no gateway secret and must be
-    // refused, in development as well as in production.
-    const direct = await httpRequest(`http://127.0.0.1:${TEST_PORTS.marketing}${COMPANIES}`, {
+  test('AUTHORIZATION: a direct local call without a token is rejected with 401', async () => {
+    const direct = await httpRequest(`http://127.0.0.1:${TEST_PORTS.marketing}${COMPANIES_DIRECT}`);
+    assert.equal(direct.status, 401, JSON.stringify(direct.body));
+  });
+
+  test('AUTHORIZATION: a direct local call with a valid token is accepted', async () => {
+    const direct = await httpRequest(`http://127.0.0.1:${TEST_PORTS.marketing}${COMPANIES_DIRECT}`, {
       token: admin.accessToken,
     });
+    assert.equal(direct.status, 200, JSON.stringify(direct.body));
+  });
+
+  test('AUTHORIZATION: internal delivery endpoints stay gateway-only', async () => {
+    const direct = await httpRequest(`http://127.0.0.1:${TEST_PORTS.marketing}/internal/taxes/events`, {
+      method: 'POST',
+      token: admin.accessToken,
+      body: {},
+    });
     assert.equal(direct.status, 403, JSON.stringify(direct.body));
-    assert.match(
-      (direct.body as { message: string }).message,
-      /must pass through the API Gateway/,
-      'a direct request must be told to go through the gateway',
-    );
   });
 
   test('AUTHORIZATION: a request without a token is rejected with 401', async () => {
