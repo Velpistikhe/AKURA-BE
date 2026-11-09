@@ -127,7 +127,7 @@ See [`authentication-flow.md`](./authentication-flow.md#4-two-authorization-mode
 | Modules | `companies/`, `company-staff/`, `contract-prices/`, `contracts/`, `items/`, `quotations/`, `services/`, `taxes/` |
 | Inbound event endpoints | `POST /internal/taxes/events`, `POST /internal/work-orders/events` — mounted **before** `authenticate` (`src/app.ts:23-25`) |
 | Outbound calls | `GET auth/me` (live profile check), `POST fieldservice/work-orders`, `DELETE fieldservice/work-orders/:id` (compensation), `GET auth/.well-known/jwks.json` |
-| Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `DIRECT_MFE_ACCESS`/`DIRECT_MFE_ORIGIN`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
+| Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
 | Special | The only service with a test suite. Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
 
 **Dual mount**: routes are mounted at both `/` and `/marketing` so the local
@@ -144,7 +144,7 @@ microfrontend can call the service directly in development
 | Modules | `taxes/` only — `tax.routes.ts`, `tax.repository.ts`, `tax.schemas.ts`, `tax-delivery.ts` |
 | Public endpoints | `GET /taxes`, `GET /taxes/deliveries`, `POST /taxes`, `POST /taxes/resync` |
 | Outbound calls | `GET auth/me`, `GET auth/.well-known/jwks.json`, and the async tax delivery POST |
-| Key config | `TAX_DELIVERY_TARGETS` (JSON array of `{name, url}`), `TAX_SYNC_SECRET`, `DIRECT_MFE_ACCESS`/`DIRECT_MFE_ORIGIN` |
+| Key config | `TAX_DELIVERY_TARGETS` (JSON array of `{name, url}`), `TAX_SYNC_SECRET`, |
 | Special | `TAX_DELIVERY_TARGETS` URLs are validated at startup to equal the configured gateway URL — a tax snapshot can only be delivered through the gateway (`src/modules/taxes/tax-delivery.ts:22`) |
 
 Tax write permission requires role `ADMIN` **and** section `FINANCE` or
@@ -160,7 +160,7 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 | Modules | `work-orders/`, `options/` |
 | Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `GET /work-orders/by-quotation/:quotationId`, `POST /work-orders`, `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start`, `GET /options/quotations`, `GET /options/quotations/:quotationId` |
 | Outbound calls | `GET auth/me`, `GET marketing/quotation-references*`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
-| Key config | `WORK_ORDER_SYNC_SECRET`, `DIRECT_MFE_ACCESS`/`DIRECT_MFE_ORIGIN` |
+| Key config | `WORK_ORDER_SYNC_SECRET`, |
 | Special | `requireWorkOrderReferenceActor` admits sections MARKETING, FIELD_SERVICE, FINANCE, ACCOUNTING for read-only reference access; `requireActor` for mutations admits only MARKETING and FIELD_SERVICE (`src/middlewares/actor.middleware.ts:22-23`). Has a hand-written SQL migration: `prisma/sql/0001_drop_work_order_inspector_user_id.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), dropping the inspector user ID column |
 
 ---

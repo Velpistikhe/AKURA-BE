@@ -6,33 +6,56 @@ dotenv.config();
 /**
  * Refuses a development configuration that points at a remote system.
  *
- * The development environment must never reach a deployed service. A remote
- * target in a development `.env` is almost always a copy/paste mistake, and it
- * would let a local run send real traffic to a deployed API.
+ * The development environment is hosted: the services run on Vercel and the
+ * databases live in a Neon development branch, so a local service legitimately
+ * calls remote targets. Only the hosts listed in DEV_ALLOWED_REMOTE_HOSTS are
+ * reachable, and the list is explicit per host: an unlisted host - a production
+ * branch, a production deployment, or a typo - is still refused.
  */
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
 
-const assertLocalTarget = (label: string, value: string, context: z.RefinementCtx): void => {
+/**
+ * The hosts this service may reach in development besides the local machine.
+ */
+const parseAllowedRemoteHosts = (value: string | undefined): ReadonlySet<string> =>
+  new Set(
+    (value ?? '')
+      .split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+const assertAllowedTarget = (
+  label: string,
+  value: string,
+  context: z.RefinementCtx,
+  allowedRemoteHosts: ReadonlySet<string>,
+): void => {
   let host: string;
   try {
-    host = new URL(value).hostname;
+    host = new URL(value.includes('://') ? value : `postgresql://${value}`).hostname;
   } catch {
     // A value that is not a URL cannot be checked here; the schema validates
     // the format separately.
     return;
   }
-  if (host && !LOCAL_HOSTS.includes(host)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `${label} must point at a local host in development, but it points at "${host}". `
-        + 'A development environment must never reach a deployed system.',
-    });
-  }
+  if (!host) return;
+  const normalized = host.toLowerCase();
+  if (LOCAL_HOSTS.includes(normalized) || allowedRemoteHosts.has(normalized)) return;
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: `${label} must point at a local host or a host listed in DEV_ALLOWED_REMOTE_HOSTS in development, but it points at "${host}". `
+      + 'A development environment must never reach an unlisted deployed system.',
+  });
 };
 
 const envSchema = z.object({
   PORT: z.string().default('5000').transform((value) => Number.parseInt(value, 10)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Hosts this development run may reach besides the local machine. The hosted
+  // development environment (the Neon branch and the deployed services) is
+  // listed here by name, so an unlisted target is still refused at startup.
+  DEV_ALLOWED_REMOTE_HOSTS: z.string().default(''),
   AUTH_SERVICE_GATEWAY_SECRET: z.string().min(1, 'AUTH_SERVICE_GATEWAY_SECRET is required'),
   APP_MANAGER_SERVICE_GATEWAY_SECRET: z.string().min(1, 'APP_MANAGER_SERVICE_GATEWAY_SECRET is required'),
   MARKETING_SERVICE_GATEWAY_SECRET: z.string().min(1, 'MARKETING_SERVICE_GATEWAY_SECRET is required'),
@@ -88,7 +111,11 @@ const envSchema = z.object({
       message: 'Every downstream service must use a different gateway secret',
     });
   }
+  if (value.DEV_ALLOWED_REMOTE_HOSTS && value.NODE_ENV !== 'development') {
+    console.warn('[api-gateway] DEV_ALLOWED_REMOTE_HOSTS is ignored outside development.');
+  }
   if (value.NODE_ENV !== 'development') return;
+  const allowedRemoteHosts = parseAllowedRemoteHosts(value.DEV_ALLOWED_REMOTE_HOSTS);
   // A development gateway must only talk to the local services.
   const targets = {
     AUTH_SERVICE_URL: value.AUTH_SERVICE_URL,
@@ -99,7 +126,7 @@ const envSchema = z.object({
     FIELDSERVICE_SERVICE_URL: value.FIELDSERVICE_SERVICE_URL,
   } as const;
   for (const [label, target] of Object.entries(targets)) {
-    if (target) assertLocalTarget(label, target, context);
+    if (target) assertAllowedTarget(label, target, context, allowedRemoteHosts);
   }
 });
 

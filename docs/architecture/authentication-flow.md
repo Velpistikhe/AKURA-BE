@@ -319,36 +319,63 @@ length mismatch. This is the correct pattern.
 
 ---
 
-## 8. Direct development access (bypassing the gateway)
+## 8. The gateway is the only entry point
 
-**VERIFIED** — `marketing-service/src/utils/directAccess.ts`,
-`finance-service/src/utils/directAccess.ts`,
-`fieldservice-service/src/utils/directAccess.ts`.
+**VERIFIED** - `*/src/middlewares/gateway.middleware.ts`.
+
+Every service refuses a request that does not carry its own gateway secret:
 
 ```ts
-export const isDirectMfeAccess = (): boolean =>
-  Boolean(env.DIRECT_MFE_ACCESS) && env.NODE_ENV === 'development' && process.env.VERCEL !== '1';
+export const verifyGatewaySecret = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.headers['x-gateway-secret'] !== env.GATEWAY_SECRET) {
+    res.status(403).json({ status: 403, success: false, message: 'Access denied: requests must pass through the API Gateway', /* ... */ });
+    return;
+  }
+  next();
+};
 ```
 
-Three conditions must **all** hold. When enabled, the gateway-secret check is
-skipped — but only for the user-facing route prefixes
-(`/marketing`, `/finance`, `/fieldservice`, `/taxes`, `/documents`,
-`/work-orders`), and only for those specific services. **Internal event
-endpoints remain gateway-only even in development**
-(`marketing-service/src/middlewares/gateway.middleware.ts:10-12`).
+The check is **unconditional**. There is no development bypass, no
+environment flag that relaxes it, and no loopback exception: a request that
+reaches a service directly - from a browser, from a microfrontend, or from any
+other client - is rejected with **403**, in development exactly as in
+production.
 
-**Even in direct mode, user authentication is not bypassed.** The service
-still verifies the JWT and still enforces profile/section/branch checks
-(`marketing-service/src/middlewares/auth.middleware.ts:17-24`).
+Three consequences follow from the single rule:
 
-The env schema enforces `DIRECT_MFE_ACCESS` is only settable when
-`NODE_ENV=development` (`marketing-service/src/config/env.ts:57-62`).
+| Consequence | Detail |
+|---|---|
+| **The browser always talks to the gateway** | The gateway is the public edge and owns the origin policy (`CORS_ORIGIN`). A service therefore has no browser origin of its own to allow: its CORS callback accepts any origin, and the gateway decides which origins are served. |
+| **The identity headers are always the gateway's** | The gateway rebuilds `X-User-*` from the verified token and strips any the client sent (`proxy.routes.ts:38-63`). Because a request can only arrive through the gateway, a service never reconstructs those headers itself, and a forged `x-user-id` never reaches it. |
+| **The service prefixes do not exist** | The gateway strips the `/api/v1/<service>` prefix before proxying, so the services mount their routes at the root only. There is no `/marketing`, `/finance`, or `/fieldservice` mount. |
 
-**This exists for the local microfrontend only. It is not a production
-mechanism, and there is no loopback bypass.**
+**The assertion is covered by a test.** A direct call to a running service,
+carrying a valid access token but no gateway secret, must be rejected with
+403 (`marketing-service/tests/01-functional-baseline.test.ts`).
+
+### 8.1 Hybrid development access
+
+**VERIFIED** - `marketing-service/src/config/env.ts`.
+
+The hosted development environment runs the services on Vercel and the
+databases in a Neon development branch, while a developer runs a single
+service locally. The local service therefore calls a **deployed** gateway and
+a **remote** database, and both are reached over the public internet.
+
+| Requirement | Detail |
+|---|---|
+| `DEV_ALLOWED_REMOTE_HOSTS` | The development guard refuses any remote host that is not listed by name. The Neon branch host and the deployed gateway host are listed, so the local service may reach them; any other host - a production branch, a production deployment, a typo - is still refused at startup (`env.ts:28-50`). |
+| The gateway stays the entry point | The local service is a *callee*, not an edge: the browser keeps calling the deployed gateway, and the deployed gateway calls the deployed services. |
+| Bearer token | A cookie set on the deployed gateway's domain never reaches `localhost`. The microfrontend must send `Authorization: Bearer <accessToken>`; the login response returns it in `data.accessToken`, and `GET /api/v1/auth/me` echoes it back so a page reload can restore the session (`auth.controller.ts:46`, `auth.controller.ts:94`). |
+
+**The service credentials still have to match.** A service calls `GET auth/me`
+through the deployed gateway with `x-service-secret: <GATEWAY_SECRET>`, and the
+gateway compares it against its own `*_GATEWAY_SECRET`. A local secret that
+differs from the deployed one produces **403** on that call, which the
+authorize middleware surfaces as 401 with the message *Unable to validate the
+authenticated user*.
 
 ---
-
 ## 9. Security observations
 
 ### Strengths

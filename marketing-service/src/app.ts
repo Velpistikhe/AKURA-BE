@@ -28,10 +28,6 @@ app.get('/health', (req: Request, res: Response) => {
 
 app.use(authenticate);
 app.use(routes);
-// The local Marketing microfrontend in direct development access calls this
-// service with the gateway-style /marketing prefix (the gateway strips it for
-// proxied requests, so both mounts resolve to the same router).
-app.use('/marketing', routes);
 app.use((req: Request, res: Response) => res.status(404).json({ status: 404, success: false, message: `Route ${req.method} ${req.originalUrl} not found on Marketing Service`, requestId: req.headers['x-request-id'] }));
 app.use(errorHandler);
 export default app;

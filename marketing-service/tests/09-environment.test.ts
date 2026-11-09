@@ -11,7 +11,7 @@
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const SERVICES = [
@@ -66,7 +66,29 @@ const hostOf = (value: string): string => {
   }
 };
 
+/** Every TypeScript source file under a directory, recursively. */
+const collectTypeScriptFiles = async (directory: string): Promise<string[]> => {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectTypeScriptFiles(full));
+    } else if (entry.name.endsWith('.ts')) {
+      files.push(full);
+    }
+  }
+  return files;
+};
+
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
+
+/** The hosts a service may reach in development besides the local machine. */
+const allowedRemoteHosts = (value: string | undefined): string[] =>
+  (value ?? '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
 
 describe('environment configuration', () => {
   test('every service ships a .env.example template', async () => {
@@ -97,9 +119,12 @@ describe('environment configuration', () => {
     }
   });
 
-  test('the local .env files only target the local machine', async () => {
+  test('the local .env files only target an allowed host', async () => {
     for (const service of SERVICES) {
       const values = await readEnv(service, '.env');
+      // The development environment is hosted, so a remote host is reachable only
+      // when the service lists it in DEV_ALLOWED_REMOTE_HOSTS.
+      const allowed = allowedRemoteHosts(values.get('DEV_ALLOWED_REMOTE_HOSTS'));
       const targets = [
         ['DATABASE_URL', values.get('DATABASE_URL')],
         ['API_GATEWAY_URL', values.get('API_GATEWAY_URL')],
@@ -115,8 +140,8 @@ describe('environment configuration', () => {
         if (!value) continue;
         const host = hostOf(value);
         assert.ok(
-          LOCAL_HOSTS.includes(host),
-          `${service}/.env ${name} points at "${host}", which is not a local host`,
+          LOCAL_HOSTS.includes(host) || allowed.includes(host),
+          `${service}/.env ${name} points at "${host}", which is neither local nor listed in DEV_ALLOWED_REMOTE_HOSTS`,
         );
       }
 
@@ -127,10 +152,61 @@ describe('environment configuration', () => {
         for (const target of parsed) {
           const host = hostOf(target.url);
           assert.ok(
-            LOCAL_HOSTS.includes(host),
-            `${service}/.env TAX_DELIVERY_TARGETS[${target.name}] points at "${host}", which is not a local host`,
+            LOCAL_HOSTS.includes(host) || allowed.includes(host),
+            `${service}/.env TAX_DELIVERY_TARGETS[${target.name}] points at "${host}", which is neither local nor listed in DEV_ALLOWED_REMOTE_HOSTS`,
           );
         }
+      }
+    }
+  });
+
+  test('a remote target is refused unless its host is listed', async () => {
+    // The allowlist is per host: naming one development host never opens the
+    // door to another. This keeps the hosted development environment from
+    // reaching a production branch or deployment by accident.
+    for (const service of SERVICES) {
+      const schema = await readFile(
+        resolve(process.cwd(), '..', service, 'src', 'config', 'env.ts'),
+        'utf8',
+      );
+      assert.match(
+        schema,
+        /DEV_ALLOWED_REMOTE_HOSTS/,
+        `${service} must expose the remote host allowlist`,
+      );
+      assert.match(
+        schema,
+        /allowedRemoteHosts\.has\(normalized\)/,
+        `${service} must accept a remote host only when it is listed`,
+      );
+      assert.match(
+        schema,
+        /parseAllowedRemoteHosts/,
+        `${service} must parse the allowlist before it validates a target`,
+      );
+    }
+  });
+
+  test('no service offers a direct-access bypass', async () => {
+    // Every service must be reachable only through the API Gateway. A
+    // development bypass would mean a local run exercises an access path that
+    // production does not have, so the code must not contain one.
+    for (const service of SERVICES) {
+      const directory = resolve(process.cwd(), '..', service, 'src');
+      const files = await collectTypeScriptFiles(directory);
+      for (const file of files) {
+        const content = await readFile(file, 'utf8');
+        const relative = file.slice(directory.length + 1);
+        assert.doesNotMatch(
+          content,
+          /DIRECT_MFE_ACCESS/,
+          `${service}/src/${relative} must not offer a direct-access bypass`,
+        );
+        assert.doesNotMatch(
+          content,
+          /isDirectMfeAccess/,
+          `${service}/src/${relative} must not offer a direct-access bypass`,
+        );
       }
     }
   });
@@ -153,7 +229,7 @@ describe('environment configuration', () => {
       );
       assert.match(
         schema,
-        /assertLocalTarget/,
+        /assertAllowedTarget/,
         `${service} must refuse a remote target in development`,
       );
       assert.match(

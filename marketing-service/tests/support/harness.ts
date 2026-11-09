@@ -89,7 +89,6 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
     GATEWAY_SECRET: TEST_GATEWAY_SECRETS.marketing,
     DATABASE_URL: localDatabaseUrl('marketing'),
     API_GATEWAY_URL: localGatewayUrl(),
-    DIRECT_MFE_ACCESS: 'false',
     TAX_SYNC_SECRET: TEST_TAX_SYNC_SECRET,
     WORK_ORDER_SYNC_SECRET: TEST_WORK_ORDER_SYNC_SECRET,
     JWT_ISSUER: 'akura-auth',
@@ -101,7 +100,6 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
     GATEWAY_SECRET: TEST_GATEWAY_SECRETS.finance,
     DATABASE_URL: localDatabaseUrl('finance'),
     API_GATEWAY_URL: localGatewayUrl(),
-    DIRECT_MFE_ACCESS: 'false',
     TAX_SYNC_SECRET: TEST_TAX_SYNC_SECRET,
     // No delivery targets: a test run must never call a deployed service.
     TAX_DELIVERY_TARGETS: '[]',
@@ -114,7 +112,6 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
     GATEWAY_SECRET: TEST_GATEWAY_SECRETS.fieldservice,
     DATABASE_URL: localDatabaseUrl('fieldservice'),
     API_GATEWAY_URL: localGatewayUrl(),
-    DIRECT_MFE_ACCESS: 'false',
     WORK_ORDER_SYNC_SECRET: TEST_WORK_ORDER_SYNC_SECRET,
     JWT_ISSUER: 'akura-auth',
     JWT_AUDIENCE: 'akura-api',
@@ -127,7 +124,9 @@ export const SERVICE_ENV: Record<ServiceName, () => NodeJS.ProcessEnv> = {
  */
 export const assertServiceEnvIsLocal = (name: string, env: NodeJS.ProcessEnv): void => {
   assertLocalTestDatabase(env.DATABASE_URL ?? '', `${name}.DATABASE_URL`);
-  assertLocalServiceUrl(env.API_GATEWAY_URL ?? '', `${name}.API_GATEWAY_URL`);
+  // Only the services that call the gateway define API_GATEWAY_URL. The others
+  // (auth, app manager) must not be forced to carry one.
+  if (env.API_GATEWAY_URL) assertLocalServiceUrl(env.API_GATEWAY_URL, `${name}.API_GATEWAY_URL`);
   const targets = env.TAX_DELIVERY_TARGETS;
   if (targets && targets !== '[]') {
     for (const target of JSON.parse(targets) as Array<{ name: string; url: string }>) {

@@ -6,13 +6,31 @@ dotenv.config();
 /**
  * Refuses a development configuration that points at a remote system.
  *
- * The development environment must never reach a deployed database or a
- * deployed service. A remote target in a development `.env` is almost always
- * a copy/paste mistake, and it would let a local run modify real data.
+ * The development environment is hosted: the services run on Vercel and the
+ * databases live in a Neon development branch, so a local service legitimately
+ * calls remote targets. Only the hosts listed in DEV_ALLOWED_REMOTE_HOSTS are
+ * reachable, and the list is explicit per host: an unlisted host - a production
+ * branch, a production deployment, or a typo - is still refused.
  */
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
 
-const assertLocalTarget = (label: string, value: string, context: z.RefinementCtx): void => {
+/**
+ * The hosts this service may reach in development besides the local machine.
+ */
+const parseAllowedRemoteHosts = (value: string | undefined): ReadonlySet<string> =>
+  new Set(
+    (value ?? '')
+      .split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+const assertAllowedTarget = (
+  label: string,
+  value: string,
+  context: z.RefinementCtx,
+  allowedRemoteHosts: ReadonlySet<string>,
+): void => {
   let host: string;
   try {
     host = new URL(value.includes('://') ? value : `postgresql://${value}`).hostname;
@@ -21,13 +39,14 @@ const assertLocalTarget = (label: string, value: string, context: z.RefinementCt
     // the format separately.
     return;
   }
-  if (host && !LOCAL_HOSTS.includes(host)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `${label} must point at a local host in development, but it points at "${host}". `
-        + 'A development environment must never reach a deployed system.',
-    });
-  }
+  if (!host) return;
+  const normalized = host.toLowerCase();
+  if (LOCAL_HOSTS.includes(normalized) || allowedRemoteHosts.has(normalized)) return;
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: `${label} must point at a local host or a host listed in DEV_ALLOWED_REMOTE_HOSTS in development, but it points at "${host}". `
+      + 'A development environment must never reach an unlisted deployed system.',
+  });
 };
 
 const schema = z.object({
@@ -38,11 +57,10 @@ const schema = z.object({
   API_GATEWAY_URL: z.string({ required_error: 'API_GATEWAY_URL is required' })
     .url('API_GATEWAY_URL must be a valid URL')
     .transform((value) => value.replace(/\/$/, '')),
-  // Development-only opt-in: the local Marketing microfrontend may call this
-  // service directly (localhost:5003) without the x-gateway-secret header.
-  // JWT, profile, section/role and branch checks remain mandatory on every request.
-  DIRECT_MFE_ACCESS: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-  DIRECT_MFE_ORIGIN: z.string().url().default('http://localhost:4173'),
+  // Hosts this development run may reach besides the local machine. The hosted
+  // development environment (the Neon branch and the deployed services) is
+  // listed here by name, so an unlisted target is still refused at startup.
+  DEV_ALLOWED_REMOTE_HOSTS: z.string().default(''),
   TAX_SYNC_SECRET: z.string().min(32).optional(),
   WORK_ORDER_SYNC_SECRET: z.string().min(32).optional(),
   JWT_ISSUER: z.string().min(1).default('akura-auth'),
@@ -53,17 +71,14 @@ const schema = z.object({
   AWS_REGION: z.string().min(1).default('us-east-2'),
   AWS_S3_BUCKET: z.string().min(1).default('akura'),
 }).superRefine((value, context) => {
-  if (value.DIRECT_MFE_ACCESS && value.NODE_ENV !== 'development') {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['DIRECT_MFE_ACCESS'],
-      message: 'DIRECT_MFE_ACCESS is only allowed when NODE_ENV is development',
-    });
+  if (value.DEV_ALLOWED_REMOTE_HOSTS && value.NODE_ENV !== 'development') {
+    console.warn('[marketing-service] DEV_ALLOWED_REMOTE_HOSTS is ignored outside development.');
   }
   if (value.NODE_ENV !== 'development') return;
-  assertLocalTarget('DATABASE_URL', value.DATABASE_URL, context);
-  assertLocalTarget('API_GATEWAY_URL', value.API_GATEWAY_URL, context);
-  if (value.AWS_ENDPOINT_URL_S3) assertLocalTarget('AWS_ENDPOINT_URL_S3', value.AWS_ENDPOINT_URL_S3, context);
+  const allowedRemoteHosts = parseAllowedRemoteHosts(value.DEV_ALLOWED_REMOTE_HOSTS);
+  assertAllowedTarget('DATABASE_URL', value.DATABASE_URL, context, allowedRemoteHosts);
+  assertAllowedTarget('API_GATEWAY_URL', value.API_GATEWAY_URL, context, allowedRemoteHosts);
+  if (value.AWS_ENDPOINT_URL_S3) assertAllowedTarget('AWS_ENDPOINT_URL_S3', value.AWS_ENDPOINT_URL_S3, context, allowedRemoteHosts);
 });
 
 const result = schema.safeParse(process.env);

@@ -34,9 +34,6 @@ app.get('/health', (req: Request, res: Response) => {
 
 app.use(authenticate);
 app.use(routes);
-// Direct development access calls this service with the gateway-style
-// /fieldservice prefix; proxied requests have that prefix removed by gateway.
-app.use('/fieldservice', routes);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({

@@ -28,6 +28,7 @@ and "Consequences" sections are the best available reconstruction.
 | [0005](./ADR-0005-layered-service-credentials.md) | Layered service credentials | Accepted (reconstructed) |
 | [0006](./ADR-0006-audit-trail-per-service.md) | Per-service audit trail, and its fragmentation cost | Accepted (reconstructed) — **contains an open issue** |
 | [0007](./ADR-0007-replace-removed-project-map-documentation.md) | Replacing the removed `.project-map` documentation | Accepted (reconstructed) |
+| [0008](./ADR-0008-hosted-development-environment.md) | Hosted development environment (Vercel + Neon branch) | Accepted (reconstructed) |
 
 ## Format
 

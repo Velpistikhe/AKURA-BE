@@ -1,20 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env.js';
-import { isDirectMfeAccess } from '../utils/directAccess.js';
 
 export const verifyGatewaySecret = (req: Request, res: Response, next: NextFunction): void => {
-  const gatewaySecret = req.headers['x-gateway-secret'];
-  const isWorkOrderRoute = req.path === '/fieldservice'
-    || req.path.startsWith('/fieldservice/')
-    || req.path === '/work-orders'
-    || req.path.startsWith('/work-orders/');
-
-  if (gatewaySecret === undefined && isWorkOrderRoute && isDirectMfeAccess()) {
-    next();
-    return;
-  }
-
-  if (gatewaySecret !== env.GATEWAY_SECRET) {
+  // Every request must arrive through the API Gateway. The gateway injects the
+  // per-service secret on every proxied request, so a request that reaches the
+  // service directly - from a browser or from any other client - is refused.
+  if (req.headers['x-gateway-secret'] !== env.GATEWAY_SECRET) {
     res.status(403).json({
       status: 403,
       success: false,

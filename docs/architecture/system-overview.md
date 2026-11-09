@@ -49,9 +49,9 @@ must pass through the API Gateway"*:
 |---|---|
 | auth | `auth-service/src/middlewares/gateway.middleware.ts:4-18` |
 | app-manager | `app-manager-service/src/middlewares/gateway.middleware.ts` |
-| marketing | `marketing-service/src/middlewares/gateway.middleware.ts:5-22` |
-| finance | `finance-service/src/middlewares/gateway.middleware.ts:5-31` |
-| fieldservice | `fieldservice-service/src/middlewares/gateway.middleware.ts:5-22` |
+| marketing | `marketing-service/src/middlewares/gateway.middleware.ts` |
+| finance | `finance-service/src/middlewares/gateway.middleware.ts` |
+| fieldservice | `fieldservice-service/src/middlewares/gateway.middleware.ts` |
 
 ### 2.2 No direct service-to-service URLs
 

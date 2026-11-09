@@ -18,6 +18,33 @@ import {
 const TSX_CLI = 'node_modules/tsx/dist/cli.mjs';
 
 /**
+ * Removes the inherited targets that would point a test run at a hosted
+ * environment.
+ *
+ * The developer''s own .env is loaded into process.env by the service modules,
+ * so DATABASE_URL, API_GATEWAY_URL and DEV_ALLOWED_REMOTE_HOSTS can point at a
+ * Neon branch or a Vercel deployment. A test run must never inherit them: the
+ * suite only talks to the local PostgreSQL instance and the local test gateway.
+ */
+const INHERITED_TARGETS = ['DATABASE_URL', 'API_GATEWAY_URL', 'DEV_ALLOWED_REMOTE_HOSTS'] as const;
+
+const withoutInheritedTargets = (
+  base: NodeJS.ProcessEnv,
+  ...overrides: Array<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const key of INHERITED_TARGETS) delete env[key];
+  for (const override of overrides) {
+    if (!override) continue;
+    for (const [key, value] of Object.entries(override)) {
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
+  }
+  return env;
+};
+
+/**
  * Spawns a service or the gateway.
  *
  * `tsx` is invoked through its Node entry point rather than the .cmd shim,
@@ -54,7 +81,11 @@ export const startService = async (
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<ServiceProcess> => {
   const directory = serviceDirectory(service);
-  const env = { ...process.env, ...SERVICE_ENV[service](), ...extraEnv };
+  // The service environment is fully explicit: the suite must never inherit a
+  // DATABASE_URL or API_GATEWAY_URL from the developer's own .env, because that
+  // would point the run at a hosted environment. The inherited values are
+  // overridden with undefined so they cannot leak through.
+  const env = withoutInheritedTargets(process.env, SERVICE_ENV[service](), extraEnv);
   assertServiceEnvIsLocal(service, env);
 
   const child = spawnNode(['src/server.ts'], directory, env);
@@ -80,7 +111,8 @@ export const startService = async (
 export const startGateway = async (): Promise<ServiceProcess> => {
   const directory = gatewayDirectory();
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+
+
     PORT: String(TEST_PORTS.gateway),
     NODE_ENV: 'development',
     CORS_ORIGIN: '*',

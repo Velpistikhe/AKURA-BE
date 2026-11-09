@@ -78,9 +78,9 @@ prevent whole classes of misconfiguration:
 | `FINANCE`/`FIELDSERVICE` URL and secret must be **both** present or **both** absent | A half-configured service can never start (`api-gateway/src/config/env.ts:72-76`) |
 | No two gateway secrets may be equal | One service's secret cannot authenticate as another (`env.ts:84-90`) |
 | `CORS_ORIGIN` must not be `*` when `NODE_ENV=production` | Credentials + wildcard origins is rejected (`env.ts:62-68`) |
-| In development, service URLs must be `localhost` | A dev environment cannot accidentally call a production service |
+| In development, a remote target must be listed in `DEV_ALLOWED_REMOTE_HOSTS` | The hosted development environment (Neon branch + deployed services) is reachable by name; an unlisted host - a production branch or deployment - is still refused |
 | Sync secrets must be ≥ 32 characters | Weak shared secrets are rejected at startup |
-| `DIRECT_MFE_ACCESS` only settable in development | The gateway bypass cannot be enabled in production |
+| Every service refuses a request without its gateway secret | No service is reachable except through the API Gateway, in development as well as in production (`*/src/middlewares/gateway.middleware.ts`) |
 
 **This is a strong pattern.** The environment schema is the real deployment
 contract, and it is enforced by the process refusing to boot.
@@ -93,6 +93,7 @@ contract, and it is enforced by the process refusing to boot.
 |---|---|---|
 | `PORT` | all | Listen port |
 | `NODE_ENV` | all | `development` \| `production` \| `test` |
+| `DEV_ALLOWED_REMOTE_HOSTS` | all | Comma-separated hosts this development run may reach besides the local machine |
 | `DATABASE_URL` | 5 domain services | PostgreSQL connection string |
 | `API_GATEWAY_URL` | marketing, finance, fieldservice | Base URL for all outbound calls |
 | `AUTH_SERVICE_URL` | gateway | Auth service base URL |
@@ -112,7 +113,7 @@ contract, and it is enforced by the process refusing to boot.
 | `JWT_REFRESH_IDLE_TIMEOUT_MINUTES` | auth | Refresh token idle limit |
 | `CORS_ORIGIN` | gateway, marketing, finance, fieldservice | Allowed browser origins |
 | `RATE_LIMIT_*`, `AUTH_RATE_LIMIT_*` | gateway | Rate limiting |
-| `DIRECT_MFE_ACCESS`, `DIRECT_MFE_ORIGIN` | marketing, finance, fieldservice | Local microfrontend bypass |
+
 | `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | marketing | Quotation PDF storage |
 | `TAX_DELIVERY_TARGETS` | finance | JSON array of `{name, url}` delivery targets |
 | `LOG_LEVEL` | all | Log verbosity |
@@ -338,7 +339,6 @@ runbook**, which does not exist in this repository.
 - [ ] `TAX_SYNC_SECRET` identical to Finance's
 - [ ] `WORK_ORDER_SYNC_SECRET` identical to Field Service's
 - [ ] S3 credentials and bucket configured; the 15-minute presigned URL policy confirmed acceptable
-- [ ] `DIRECT_MFE_ACCESS` left `false` in production
 
 ### 7.5 Finance
 
@@ -348,7 +348,6 @@ runbook**, which does not exist in this repository.
 ### 7.6 Field Service
 
 - [ ] `WORK_ORDER_SYNC_SECRET` identical to Marketing's
-- [ ] `DIRECT_MFE_ACCESS` left `false` in production
 
 ### 7.7 Cross-cutting
 

@@ -35,10 +35,6 @@ app.get('/health', (req: Request, res: Response) => {
 
 app.use(authenticate);
 app.use(routes);
-// The local Finance microfrontend in direct development access calls this
-// service with the gateway-style /finance prefix (the gateway strips it for
-// proxied requests, so both mounts resolve to the same router).
-app.use('/finance', routes);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({

@@ -12,6 +12,7 @@ import {
   type SeededUser,
 } from './support/fixtures.js';
 import { httpRequest, syntheticName } from './support/http.js';
+import { TEST_PORTS } from './support/env.js';
 import { ensureDatabases } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
 import type { ServiceProcess } from './support/harness.js';
@@ -125,6 +126,21 @@ describe('marketing-service functional baseline', () => {
     assert.ok(
       !listData.staffs.some((row) => row.id === staffData.id),
       'a deactivated staff member must not be listed',
+    );
+  });
+
+  test('AUTHORIZATION: a request that bypasses the gateway is rejected with 403', async () => {
+    // The service is reachable only through the API Gateway. A direct call -
+    // even with a valid access token - carries no gateway secret and must be
+    // refused, in development as well as in production.
+    const direct = await httpRequest(`http://127.0.0.1:${TEST_PORTS.marketing}${COMPANIES}`, {
+      token: admin.accessToken,
+    });
+    assert.equal(direct.status, 403, JSON.stringify(direct.body));
+    assert.match(
+      (direct.body as { message: string }).message,
+      /must pass through the API Gateway/,
+      'a direct request must be told to go through the gateway',
     );
   });
 
