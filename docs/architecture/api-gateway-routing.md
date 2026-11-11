@@ -244,6 +244,11 @@ mid-stream failure does not attempt to write a second response body
 
 **VERIFIED** — the gateway authors a complete OpenAPI 3 document in
 `api-gateway/src/docs/` and serves it at `/api-docs` and `/api-docs.json`.
+The published spec version is **2.8.2**. The `info.description` and downstream
+health operation descriptions document **hybrid local development**: auth via
+the deployed gateway, module APIs on `localhost:5002`–`5005`, approved Neon
+and gateway hosts without `DEV_ALLOWED_REMOTE_HOSTS` on the four domain
+services, and Bearer tokens echoed from login / `GET /api/v1/auth/me`.
 
 | File | Size | Contents |
 |---|---|---|
@@ -290,6 +295,17 @@ the per-flow sync secret (`tax.ts:55`, `quotation.ts:198-200`).
 table.** The gateway documents paths that individual services implement
 directly (e.g. `/api/v1/auth/users/{userId}` is a real Auth route), but it is
 the single published contract for the platform.
+
+### Hybrid local development in the contract
+
+Paths stay prefixed with `/api/v1/<service>` because that is how clients call
+the **gateway**. In hybrid mode the microfrontend instead calls the **local**
+service on its `PORT` using the **suffix path only** (what the gateway would
+forward after `pathRewrite`), for example `GET http://localhost:5003/companies`
+rather than `GET /api/v1/marketing/companies` on the gateway host. Auth
+endpoints remain on the deployed gateway (`/api/v1/auth/*`). Environment startup
+rules and approved remote hosts are described in OpenAPI `info.description` and
+in [`deployment-architecture.md`](./deployment-architecture.md#43-hybrid-local-development-neon--deployed-gateway).
 
 **UNKNOWN** — whether the published contract is intentionally complete was not
 established from the repository. The previous `.project-map/api-endpoints.md`

@@ -46,6 +46,14 @@ headers from the verified token, and only on routes where `authRequired: true`.
 against `env.GATEWAY_SECRET` and returns 403 with *"Access denied: requests
 must pass through the API Gateway"*.
 
+**Development exception (four domain services only)** — App Manager, Marketing,
+Finance, and Field Service allow direct browser access when
+`NODE_ENV === 'development'` and the process is not hosted on Vercel
+(`allowsLocalDirectAccess` in `*/src/utils/localDirectAccess.ts`). Public routes
+accept a Bearer token without `x-gateway-secret`; `/internal/*` remains
+gateway-only. Auth Service does not use this exception. Documented in OpenAPI
+**2.8.2** `info.description` and [`authentication-flow.md`](../authentication-flow.md#8-the-gateway-is-the-entry-point).
+
 **The path allowlist** — each service's `src/utils/serviceUrl.ts` validates
 the target path against a per-service prefix regex and rejects `..` and `://`:
 
@@ -55,7 +63,7 @@ the target path against a per-service prefix regex and rejects `..` and `://`:
 | marketing | `auth`, `marketing`, `fieldservice`, `finance` |
 | finance | `auth`, `marketing`, `finance`, `fieldservice` |
 | fieldservice | `auth`, `marketing`, `finance` |
-| app-manager | *(no outbound calls)* |
+| app-manager | *(no `serviceUrl.ts`; outbound `GET auth/me` via `API_GATEWAY_URL` for direct local authorization)* |
 
 ## Consequences
 
@@ -66,7 +74,8 @@ the target path against a per-service prefix regex and rejects `..` and `://`:
 - One public origin, so CORS and cookie policy are configured once.
 - Services can be moved to a different host without touching callers.
 - The gateway secret provides a defence in depth that is independent of JWT
-  validity — even a valid token cannot reach a service directly.
+  validity — even a valid token cannot reach a service directly in production
+  (and on Vercel in every environment).
 
 **Negative**
 
@@ -92,6 +101,7 @@ the target path against a per-service prefix regex and rejects `..` and `://`:
 |---|---|
 | Header stripping and re-injection | `api-gateway/src/routes/proxy.routes.ts:32-46` |
 | Gateway secret verification | `*/src/middlewares/gateway.middleware.ts` |
+| Local direct access (development) | `*/src/utils/localDirectAccess.ts` |
 | Path allowlists | `*/src/utils/serviceUrl.ts` |
 | Unique-secret startup check | `api-gateway/src/config/env.ts:84-90` |
 | Internal route `POST`-only + caller guard | `api-gateway/src/routes/proxy.routes.ts:10-18` |

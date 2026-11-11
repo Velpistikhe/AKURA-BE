@@ -76,13 +76,43 @@ export const openApiDocument = groupByModule({
   openapi: '3.0.3',
   info: {
     title: 'Akura API Gateway',
-    version: '2.7.0',
-    description: 'HTTP API for the Akura gateway, authentication, application management, and marketing services. Every documented downstream endpoint is accessed through this Gateway in production; opted-in local Marketing, Finance and Field Service microfrontends may call their own service directly during development with a valid Bearer token. Any request carrying the target-specific internal gateway secret must still present the correct secret. Frontends must send login, refresh and all API requests to the same gateway host unless using the documented local direct-service development mode. Internal service requests also use the gateway.',
+    version: '2.8.2',
+    description: [
+      'HTTP API for the Akura gateway, authentication, application management, marketing, finance, and field service.',
+      '',
+      'Production: every documented downstream endpoint is reached through this Gateway. Auth and login always use the Gateway.',
+      '',
+      'Local direct-service development: while NODE_ENV is development and the service process is not hosted on Vercel, App Manager, Marketing, Finance, and Field Service accept browser calls directly on their local PORT with a valid Bearer token (no x-gateway-secret). Paths under /internal stay gateway-only in every environment. Login, refresh, JWKS, and GET /api/v1/auth/me still go to the deployed Gateway; the microfrontend must send Authorization: Bearer because cookies on the Gateway host do not reach localhost.',
+      '',
+      'Hybrid data and auth targets: a locally running domain service may use DATABASE_URL on a Neon development branch (*.neon.tech) and API_GATEWAY_URL=https://akura-api-gateway.vercel.app without DEV_ALLOWED_REMOTE_HOSTS; startup refuses any other remote host. The API Gateway and Auth Service still require explicit DEV_ALLOWED_REMOTE_HOSTS for their outbound targets.',
+      '',
+      'Internal service-to-service calls always use the Gateway with the correct service credentials.',
+    ].join('\n'),
   },
   servers: [
     {
       url: '/',
-      description: 'Current API Gateway host',
+      description: 'Current API Gateway host (production and deployed development)',
+    },
+    {
+      url: 'http://localhost:5000',
+      description: 'Local API Gateway (full local stack)',
+    },
+    {
+      url: 'http://localhost:5002',
+      description: 'Hybrid: local App Manager (call paths without /api/v1/app-manager; Bearer required)',
+    },
+    {
+      url: 'http://localhost:5003',
+      description: 'Hybrid: local Marketing (call paths without /api/v1/marketing; Bearer required)',
+    },
+    {
+      url: 'http://localhost:5004',
+      description: 'Hybrid: local Finance (call paths without /api/v1/finance; Bearer required)',
+    },
+    {
+      url: 'http://localhost:5005',
+      description: 'Hybrid: local Field Service (call paths without /api/v1/fieldservice; Bearer required)',
     },
   ],
   tags: [],
@@ -1384,7 +1414,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['App Manager'],
         summary: 'Check App Manager Service health through Gateway',
-        description: 'Requires a valid access token at the Gateway. The Gateway injects the App Manager-specific internal secret.',
+        description: 'Production: requires a valid access token at the Gateway; the Gateway injects the App Manager-specific internal secret. Local direct-service development: GET http://localhost:5002/health on a process not hosted on Vercel is accepted without a gateway secret or token.',
         security: protectedSecurity,
         responses: {
           200: response('App Manager Service is healthy', schemaRef('DownstreamHealthResponse')),
@@ -1398,7 +1428,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['Marketing'],
         summary: 'Check Marketing Service health through Gateway',
-        description: 'Requires a valid access token at the Gateway. The Gateway injects the Marketing-specific internal secret.',
+        description: 'Production: requires a valid access token at the Gateway; the Gateway injects the Marketing-specific internal secret. Local direct-service development: GET http://localhost:5003/health on a process not hosted on Vercel is accepted without a gateway secret or token.',
         security: protectedSecurity,
         responses: {
           200: response('Marketing Service is healthy', schemaRef('DownstreamHealthResponse')),
@@ -1412,7 +1442,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['Finance'],
         summary: 'Check Finance Service health through Gateway',
-        description: 'Requires a valid access token at the Gateway. The Gateway injects the Finance-specific internal secret.',
+        description: 'Production: requires a valid access token at the Gateway; the Gateway injects the Finance-specific internal secret. Local direct-service development: GET http://localhost:5004/health on a process not hosted on Vercel is accepted without a gateway secret or token.',
         security: protectedSecurity,
         responses: {
           200: response('Finance Service is healthy', schemaRef('DownstreamHealthResponse')),
@@ -1426,7 +1456,7 @@ export const openApiDocument = groupByModule({
       get: {
         tags: ['Field Service'],
         summary: 'Check Field Service health through Gateway',
-        description: 'Requires a valid access token at the Gateway. The Gateway injects the Field Service-specific internal secret.',
+        description: 'Production: requires a valid access token at the Gateway; the Gateway injects the Field Service-specific internal secret. Local direct-service development: GET http://localhost:5005/health on a process not hosted on Vercel is accepted without a gateway secret or token.',
         security: protectedSecurity,
         responses: {
           200: response('Field Service is healthy', schemaRef('DownstreamHealthResponse')),

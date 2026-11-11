@@ -78,9 +78,9 @@ prevent whole classes of misconfiguration:
 | `FINANCE`/`FIELDSERVICE` URL and secret must be **both** present or **both** absent | A half-configured service can never start (`api-gateway/src/config/env.ts:72-76`) |
 | No two gateway secrets may be equal | One service's secret cannot authenticate as another (`env.ts:84-90`) |
 | `CORS_ORIGIN` must not be `*` when `NODE_ENV=production` | Credentials + wildcard origins is rejected (`env.ts:62-68`) |
-| In development, a remote target must be listed in `DEV_ALLOWED_REMOTE_HOSTS` | The hosted development environment (Neon branch + deployed services) is reachable by name; an unlisted host - a production branch or deployment - is still refused |
+| In development, a remote target must be approved | The four domain services accept a local host, a Neon development host (`*.neon.tech`), and the deployed Gateway (`akura-api-gateway.vercel.app`); the Gateway and Auth Service accept only a host listed in `DEV_ALLOWED_REMOTE_HOSTS`. Any other host - a production branch, a production deployment, a typo - is still refused |
 | Sync secrets must be ≥ 32 characters | Weak shared secrets are rejected at startup |
-| Every service refuses a request without its gateway secret | No service is reachable except through the API Gateway, in development as well as in production (`*/src/middlewares/gateway.middleware.ts`) |
+| Gateway secret on every request in production | Deployed services and Auth require `x-gateway-secret`. Local development may call the four domain services directly with a Bearer token when not on Vercel; `/internal/*` and Auth stay gateway-only (`*/src/middlewares/gateway.middleware.ts`, `*/src/utils/localDirectAccess.ts`) |
 
 **This is a strong pattern.** The environment schema is the real deployment
 contract, and it is enforced by the process refusing to boot.
@@ -93,9 +93,9 @@ contract, and it is enforced by the process refusing to boot.
 |---|---|---|
 | `PORT` | all | Listen port |
 | `NODE_ENV` | all | `development` \| `production` \| `test` |
-| `DEV_ALLOWED_REMOTE_HOSTS` | all | Comma-separated hosts this development run may reach besides the local machine |
+| `DEV_ALLOWED_REMOTE_HOSTS` | gateway, auth | Comma-separated hosts this development run may reach besides the local machine; the four domain services do not read it and approve the Neon development branch and the deployed Gateway by a fixed policy |
 | `DATABASE_URL` | 5 domain services | PostgreSQL connection string |
-| `API_GATEWAY_URL` | marketing, finance, fieldservice | Base URL for all outbound calls |
+| `API_GATEWAY_URL` | app-manager, marketing, finance, fieldservice | Base URL for all outbound calls |
 | `AUTH_SERVICE_URL` | gateway | Auth service base URL |
 | `AUTH_JWKS_URL` | gateway, marketing, finance, fieldservice | JWKS endpoint |
 | `APP_MANAGER_SERVICE_URL` | gateway | App Manager base URL |
@@ -166,10 +166,12 @@ other S3-compatible stores; nothing in the repository identifies which is used.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**VERIFIED** — the local microfrontend is expected at `http://localhost:4173`
-(`marketing-service/src/config/env.ts:44`).
+**Note:** the microfrontend is not in this repository. In hybrid development the
+client calls the **deployed Gateway** for login and token APIs, and the **local
+domain service** on `localhost:5002`–`5005` for module APIs (see
+`api-gateway/src/docs/openapi.ts` `info.description`).
 
-### 4.1 Starting locally
+### 4.1 Starting locally (full stack)
 
 Each service is independent:
 
@@ -207,6 +209,24 @@ process** if a database URL does not point at `localhost`/`127.0.0.1` with the
 
 The guard runs before any service module is imported, so an unsafe
 `DATABASE_URL` can never reach a Prisma client.
+
+### 4.3 Hybrid local development (Neon + deployed Gateway)
+
+**VERIFIED** — one domain service on the developer machine, shared hosted auth
+and data (`docs/architecture/authentication-flow.md` §8.1, ADR-0008).
+
+| Piece | Typical value |
+|---|---|
+| Service process | `npm run dev` in app-manager, marketing, finance, or fieldservice |
+| `NODE_ENV` | `development` |
+| `DATABASE_URL` | Neon development branch (`*.neon.tech`) |
+| `API_GATEWAY_URL` | `https://akura-api-gateway.vercel.app` |
+| `DEV_ALLOWED_REMOTE_HOSTS` | **not used** on the four domain services — approved hosts are fixed in `src/config/env.ts` |
+| Browser auth | Login/refresh/JWKS/`/auth/me` → deployed Gateway |
+| Browser module API | `http://localhost:5002`–`5005` + `Authorization: Bearer` |
+| Gateway secrets | Local `GATEWAY_SECRET` must match the deployed gateway's `*_GATEWAY_SECRET` for outbound `auth/me` calls |
+
+Copy from each service's `.env.example`; hybrid lines are documented there.
 
 ---
 

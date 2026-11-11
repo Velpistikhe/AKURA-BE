@@ -32,6 +32,19 @@ graph TB
         DD[("PostgreSQL @ localhost:5432<br/>akura_auth, akura_app_manager,<br/>akura_marketing, akura_finance,<br/>akura_fieldservice")]
     end
 
+    subgraph Hybrid["Hybrid Local Development - VERIFIED<br/>one domain service locally, hosted auth + Neon data"]
+        direction TB
+        H0["local domain service<br/>:5002 app-manager / :5003 marketing<br/>:5004 finance / :5005 fieldservice<br/>direct browser access with Bearer token"]
+        HG["deployed api-gateway<br/>akura-api-gateway.vercel.app<br/>auth + integration entry point"]
+        HN[("Neon development branch<br/>*.neon.tech")]
+        HC["microfrontend<br/>not in this repository"]
+        HC -->|"login / refresh / JWKS / auth-me"| HG
+        HC -->|"module APIs + Authorization: Bearer"| H0
+        H0 -->|"GET auth/me, JWKS"| HG
+        H0 -->|"DATABASE_URL"| HN
+        HG -->|"x-gateway-secret"| H0
+    end
+
     P1 -.->|"gateway secrets,<br/>JWT issuer/audience"| P2
     P1 -.-> P3
     P1 -.-> P4
@@ -48,5 +61,7 @@ graph TB
 
     classDef prod fill:#ffebee,stroke:#c62828,stroke-width:1px
     classDef dev fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px
+    classDef hybrid fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
     class P1,P2,P3,P4,P5,P6,PD,PS3 prod
     class D0,D1,D2,D3,D4,D5,DD dev
+    class H0,HG,HN,HC hybrid

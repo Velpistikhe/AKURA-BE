@@ -47,6 +47,9 @@ across `docs/architecture/`.
 - **Diagram 8 mixes certainty levels deliberately.** The local topology is
   verified from configuration; the production topology is not established by
   anything in this repository.
+- **Diagram 8 also shows the hybrid local topology**: one domain service on the
+  developer machine, the deployed Gateway for auth, and a Neon development
+  branch for data. That path is verified from `*/src/config/env.ts`.
 
 ## Keeping diagrams accurate
 

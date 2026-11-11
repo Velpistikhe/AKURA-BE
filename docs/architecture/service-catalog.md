@@ -110,7 +110,8 @@ or a base64 environment variable; the local file
 | Modules | `menu/` (menus, menu-items, menu-accesses), `reference/office-branch/`, `audit-trail/` |
 | Public endpoints | `GET/POST /menus`, `GET/PATCH/DELETE /menus/:menuId`, `GET /menus/my-menus`, `GET/POST /menu-items`, `GET/PATCH/DELETE /menu-items/:menuItemId`, `GET/POST /menu-accesses`, `GET/PATCH/DELETE /menu-accesses/:menuAccessId`, `GET/POST /office-branches`, `GET/PATCH/DELETE /office-branches/:officeBranchId`, `GET /office-branches/options`, `GET /audit-trail`, `GET /audit-trail/entity/:entityId` |
 | Authorization | `requireAppManager` — reads identity from the gateway's `X-User-*` headers only (`src/middlewares/authorize.middleware.ts:35-53`) |
-| Outbound calls | **None** |
+| Outbound calls | `GET auth/me` through `API_GATEWAY_URL` when a request arrives without gateway headers (`authorize.middleware.ts`) |
+| Local development | Direct browser access on `http://localhost:5002` with Bearer token (`localDirectAccess.ts`); `/internal/*` stays gateway-only |
 | Special | Has a hand-written SQL migration: `prisma/sql/0001_single_head_office_branch.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), enforcing the single-head-branch invariant with a partial unique index that Prisma cannot express |
 
 **Note:** this service does **not** verify JWTs itself. It trusts the
@@ -130,9 +131,9 @@ See [`authentication-flow.md`](./authentication-flow.md#4-two-authorization-mode
 | Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
 | Special | The only service with a test suite. Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
 
-**Dual mount**: routes are mounted at both `/` and `/marketing` so the local
-microfrontend can call the service directly in development
-(`src/app.ts:31-36`).
+**Local development**: routes mount at `/`; the microfrontend calls
+`http://localhost:5003` with `Authorization: Bearer` (paths match what the
+gateway forwards after stripping `/api/v1/marketing`). See OpenAPI `info.description`.
 
 ### 3.5 Finance Service
 
@@ -146,6 +147,7 @@ microfrontend can call the service directly in development
 | Outbound calls | `GET auth/me`, `GET auth/.well-known/jwks.json`, and the async tax delivery POST |
 | Key config | `TAX_DELIVERY_TARGETS` (JSON array of `{name, url}`), `TAX_SYNC_SECRET`, |
 | Special | `TAX_DELIVERY_TARGETS` URLs are validated at startup to equal the configured gateway URL — a tax snapshot can only be delivered through the gateway (`src/modules/taxes/tax-delivery.ts:22`) |
+| Local development | Direct browser access on `http://localhost:5004` with Bearer token |
 
 Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 `MARKETING` (`src/middlewares/actor.middleware.ts:18`).
@@ -162,13 +164,14 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 | Outbound calls | `GET auth/me`, `GET marketing/quotation-references*`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
 | Key config | `WORK_ORDER_SYNC_SECRET`, |
 | Special | `requireWorkOrderReferenceActor` admits sections MARKETING, FIELD_SERVICE, FINANCE, ACCOUNTING for read-only reference access; `requireActor` for mutations admits only MARKETING and FIELD_SERVICE (`src/middlewares/actor.middleware.ts:22-23`). Has a hand-written SQL migration: `prisma/sql/0001_drop_work_order_inspector_user_id.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), dropping the inspector user ID column |
+| Local development | Direct browser access on `http://localhost:5005` with Bearer token |
 
 ---
 
 ## 4. Endpoint index by service
 
 **VERIFIED** — assembled from the gateway's OpenAPI source
-(`api-gateway/src/docs/*.ts`). The gateway documents **98 path definitions**
+(`api-gateway/src/docs/*.ts`, spec version **2.8.2**). The gateway documents **98 path definitions**
 across 7 files, with **no duplicate path keys** between files (verified by
 extracting every path key and grouping).
 

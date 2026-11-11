@@ -19,7 +19,7 @@ Legend: **●** = hard runtime dependency · **—** = none
 |---|---|---|---|---|---|---|
 | **api-gateway** | — | ● | ● | ● | ● | ● |
 | **auth** | ● | — | — | — | — | — |
-| **app-manager** | — | — | — | — | — | — |
+| **app-manager** | — | ● | — | — | — | — |
 | **marketing** | ● | ● | — | — | — | ● |
 | **finance** | ● | ● | — | — | — | — |
 | **fieldservice** | ● | ● | — | ● | — | — |
@@ -37,8 +37,9 @@ all five domain services.
 - **finance → marketing**: asynchronous tax snapshot delivery.
 - **marketing, finance, fieldservice → auth**: synchronous live-profile reads
   (`GET auth/me`), plus JWKS reads.
-- **app-manager → (nothing)**: it is a leaf. It reads no other service and
-  publishes nothing.
+- **app-manager → auth**: synchronous live-profile read (`GET auth/me`) when a
+  request arrives without the gateway's identity headers, i.e. on a direct
+  local call in hybrid development.
 
 ---
 
@@ -125,13 +126,16 @@ This is the **live profile check**: it catches a user whose account was
 deactivated, whose branch assignment changed, or whose section changed since
 the token was issued.
 
-### 2.7 app-manager → (none)
+### 2.7 app-manager → auth (live profile check)
 
-**VERIFIED** by search: `app-manager-service/src` contains no `API_GATEWAY_URL`
-reference, no `serviceUrl` helper, and no `fetch(` call.
+**VERIFIED** — `app-manager-service/src/middlewares/authorize.middleware.ts`
+resolves the caller with `GET {API_GATEWAY_URL}/api/v1/auth/me` when a request
+arrives without the gateway's `X-User-*` headers, which is the case for a
+direct local call in hybrid development. The call goes through the gateway, so
+App Manager holds no other service's address.
 
-App Manager is a pure leaf. It exposes reference data and an audit-trail API,
-and it depends on nobody.
+App Manager is otherwise a leaf: it exposes reference data and an audit-trail
+API and depends on nobody else.
 
 ---
 
@@ -192,7 +196,7 @@ why an outbox was chosen over a broker on the asynchronous legs.
 | marketing | 3 | 3 (gateway, auth, fieldservice) |
 | fieldservice | 5 | 3 (gateway, auth, marketing) |
 | finance | 2 | 2 (gateway, marketing via tax delivery) |
-| app-manager | 0 | 1 (gateway only) |
+| app-manager | 1 (auth) | 1 (gateway only) |
 
 ---
 

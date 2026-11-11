@@ -319,43 +319,42 @@ length mismatch. This is the correct pattern.
 
 ---
 
-## 8. The gateway is the only entry point
+## 8. The gateway is the entry point
 
 **VERIFIED** - `*/src/middlewares/gateway.middleware.ts`.
 
-Every service refuses a request that does not carry its own gateway secret:
+In **production** and on **Vercel**, every service refuses a request that does
+not carry its own gateway secret. **Auth Service** keeps that rule even in
+local development.
 
-```ts
-export const verifyGatewaySecret = (req: Request, res: Response, next: NextFunction): void => {
-  if (req.headers['x-gateway-secret'] !== env.GATEWAY_SECRET) {
-    res.status(403).json({ status: 403, success: false, message: 'Access denied: requests must pass through the API Gateway', /* ... */ });
-    return;
-  }
-  next();
-};
-```
+**App Manager, Marketing, Finance, and Field Service** add a narrow development
+exception (`allowsLocalDirectAccess` in `*/src/utils/localDirectAccess.ts`): when
+`NODE_ENV === 'development'` and `VERCEL !== '1'`, a browser may call the service
+on its local `PORT` without `x-gateway-secret`, provided the route is not under
+`/internal`. The service then validates the Bearer token itself (JWKS via
+`API_GATEWAY_URL`) or calls `GET /api/v1/auth/me` through the gateway for
+authorization. Paths under `/internal` stay gateway-only in every environment.
 
-The check is **unconditional**. There is no development bypass, no
-environment flag that relaxes it, and no loopback exception: a request that
-reaches a service directly - from a browser, from a microfrontend, or from any
-other client - is rejected with **403**, in development exactly as in
-production.
+| Mode | Auth Service | Domain services (app-manager, marketing, finance, fieldservice) |
+|---|---|---|
+| Production / Vercel | Gateway secret required | Gateway secret required |
+| Local development | Gateway secret required | Public routes: Bearer token only; `/internal/*`: gateway secret required |
 
-Three consequences follow from the single rule:
+Three consequences still hold for **production** and for **auth traffic**:
 
 | Consequence | Detail |
 |---|---|
-| **The browser always talks to the gateway** | The gateway is the public edge and owns the origin policy (`CORS_ORIGIN`). A service therefore has no browser origin of its own to allow: its CORS callback accepts any origin, and the gateway decides which origins are served. |
-| **The identity headers are always the gateway's** | The gateway rebuilds `X-User-*` from the verified token and strips any the client sent (`proxy.routes.ts:38-63`). Because a request can only arrive through the gateway, a service never reconstructs those headers itself, and a forged `x-user-id` never reaches it. |
-| **The service prefixes do not exist** | The gateway strips the `/api/v1/<service>` prefix before proxying, so the services mount their routes at the root only. There is no `/marketing`, `/finance`, or `/fieldservice` mount. |
+| **Login and token issuance use the gateway** | The browser authenticates against the gateway host; access and refresh cookies are scoped to that host. |
+| **Gateway-proxied calls carry gateway identity headers** | The gateway rebuilds `X-User-*` from the verified token and strips any the client sent (`proxy.routes.ts:38-63`). App Manager still prefers those headers when a request arrives through the gateway. |
+| **Service URL prefixes are stripped at the gateway** | The gateway removes `/api/v1/<service>` before proxying; services mount business routes at `/`. In hybrid development the microfrontend calls the same route paths on `localhost:5002`–`5005` (without the gateway prefix). |
 
-**The assertion is covered by a test.** A direct call to a running service,
-carrying a valid access token but no gateway secret, must be rejected with
-403 (`marketing-service/tests/01-functional-baseline.test.ts`).
+**Covered by tests** (`marketing-service/tests/01-functional-baseline.test.ts`):
+a direct local call with a valid Bearer token is accepted; a direct call to
+`/internal/*` without the gateway secret is rejected with **403**.
 
 ### 8.1 Hybrid development access
 
-**VERIFIED** - `marketing-service/src/config/env.ts`.
+**VERIFIED** - `app-manager-service/src/config/env.ts`, `marketing-service/src/config/env.ts`, `finance-service/src/config/env.ts`, `fieldservice-service/src/config/env.ts`.
 
 The hosted development environment runs the services on Vercel and the
 databases in a Neon development branch, while a developer runs a single
@@ -364,8 +363,8 @@ a **remote** database, and both are reached over the public internet.
 
 | Requirement | Detail |
 |---|---|
-| `DEV_ALLOWED_REMOTE_HOSTS` | The development guard refuses any remote host that is not listed by name. The Neon branch host and the deployed gateway host are listed, so the local service may reach them; any other host - a production branch, a production deployment, a typo - is still refused at startup (`env.ts:28-50`). |
-| The gateway stays the entry point | The local service is a *callee*, not an edge: the browser keeps calling the deployed gateway, and the deployed gateway calls the deployed services. |
+| Approved remote targets | The development guard refuses any remote host that is not approved. The four domain services (App Manager, Marketing, Finance, Field Service) approve a local host, a Neon development host (`*.neon.tech`), and the deployed Gateway (`akura-api-gateway.vercel.app`) by a fixed policy, so no extra environment variable is needed; the Gateway and Auth Service instead accept only a host listed in `DEV_ALLOWED_REMOTE_HOSTS`. Any other host - a production branch, a production deployment, a typo - is still refused at startup (`*/src/config/env.ts`). |
+| The gateway stays the auth edge | Login, refresh, JWKS, and `/auth/me` use the deployed gateway. The microfrontend may call the **local** domain service for module APIs (`localhost:5002`–`5005`) with `Authorization: Bearer`. |
 | Bearer token | A cookie set on the deployed gateway's domain never reaches `localhost`. The microfrontend must send `Authorization: Bearer <accessToken>`; the login response returns it in `data.accessToken`, and `GET /api/v1/auth/me` echoes it back so a page reload can restore the session (`auth.controller.ts:46`, `auth.controller.ts:94`). |
 
 **The service credentials still have to match.** A service calls `GET auth/me`

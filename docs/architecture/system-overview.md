@@ -27,10 +27,11 @@ names:
 | `fieldservice-service` | "Field Service microservice for Akura" |
 
 **UNKNOWN** — the client-facing frontend is **not present in this repository**.
-It is referenced throughout the code as the "microfrontend" (MFE), and local
-development assumes it runs on `http://localhost:4173`
-(`marketing-service/src/config/env.ts:44`, `fieldservice-service/src/config/env.ts:43`).
-Its location, framework, and deployment are unverified.
+It is referenced throughout the code as the "microfrontend" (MFE). Local
+modules typically call the gateway for auth and the matching service on
+`localhost:5002`–`5005` during development (see OpenAPI `info.description` in
+`api-gateway/src/docs/openapi.ts`). Its location, framework, and deployment are
+unverified.
 
 ---
 
@@ -38,12 +39,16 @@ Its location, framework, and deployment are unverified.
 
 ### 2.1 Gateway-as-edge
 
-A single API Gateway is the only public entry point. Every domain service
-independently rejects any request that does not carry its gateway secret.
+A single API Gateway is the public entry point for **authentication** and for
+**production** API traffic. Deployed domain services and Auth reject requests
+without the correct `x-gateway-secret`. In **local development** (not on
+Vercel), App Manager, Marketing, Finance, and Field Service also accept browser
+calls directly on their `PORT` with a valid Bearer token; Auth and `/internal`
+routes stay gateway-only.
 
-**VERIFIED** — `verifyGatewaySecret` compares `x-gateway-secret` against
-`env.GATEWAY_SECRET` and returns 403 with the message *"Access denied: requests
-must pass through the API Gateway"*:
+**VERIFIED** — `verifyGatewaySecret` in `*/src/middlewares/gateway.middleware.ts`,
+with `allowsLocalDirectAccess` in `*/src/utils/localDirectAccess.ts` for the
+four domain services:
 
 | Service | File |
 |---|---|
@@ -64,7 +69,7 @@ allowlist and rejects traversal.
 | Service | Allowed path prefixes | Source |
 |---|---|---|
 | auth | `auth`, `marketing`, `fieldservice` | `auth-service/src/utils/serviceUrl.ts:4` |
-| app-manager | *(no `serviceUrl.ts` — makes no outbound service calls)* | verified by search: no `API_GATEWAY_URL` / `fetch(` in `app-manager-service/src` |
+| app-manager | `auth` (via `fetch` to `{API_GATEWAY_URL}/api/v1/auth/me` on direct local requests) | `app-manager-service/src/middlewares/authorize.middleware.ts` |
 | marketing | `auth`, `marketing`, `fieldservice`, `finance` | `marketing-service/src/utils/serviceUrl.ts:4` |
 | finance | `auth`, `marketing`, `finance`, `fieldservice` | `finance-service/src/utils/serviceUrl.ts:4` |
 | fieldservice | `auth`, `marketing`, `finance` | `fieldservice-service/src/utils/serviceUrl.ts:4` |
@@ -161,7 +166,10 @@ The platform's single edge. **VERIFIED** responsibilities:
 - **Audit trail API** — `GET /api/v1/app-manager/audit-trail`
   (`src/modules/audit-trail/`). See the fragmentation conflict documented in
   [ADR-0006](./adr/ADR-0006-audit-trail-per-service.md).
-- Makes **no outbound service calls** — verified by search. It is a leaf.
+- Makes **no outbound service calls** on gateway-proxied requests — it trusts
+  the gateway's identity headers. On a **direct local call** (hybrid
+  development) it resolves the caller with `GET {API_GATEWAY_URL}/api/v1/auth/me`
+  (`src/middlewares/authorize.middleware.ts`).
 
 ### Marketing Service — `marketing-service` (port 5003)
 
@@ -267,7 +275,7 @@ Two properties of this flow are worth naming explicitly:
 | Cross-cutting concern handling | **VERIFIED** — duplicated per service by convention, not shared code | identical middleware files per service |
 | Shared library | **NONE** — no shared package, no monorepo | no root `package.json` |
 | Observability | **PARTIAL** — structured `winston` logs and `x-request-id` propagation; **no metrics/tracing** | `src/utils/logger.ts` |
-| API contract | **VERIFIED** — OpenAPI 3 spec served at the gateway, 102 path definitions | `api-gateway/src/docs/` |
+| API contract | **VERIFIED** — OpenAPI 3.0.3 spec **2.8.2** at `/api-docs`, 98 path definitions; documents hybrid local development in `info.description` | `api-gateway/src/docs/` |
 | Automated tests | **VERIFIED** — 11-file reliability suite in `marketing-service/tests/` | `marketing-service/package.json:14-16` |
 | CI/CD | **UNKNOWN** — no workflow file in the repository | no `.github/`, no CI config |
 | Containerization | **NONE** — no Dockerfile or compose file | verified by search |

@@ -1,5 +1,5 @@
 const modules = [
-  ['Gateway', 'Gateway diagnostics and API documentation.'],
+  ['Gateway', 'Gateway diagnostics, OpenAPI/Swagger, and the documented hybrid local direct-service development mode (see the API info description).'],
   ['Authentication', 'Login, registration, sessions, and signing keys.'],
   ['Profile', 'Current user profile and password.'],
   ['User Management', 'User administration.'],

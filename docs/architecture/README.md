@@ -53,11 +53,11 @@ matches the task.
 | [`system-overview.md`](./system-overview.md) | What is this platform, what pattern does it use, what is each service responsible for? | First read; any high-level question. |
 | [`service-catalog.md`](./service-catalog.md) | What does service X own? Ports, stack, modules, database, endpoints. | You need the specifics of one service. |
 | [`service-dependencies.md`](./service-dependencies.md) | Who depends on whom, in which direction, and how tightly? | You are changing a call path or adding a dependency. |
-| [`api-gateway-routing.md`](./api-gateway-routing.md) | Which prefix routes where, what headers are added or stripped, what is the documented API surface? | You add or change an endpoint. |
+| [`api-gateway-routing.md`](./api-gateway-routing.md) | Which prefix routes where, what headers are added or stripped, OpenAPI **2.8.2** and hybrid local usage? | You add or change an endpoint. |
 | [`authentication-flow.md`](./authentication-flow.md) | How are tokens issued, verified, and propagated? Where is authorization enforced? | You touch login, tokens, roles, or permissions. |
 | [`database-and-data-ownership.md`](./database-and-data-ownership.md) | Which service owns which table? Where do read models live? | You add a table, a field, or a cross-service query. |
 | [`integration-and-event-flow.md`](./integration-and-event-flow.md) | How do services talk to each other synchronously and asynchronously? How are retries and idempotency handled? | You add or modify an integration. |
-| [`deployment-architecture.md`](./deployment-architecture.md) | How is it deployed? What is verified vs. unknown about production? | You touch deployment, configuration, or environment variables. |
+| [`deployment-architecture.md`](./deployment-architecture.md) | How is it deployed? Full local vs hybrid (Neon + gateway, §4.3)? | You touch deployment, configuration, or environment variables. |
 | [`diagrams/`](./diagrams/README.md) | Visual maps of all of the above. | You want orientation before reading prose. |
 | [`adr/`](./adr/README.md) | Why is the architecture shaped this way? What decisions were made, and what is still open? | You want rationale, or you are considering a structural change. |
 
