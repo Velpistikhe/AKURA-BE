@@ -15,7 +15,24 @@ const envelope = (data: object) => ({ type: 'object', properties: { status: { ty
 // Create never accepts status; the server stores DRAFT, and DRAFT -> IN_PROGRESS only via POST /{id}/start.
 // Create requires at least one inspector name; PATCH keeps the same display-name array contract.
 const { status: _createStatus, ..._patchFields } = fields;
-const createFields = { ..._patchFields, endDate: { ...date, description: 'Optional for contract basis; required for quotation basis. Null is rejected on creation.' }, inspectors: { ...inspectorNames, minItems: 1, description: 'Inspector names in display order. At least one inspector is required for every creation, quotation or contract basis. The names are stored on the Work Order and are the only inspector reference it keeps. Case-insensitive duplicates are rejected. The Work Order is always created with status DRAFT.' }, items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId','quantityInspection','quantityMaintenance'], properties: { itemSizeId: uuid, quantityInspection:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001}, quantityMaintenance:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001} } } } };
+const workOrderHeaderCreateFields = {
+  companyId: { ...uuid, description: 'Company reference. Required on the company-based create (POST /work-orders) and validated live against Marketing GET /api/v1/marketing/companies/{companyId}: an unknown, revoked or other-branch company returns 404.' },
+  subject: { type: 'string', minLength: 1, maxLength: 255, description: 'Work order subject. Required on the company-based create; optional on the quotation-based create (defaults from the quotation subject).' },
+  officialReport: { type: 'boolean', description: 'Whether an official report is required. Required on the company-based create; defaults to false on the quotation-based create.' },
+  dailyReport: { ...date, description: 'Daily report schedule date. Required on the company-based create; defaults to startDate on the quotation-based create.' },
+  officialReportDelivery: { ...date, description: 'Official report delivery date. Required on the company-based create; defaults to startDate on the quotation-based create.' },
+  dailyReportDelivery: { ...date, description: 'Daily report delivery date. Required on the company-based create; defaults to startDate on the quotation-based create.' },
+  poNumber: { type: 'string', minLength: 1, maxLength: 100, description: 'Customer PO number. Required on the company-based create; defaults to Pending on the quotation-based create.' },
+  poDate: { ...date, description: 'Customer PO date. Required on the company-based create; defaults to startDate on the quotation-based create.' },
+};
+const createFields = { ..._patchFields, ...workOrderHeaderCreateFields, endDate: { ...date, description: 'Optional for contract basis; required for quotation basis. Null is rejected on creation.' }, inspectors: { ...inspectorNames, minItems: 1, description: 'Inspector names in display order. At least one inspector is required for every creation, quotation or contract basis. The names are stored on the Work Order and are the only inspector reference it keeps. Case-insensitive duplicates are rejected. The Work Order is always created with status DRAFT.' }, items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId','quantityInspection','quantityMaintenance'], properties: { itemSizeId: uuid, quantityInspection:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001}, quantityMaintenance:{type:'number',minimum:0,maximum:999999999999.999,multipleOf:0.001} } } } };
+// The company-based create never accepts a quotation: the quotation basis has
+// its own endpoint, so the field is removed from this request schema.
+const { quotationId: _quotationIdCreate, ...companyCreateFields } = createFields;
+// The quotation-based create never accepts a company or a contract: the server
+// fills the company from the quotation snapshot and the quotation is the only
+// document basis, so both fields are removed from its request schema.
+const { companyId: _companyIdHeader, contractId: _contractIdHeader, ...quotationCreateFields } = createFields;
 const { inspectors: _listInspectors, startDate: _listStartDate, endDate: _listEndDate, ..._listBaseFields } = fields;
 const workOrderListRowFields = { ..._listBaseFields, startDate: date, endDate: { ...date, nullable: true } };
 export const workOrderSchemas = {
@@ -33,12 +50,16 @@ export const workOrderSchemas = {
   WorkOrderLookupResponse: envelope({ type: 'object', nullable: true, required: ['id', 'quotationId', 'officeBranchId', 'revoked', 'number', 'status', 'version'], properties: {
     id: uuid, quotationId: uuid, officeBranchId: uuid, revoked: { type: 'boolean' }, number: { type: 'string' }, status, version,
   } }),
-  WorkOrderCreate: { type: 'object', additionalProperties: false, required: ['startDate', 'inspectors', 'items'], anyOf: [{ required: ['quotationId'] }, { required: ['contractId'] }], properties: createFields,
-    example: { quotationId: '00000000-0000-4000-8000-000000000001', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: [
-      'Budi Santoso',
-      'Agus Wijaya',
-    ], items: [{ itemSizeId:'00000000-0000-4000-8000-000000000002', quantityInspection:1,quantityMaintenance:0 }] },
-    description: 'Creates a Work Order with status DRAFT. Every item contains only itemSizeId, quantityInspection and quantityMaintenance. When quotationId is supplied, Field Service fetches the approved quotation from Marketing, validates its branch and builds each WorkOrderItem.item from the quotation description/scopes; the other bases resolve the item size from Marketing. Client-supplied descriptions are rejected. At least one inspector name is required; the names are stored on the Work Order and identify the inspectors.' },
+  WorkOrderCreate: { type: 'object', additionalProperties: false,
+    required: ['companyId', 'subject', 'officialReport', 'dailyReport', 'officialReportDelivery', 'dailyReportDelivery', 'poNumber', 'poDate', 'startDate', 'inspectors', 'items'],
+    properties: companyCreateFields,
+    example: { companyId: '00000000-0000-4000-8000-000000000004', subject: 'Site inspection', officialReport: true, dailyReport: '2026-09-15', officialReportDelivery: '2026-09-20', dailyReportDelivery: '2026-09-18', poNumber: 'PO-2026-001', poDate: '2026-09-01', startDate: '2026-09-15', endDate: '2026-09-20', inspectors: ['Budi Santoso'], items: [{ itemSizeId:'00000000-0000-4000-8000-000000000002', quantityInspection:1,quantityMaintenance:0 }] },
+    description: 'Creates a Work Order with status DRAFT from a company, not from a Marketing quotation. Requires section MARKETING and role ADMIN or USER. The company is validated live against Marketing GET /api/v1/marketing/companies/{companyId}: an unknown, revoked or other-branch company returns 404 and Marketing unavailability returns 503. Every header field (companyId, subject, officialReport, dailyReport, officialReportDelivery, dailyReportDelivery, poNumber, poDate) is required. An optional contractId is validated against the Marketing contract reference. Every item contains only itemSizeId, quantityInspection and quantityMaintenance; the item description is read from the Marketing item-size reference.' },
+  WorkOrderCreateFromQuotation: { type: 'object', additionalProperties: false,
+    required: ['quotationId', 'startDate', 'endDate', 'inspectors', 'items'],
+    properties: { ...quotationCreateFields, quotationId: uuid },
+    example: { quotationId: '00000000-0000-4000-8000-000000000005', startDate: '2026-09-15', endDate: '2026-09-20', inspectors: ['Budi Santoso'], items: [{ itemSizeId:'00000000-0000-4000-8000-000000000002', quantityInspection:1,quantityMaintenance:0 }] },
+    description: 'Creates a Work Order with status DRAFT from an approved Marketing quotation. Requires section MARKETING and role ADMIN or USER. The quotation is validated live against Marketing GET /api/v1/marketing/quotation-references/{quotationId}: an unknown, inactive, non-APPROVED or other-branch quotation returns 404 or 409 and Marketing unavailability returns 503. The companyId is never accepted from the client; it is read from the company snapshot of the quotation response. The header fields subject, officialReport, dailyReport, officialReportDelivery, dailyReportDelivery, poNumber and poDate are optional and default to the quotation values (officialReport false, the report dates and poDate to startDate, poNumber Pending). Every item must belong to the quotation; its description comes from the live quotation line.' },
   WorkOrderUpdate: { type: 'object', additionalProperties: false, required: ['version'], minProperties: 2, properties: { ...fields, version } },
   WorkOrderDelete: { type: 'object', additionalProperties: false, required: ['version'], properties: { version } },
   WorkOrderStart: {
@@ -81,6 +102,14 @@ export const workOrderSchemas = {
     date: { ...timestamp, readOnly: true, description: 'Current Asia/Jakarta calendar day, serialized as UTC midnight.' },
     startDate: timestamp, endDate: { ...timestamp, nullable: true },
     contractId: { ...uuid, nullable: true, readOnly: true },
+    companyId: { ...uuid, readOnly: true, description: 'Company identifier stored on the work order; not cross-validated against Marketing yet.' },
+    subject: { type: 'string', readOnly: true },
+    officialReport: { type: 'boolean', readOnly: true },
+    dailyReport: { ...date, readOnly: true },
+    officialReportDelivery: { ...date, readOnly: true },
+    dailyReportDelivery: { ...date, readOnly: true },
+    poNumber: { type: 'string', readOnly: true },
+    poDate: { ...date, readOnly: true },
     contractSnapshot: { type: 'object', nullable: true, readOnly: true, allOf: [ref('WorkOrderContractSnapshot')], description: 'Reduced contract JSON captured when the Work Order referenced the contract; the contract version lives inside this snapshot.' },
     quotationSnapshot: { type: 'object', nullable: true, readOnly: true, allOf: [ref('WorkOrderQuotationSnapshot')], description: 'Reduced quotation JSON captured when the Work Order referenced the quotation; it holds no price.' },
     revoked: { type: 'boolean', readOnly: true }, version,
@@ -177,7 +206,10 @@ export const workOrderPaths = {
   },
   '/api/v1/fieldservice/work-orders': {
     get: operation('List Work Order', 'WorkOrderList', [query('page', { type: 'integer', minimum: 1, maximum: 1000000, default: 1 }), query('limit', { type: 'integer', minimum: 1, maximum: 100, default: 20 }), query('status', status), query('quotationId', uuid), query('contractId', uuid), query('revoked', { type: 'boolean', default: false }), query('search', { type: 'string', maxLength: 100 })]),
-    post: {...operation('Create Work Order', 'WorkOrderResponse', [], 'WorkOrderCreate', 201), description: 'Requires actor section MARKETING, including ADMIN and APP_MANAGER actors. Other sections are rejected with 403. ' + operation('Create Work Order', 'WorkOrderResponse', [], 'WorkOrderCreate', 201).description},
+    post: {...operation('Create Work Order from a company', 'WorkOrderResponse', [], 'WorkOrderCreate', 201), description: 'Creates a Work Order that is not derived from a Marketing quotation. Requires section MARKETING and role ADMIN or USER only (APP_MANAGER and FIELD_SERVICE are rejected with 403). The companyId is validated live against Marketing GET /api/v1/marketing/companies/{companyId}; an unknown, revoked or other-branch company returns 404 and Marketing unavailability returns 503. All header fields (companyId, subject, officialReport, dailyReport, officialReportDelivery, dailyReportDelivery, poNumber, poDate) are required. Use POST /api/v1/fieldservice/work-orders/from-quotation to create a Work Order from a Marketing quotation.'},
+  },
+  '/api/v1/fieldservice/work-orders/from-quotation': {
+    post: {...operation('Create Work Order from an approved quotation', 'WorkOrderResponse', [], 'WorkOrderCreateFromQuotation', 201), description: 'Creates a Work Order from an approved Marketing quotation. Requires section MARKETING and role ADMIN or USER only (APP_MANAGER and FIELD_SERVICE are rejected with 403). The quotation is validated live against Marketing GET /api/v1/marketing/quotation-references/{quotationId}; an unknown, inactive, non-APPROVED or other-branch quotation returns 404 or 409 and Marketing unavailability returns 503. The companyId is never accepted from the client: it is filled from the company snapshot of the quotation response. The header fields are optional and default to the quotation values. A quotation may back only one live Work Order per branch; a second creation for the same quotation returns 409. After the Work Order is written, Field Service notifies Marketing of the quotation link within the same transaction; a failed notification rolls the creation back and returns 503, so the quotation and the Work Order never disagree.'},
   },
   '/api/v1/fieldservice/work-orders/{id}': {
     get: operation('Get Work Order', 'WorkOrderResponse', [id]),

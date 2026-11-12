@@ -22,13 +22,16 @@ export const servicesConfig: ServiceRouteConfig[] = [
     description: 'Internal Finance tax delivery to Marketing',
   },
   {
-    prefix: '/api/v1/marketing/internal/work-orders/events',
+    prefix: '/api/v1/marketing/internal/quotations',
     target: env.MARKETING_SERVICE_URL,
     gatewaySecret: env.MARKETING_SERVICE_GATEWAY_SECRET,
     authRequired: false,
     internalCaller: 'fieldservice-service',
-    pathRewrite: { '^/': '/internal/work-orders/events' },
-    description: 'Internal Field Service Work Order link-state delivery to Marketing',
+    // Express removes the entire mounted prefix before invoking the proxy, so
+    // only the quotation id and the work-order segment are left. They are put
+    // back on the internal quotation path.
+    pathRewrite: { '^/': '/internal/quotations' },
+    description: 'Internal Field Service Work Order link delivery to Marketing',
   },
   {
     prefix: '/api/v1/auth',

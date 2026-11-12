@@ -228,23 +228,19 @@ A single request demonstrates how the pieces fit. Full detail in
 
 ```
 Client
-  │  POST /api/v1/marketing/quotations/{id}/work-orders
+  │  POST /api/v1/fieldservice/work-orders/from-quotation
   │  Authorization: Bearer <access token>
   ▼
 API Gateway
   │  authRateLimiter → authenticateServiceCaller → authenticateJwt (remote JWKS)
   │  strips inbound X-User-*, injects its own, adds x-gateway-secret
   ▼
-Marketing Service
-  │  verifyGatewaySecret → authenticate (local JWKS) → requireMarketingAccess
-  │  → GET auth/me via Gateway → re-check live profile, section, branch
-  │  → POST fieldservice/work-orders via Gateway (Bearer token forwarded)
-  ▼
 Field Service
   │  verifyGatewaySecret → authenticate → requireActor (GET auth/me)
+  │  → requireMarketingAdminOrUser (section MARKETING, role ADMIN or USER)
   │  → GET marketing/quotation-references/{id} via Gateway (snapshot basis)
   │  → persist Work Order
-  │  → POST marketing/internal/work-orders/events (synchronous, in-transaction)
+  │  → POST marketing/internal/quotations/{id}/work-order (synchronous, in-transaction)
   ▼
 Marketing Service
      attachWorkOrder(quotation, workOrder)  ← same DB transaction as the audit entry
@@ -255,10 +251,11 @@ Two properties of this flow are worth naming explicitly:
 - **Fail-closed on upstream errors.** A timeout or 5xx from an upstream service
   becomes a `503`, never a silent `false`. See
   `marketing-service/src/modules/quotations/work-order.integration.ts:43-53`.
-- **Compensating action on partial failure.** If Marketing creates the Work
-  Order but then fails to persist the link, it revokes the Work Order before
-  reporting the failure
-  (`marketing-service/src/modules/quotations/quotation.controller.ts:178-183`).
+- **No cross-service transaction boundary.** The quotation link is written by
+  Marketing inside the callback that Field Service makes from within its own
+  transaction. A failed callback rolls the Work Order back, so the two
+  services can never disagree
+  (`fieldservice-service/src/modules/work-orders/work-order.repository.ts:342-346`).
 
 ---
 

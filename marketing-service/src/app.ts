@@ -9,7 +9,7 @@ import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import { corsOrigin } from './utils/corsOrigin.js';
 import routes from './routes/index.js';
 import taxEvents from './modules/taxes/tax-events.routes.js';
-import workOrderEvents from './modules/quotations/work-order-events.routes.js';
+import workOrderLink from './modules/quotations/work-order-link.routes.js';
 
 const app: Express = express();
 app.use(helmet());
@@ -20,7 +20,7 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(taxEvents);
-app.use(workOrderEvents);
+app.use(workOrderLink);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 200, success: true, message: 'Marketing Service is healthy', data: { service: 'marketing-service', timestamp: new Date().toISOString(), uptime: process.uptime() }, requestId: req.headers['x-request-id'] });

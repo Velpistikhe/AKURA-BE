@@ -300,7 +300,7 @@ authorization middleware (`marketing-service/src/middlewares/authorize.middlewar
 |---|---|---|
 | 1. Caller → gateway | `x-service-name` + `x-service-secret`, timing-safe compare | `api-gateway/src/middlewares/serviceCaller.middleware.ts:29-52` |
 | 2. Gateway → service | `x-gateway-secret` injected by the proxy, verified by the service | `*/src/middlewares/gateway.middleware.ts` |
-| 3. Service → service (events) | A per-flow shared secret in a dedicated header, timing-safe compare | `marketing-service/src/modules/taxes/tax-events.routes.ts`, `.../work-order-events.routes.ts` |
+| 3. Service → service (events) | A per-flow shared secret in a dedicated header, timing-safe compare | `marketing-service/src/modules/taxes/tax-events.routes.ts`, `.../work-order-link.routes.ts` |
 
 Per-flow secrets:
 

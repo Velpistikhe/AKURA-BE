@@ -192,15 +192,15 @@ export async function loadQuotationForStart(req: Request, id: string, branch: st
 export async function notifyMarketingWorkOrderStatus(workOrder: { id: string; number: string; status: string; quotationId: string | null; officeBranchId: string; revoked?: boolean }, req: Request): Promise<void> {
   if (!workOrder.quotationId) return;
   if (!env.WORK_ORDER_SYNC_SECRET) throw new HttpError('Work Order callback credentials are not configured', 503);
-  const callbackPath = 'marketing/internal/work-orders/events';
+  const callbackPath = `marketing/internal/quotations/${workOrder.quotationId}/work-order`;
   let response: globalThis.Response;
   try {
     response = await fetch(serviceUrl(callbackPath), {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
       headers: { 'content-type': 'application/json', 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET,
         ...serviceHeaders(callbackPath), ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
-      body: JSON.stringify({ workOrderId: workOrder.id, quotationId: workOrder.quotationId, officeBranchId: workOrder.officeBranchId,
-        revoked: workOrder.revoked === true, workOrderSnapshot: workOrder }),
+      body: JSON.stringify({ workOrderId: workOrder.id, workOrderNumber: workOrder.number, workOrderStatus: workOrder.status,
+        officeBranchId: workOrder.officeBranchId, revoked: workOrder.revoked === true }),
     });
   } catch { throw new HttpError('Marketing Service is unavailable; Work Order status change was not applied', 503); }
   if (!response.ok) {
@@ -211,6 +211,24 @@ export async function notifyMarketingWorkOrderStatus(workOrder: { id: string; nu
   if (acknowledgment?.success !== true || acknowledgment.workOrderId !== workOrder.id) {
     throw new HttpError('Invalid acknowledgment from Marketing Service; Work Order status change was not applied', 502);
   }
+}
+
+const companySchema = z.object({
+  id: z.string().uuid(),
+  officeBranchId: z.string().uuid(),
+  name: z.string().min(1),
+  revoked: z.boolean(),
+}).passthrough();
+export type CompanySnapshot = z.infer<typeof companySchema>;
+
+/** Live company profile from Marketing; only non-revoked companies in the caller branch are accepted. */
+export async function loadCompany(req: Request, companyId: string, branch: string): Promise<CompanySnapshot> {
+  const parsed = companySchema.safeParse(await gatewayGet(`marketing/companies/${companyId}`, req));
+  if (!parsed.success) throw new HttpError('Invalid company response', 502);
+  const company = parsed.data;
+  if (company.id !== companyId || company.officeBranchId !== branch) throw new HttpError('Company not found', 404);
+  if (company.revoked) throw new HttpError('Company is not active', 409);
+  return company;
 }
 
 export async function loadQuotationForBasis(req: Request, id: string, branch: string): Promise<QuotationSnapshot> {

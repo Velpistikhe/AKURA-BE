@@ -61,28 +61,30 @@ snapshots to Marketing and Field Service through an outbox; that replication is
 gone. Auth now only serves the profile and the directory, and the consumers
 *pull* what they need.
 
-### 2.3 marketing ↔ fieldservice (the only bidirectional pair)
+### 2.3 marketing → fieldservice (read-only lookup)
 
-**VERIFIED** — `marketing-service/src/modules/quotations/work-order.integration.ts`
-and `quotation.controller.ts:133-190`.
+**VERIFIED** — `marketing-service/src/modules/quotations/work-order.integration.ts`.
 
 | Direction | Call | Purpose |
 |---|---|---|
-| Marketing → Field Service | `POST fieldservice/work-orders` | Create a Work Order from an approved quotation |
-| Marketing → Field Service | `DELETE fieldservice/work-orders/:id` | Compensating revoke when Marketing fails to persist the link |
 | Marketing → Field Service | `GET fieldservice/work-orders/by-quotation/:id` | Check whether a live Work Order already backs a quotation |
+
+The Work Order is **not** created through Marketing. The client creates it
+directly on Field Service (`POST /api/v1/fieldservice/work-orders/from-quotation`),
+and Field Service resolves the quotation through the Marketing quotation
+reference and notifies Marketing of the new link. Marketing only reads back the
+live Work Order state before a quotation revision or deletion, so the remaining
+call is read-only and fail-closed.
+
+### 2.4 fieldservice → marketing (quotation basis and link callback)
+
+**VERIFIED** — `fieldservice-service/src/integrations/gateway.ts:181-203`.
+
+| Direction | Call | Purpose |
+|---|---|---|
 | Field Service → Marketing | `GET marketing/quotation-references/:id` | Live quotation basis for a Work Order |
 | Field Service → Marketing | `GET marketing/contract-references/:id` | Live contract basis |
 | Field Service → Marketing | `GET marketing/item-size-references/:id` | Catalog identity for an item size |
-
-This is also the tightest coupling: Marketing and Field Service must agree on
-quotation identity, branch ownership, and work-order status semantics. Both
-directions are guarded by the same shared secret (`WORK_ORDER_SYNC_SECRET`)
-and both are fail-closed.
-
-### 2.4 fieldservice → marketing (async callback)
-
-**VERIFIED** — `fieldservice-service/src/integrations/gateway.ts:181-203`.
 
 `notifyMarketingWorkOrderStatus` is called from within the Work Order
 repository's write path, so a Work Order status change is only committed if
@@ -92,9 +94,14 @@ Marketing accepts it:
 > the two services remain consistent."*
 > — `fieldservice-service/src/integrations/gateway.ts:176-180`
 
+The same callback also carries the **new link** when a quotation-based Work
+Order is created, so the quotation records its Work Order reference in the same
+transaction that creates the Work Order. A failed callback rolls the creation
+back.
+
 This is a **synchronous** call dressed as an event endpoint. It uses the
-`/internal/work-orders/events` path and the `x-work-order-sync-secret` header,
-but it is not an outbox delivery.
+`/internal/quotations/{quotationId}/work-order` path and the
+`x-work-order-sync-secret` header, but it is not an outbox delivery.
 
 ### 2.5 finance → marketing (async)
 

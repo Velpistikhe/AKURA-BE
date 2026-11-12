@@ -2,8 +2,8 @@
  * EVENT SYNCHRONISATION - idempotency and version guards.
  *
  * The internal event endpoints of marketing-service receive deliveries from
- * finance-service (tax cache) and fieldservice-service (Work Order link
- * state). Each endpoint must be idempotent and must never apply an outdated
+ * finance-service (tax cache) and fieldservice-service (Work Order link of a
+ * quotation). Each endpoint must be idempotent and must never apply an outdated
  * event.
  *
  * The user directory is no longer replicated and is no longer read over the

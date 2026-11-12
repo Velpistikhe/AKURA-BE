@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { Actor, requireActor, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingAdminOrUser, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus } from '../../integrations/gateway.js';
+import { loadCompany, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus } from '../../integrations/gateway.js';
 import { workOrderRepository as repository } from './work-order.repository.js';
-import { createWorkOrderSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
+import { createWorkOrderByCompanySchema, createWorkOrderByQuotationSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null };
 // The payload carries IDs only. Quotation and contract content is fetched live from
 // Marketing and validated (branch, APPROVED state, contract effective period) before
@@ -32,13 +32,26 @@ router.get('/:id/history', asyncHandler(async (req, res) => {
   send(req, res, await repository.history(workOrderIdSchema.parse(req.params.id), page, limit, actor(res)));
 }));
 router.get('/:id', asyncHandler(async (req, res) => { send(req, res, await repository.get(workOrderIdSchema.parse(req.params.id), actor(res))); }));
-router.post('/', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
-  const input = createWorkOrderSchema.parse(req.body);
-  const quotation = await resolveBasis(req, input, actor(res).officeBranchId);
-  const itemSnapshots = !input.quotationId
-    ? await Promise.all(input.items.map(async item => ({ ...item, snapshot: await loadItemSizeReference(req, item.itemSizeId) })))
-    : undefined;
-  send(req, res, await repository.create(input, quotation, actor(res), itemSnapshots), 201);
+// Company basis: the Work Order is not derived from a Marketing quotation. The
+// company is validated live against Marketing, so an unknown, revoked or
+// other-branch company is rejected before anything is stored.
+router.post('/', requireMarketingAdminOrUser, asyncHandler(async (req, res) => {
+  const input = createWorkOrderByCompanySchema.parse(req.body);
+  const branch = actor(res).officeBranchId;
+  const company = await loadCompany(req, input.companyId, branch);
+  const contract = input.contractId ? await loadContract(req, input.contractId, branch) : null;
+  const itemSnapshots = await Promise.all(input.items.map(async item => ({ ...item, snapshot: await loadItemSizeReference(req, item.itemSizeId) })));
+  send(req, res, await repository.createByCompany(input, company, actor(res), contract, itemSnapshots), 201);
+}));
+// Quotation basis: the Work Order is derived from an approved Marketing
+// quotation. The company is never taken from the client; it is read from the
+// quotation company snapshot returned by Marketing.
+router.post('/from-quotation', requireMarketingAdminOrUser, asyncHandler(async (req, res) => {
+  const input = createWorkOrderByQuotationSchema.parse(req.body);
+  const quotation = await loadQuotationForBasis(req, input.quotationId, actor(res).officeBranchId);
+  // Marketing records the quotation link inside the same transaction that
+  // creates the Work Order, so a failed callback rolls the Work Order back.
+  send(req, res, await repository.createByQuotation(input, quotation, actor(res), row => notifyMarketingWorkOrderStatus(row, req)), 201);
 }));
 router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id);

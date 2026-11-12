@@ -30,11 +30,6 @@ const discountText = z.string()
   .refine(value => Number(value) <= 100, 'Discount must be between 0 and 100');
 const discountValue = z.union([discountText, z.number().finite().nonnegative().transform(String).pipe(discountText)]);
 const note = z.string().trim().max(5000).nullable().optional();
-// Forwarded verbatim to Field Service, which stores the inspector display
-// names on the Work Order. The names are the only inspector reference a Work
-// Order keeps, so they must be unique.
-const inspectors = z.array(z.string().trim().min(1).max(255)).min(1, 'At least one inspector is required').max(100)
-  .refine(rows => new Set(rows.map(row => row.toLowerCase())).size === rows.length, 'Inspector names must be unique');
 const itemFields = {
   id: z.string().uuid().optional(), itemSizeId: z.string().uuid(),
   note,
@@ -64,21 +59,6 @@ const fields = {
 export const createQuotationSchema = z.object(fields).strict()
   .refine(value => !!value.staffId, 'Staff is required')
   .refine((value) => value.items.every((row) => !row.id), 'New quotation items cannot supply IDs');
-const isoDate = z.string().date();
-// Work Order lines from an approved quotation: the client only selects which
-// quotation items become Work Order lines. Quantities always come from the
-// quotation itself, so clients cannot submit or override them; a size outside
-// the quotation is rejected by the controller.
-export const createWorkOrderFromQuotationSchema = z.object({
-  quotationId: z.string().uuid(),
-  startDate: isoDate,
-  endDate: isoDate,
-  inspectors: inspectors,
-  items: z.array(z.object({ itemSizeId: z.string().uuid() }).strict()).min(1, 'At least one quotation item is required').max(100)
-    .refine(rows => new Set(rows.map(row => row.itemSizeId)).size === rows.length, 'Each quotation item may be selected only once'),
-}).strict()
-  .refine(value => value.endDate >= value.startDate, 'endDate must be on or after startDate');
-export type CreateWorkOrderFromQuotationInput = z.infer<typeof createWorkOrderFromQuotationSchema>;
 export const deactivateQuotationSchema = z.object({ version: z.number().int().nonnegative().max(2147483646) }).strict();
 export const approveQuotationSchema = deactivateQuotationSchema;
 export const submitQuotationSchema = deactivateQuotationSchema;

@@ -30,7 +30,7 @@ The two flows:
 | Producer | Consumer | Endpoint | Secret |
 |---|---|---|---|
 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` |
-| fieldservice | marketing | `POST /api/v1/marketing/internal/work-orders/events` | `x-work-order-sync-secret` (synchronous callback, see below) |
+| fieldservice | marketing | `POST /api/v1/marketing/internal/quotations/{quotationId}/work-order` | `x-work-order-sync-secret` (synchronous callback, see below) |
 
 The user directory is deliberately **not** replicated. Auth is the source of
 truth, and no service reads it over the network: the directory lookups have
@@ -63,9 +63,10 @@ execution safe.
 
 ### One deliberate exception
 
-The Work Order link-state callback (`POST
-/api/v1/marketing/internal/work-orders/events`) is **not** an outbox delivery.
-It is a synchronous call made from inside the Field Service write path:
+The Work Order link callback (`POST
+/api/v1/marketing/internal/quotations/{quotationId}/work-order`) is **not** an
+outbox delivery. It is a synchronous call made from inside the Field Service
+write path:
 
 > *"It is synchronous so any failure aborts the Field Service transaction and
 > the two services remain consistent."*

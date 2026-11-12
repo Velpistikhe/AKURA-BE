@@ -2,10 +2,10 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/db.js';
 import { Actor } from '../../middlewares/actor.middleware.js';
-import { QuotationSnapshot, ContractSnapshot, ItemSizeReference, validateContract, toQuotationSnapshot, toContractSnapshot, toWorkOrderItemSnapshot } from '../../integrations/gateway.js';
+import { QuotationSnapshot, ContractSnapshot, ItemSizeReference, CompanySnapshot, validateContract, toQuotationSnapshot, toContractSnapshot, toWorkOrderItemSnapshot } from '../../integrations/gateway.js';
 import { recordAudit } from '../../utils/audit.js';
 import { HttpError } from '../../utils/httpError.js';
-import { CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
+import { CreateWorkOrderByCompanyInput, CreateWorkOrderByQuotationInput, CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
 const include = { inspectors: { orderBy: { position: 'asc' as const } }, items: true };
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
@@ -14,6 +14,9 @@ const historyLabels: Record<string, string> = {
   number: 'Work order number', date: 'Document date', quotationId: 'Quotation',
   quotationSnapshot: 'Quotation snapshot', contractId: 'Contract',
   contractSnapshot: 'Contract snapshot', items: 'Items', startDate: 'Start date', endDate: 'End date',
+  companyId: 'Company', subject: 'Subject', officialReport: 'Official report',
+  dailyReport: 'Daily report', officialReportDelivery: 'Official report delivery',
+  dailyReportDelivery: 'Daily report delivery', poNumber: 'PO number', poDate: 'PO date',
   status: 'Status', revoked: 'Revoked', inspectors: 'Inspectors',
 };
 const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', START: 'Work order started', REVOKE: 'Work order deleted' };
@@ -83,14 +86,81 @@ function reference(input: { quotationId?: string | null; contractId?: string | n
     if (!quote || quote.id !== input.quotationId || quote.officeBranchId !== actor.officeBranchId || !quote.isActive || quote.status !== 'APPROVED') throw new HttpError('An APPROVED quotation in this branch is required', 409);
     return { ...cleared, quotationId: quote.id, quotationSnapshot: json(toQuotationSnapshot(quote)) };
   }
+  return contractBasis(input.contractId, source, actor);
+}
+
+/**
+ * Contract basis of the company-based creation. The contract is optional there:
+ * a Work Order can be created for a company without any contract, so a missing
+ * contractId simply clears the contract columns instead of failing.
+ */
+function contractBasis(contractId: string | null | undefined, source: QuotationSnapshot | ContractSnapshot | null, actor: Actor) {
+  const cleared = { quotationId: null, quotationSnapshot: Prisma.DbNull, contractId: null, contractSnapshot: Prisma.DbNull };
+  if (!contractId) return cleared;
   const contract = source as ContractSnapshot | null;
-  if (!contract || contract.id !== input.contractId
+  if (!contract || contract.id !== contractId
     || contract.company?.id !== contract.companyId || contract.company?.officeBranchId !== actor.officeBranchId) throw new HttpError('Contract reference does not match', 409);
   validateContract(contract);
   return { ...cleared, contractId: contract.id, contractSnapshot: json(toContractSnapshot(contract)) };
 }
 function checkDates(startDate: Date, endDate?: Date | null) {
   if (endDate && endDate < startDate) throw new HttpError('End date cannot precede start date', 400);
+}
+
+type CreateHeaderPersist = {
+  companyId: string;
+  subject: string;
+  officialReport: boolean;
+  dailyReport: Date;
+  officialReportDelivery: Date;
+  dailyReportDelivery: Date;
+  poNumber: string;
+  poDate: Date;
+};
+
+/**
+ * Persists the work-order header fields.
+ *
+ * Company basis (POST /work-orders): every header field comes from the payload.
+ * The company itself was validated live against Marketing before this call, so
+ * the stored companyId always points at an existing, non-revoked company.
+ *
+ * Quotation basis (POST /work-orders/from-quotation): the header may be omitted
+ * and the server fills the defaults from the live Marketing quotation. The
+ * companyId is taken from the quotation company snapshot only; the client can
+ * never supply a different company for a quotation-based Work Order.
+ */
+function resolveCreateHeaderByCompany(input: CreateWorkOrderByCompanyInput): CreateHeaderPersist {
+  return {
+    companyId: input.companyId,
+    subject: input.subject,
+    officialReport: input.officialReport,
+    dailyReport: input.dailyReport,
+    officialReportDelivery: input.officialReportDelivery,
+    dailyReportDelivery: input.dailyReportDelivery,
+    poNumber: input.poNumber,
+    poDate: input.poDate,
+  };
+}
+
+function resolveCreateHeaderByQuotation(
+  input: CreateWorkOrderByQuotationInput,
+  quotation: QuotationSnapshot,
+): CreateHeaderPersist {
+  const companySnapshot = quotation.companySnapshot as Record<string, unknown>;
+  const companyId = typeof companySnapshot?.id === 'string' ? companySnapshot.id : null;
+  if (!companyId) throw new HttpError('The quotation carries no company snapshot; companyId could not be resolved', 409);
+  const schedule = input.startDate;
+  return {
+    companyId,
+    subject: input.subject ?? quotation.subject,
+    officialReport: input.officialReport ?? false,
+    dailyReport: input.dailyReport ?? schedule,
+    officialReportDelivery: input.officialReportDelivery ?? schedule,
+    dailyReportDelivery: input.dailyReportDelivery ?? schedule,
+    poNumber: input.poNumber ?? 'Pending',
+    poDate: input.poDate ?? schedule,
+  };
 }
 /**
  * Builds the stored item rows from the submitted { itemSizeId, quantityInspection,
@@ -192,27 +262,88 @@ export const workOrderRepository = {
     }));
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
-  async create(input: CreateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor,
-    itemReferences?: Array<CreateWorkOrderInput['items'][number] & { snapshot: ItemSizeReference }>) {
-    const { inspectors = [], items, quotationId: _quotationId, contractId: _contractId, ...fields } = input;
-    const quotation = reference(input, quote, actor);
+  /**
+   * Company basis (POST /work-orders). The company was validated live against
+   * Marketing before this call, so the stored companyId is an existing,
+   * non-revoked company of the branch. A contract may still be attached; it is
+   * validated against Marketing as well.
+   */
+  async createByCompany(input: CreateWorkOrderByCompanyInput, company: CompanySnapshot,
+    actor: Actor, contract: ContractSnapshot | null,
+    itemReferences?: Array<CreateWorkOrderByCompanyInput['items'][number] & { snapshot: ItemSizeReference }>) {
+    // The company must belong to the same branch as the actor.
+    if (company.id !== input.companyId || company.officeBranchId !== actor.officeBranchId) {
+      throw new HttpError('Company not found', 404);
+    }
+    const {
+      inspectors = [], items,
+      contractId: _contractId,
+      companyId: _companyId, subject: _subject, officialReport: _officialReport,
+      dailyReport: _dailyReport, officialReportDelivery: _officialReportDelivery,
+      dailyReportDelivery: _dailyReportDelivery, poNumber: _poNumber, poDate: _poDate,
+      ...fields
+    } = input;
+    const header = resolveCreateHeaderByCompany(input);
+    // The contract is optional on the company basis: a Work Order can be created
+    // for a company without any contract, so the contract columns stay empty.
+    const basis = contractBasis(input.contractId, contract, actor);
     checkDates(input.startDate, input.endDate);
-    // The item description is never client-supplied. A quotation basis resolves it
-    // from the live Marketing quotation; other bases have no catalog source.
-    const itemRows = resolveItemSnapshots(items, input, quote, itemReferences);
+    // The item description is never client-supplied: it is read from the
+    // Marketing item-size reference resolved by the route.
+    const itemRows = resolveItemSnapshots(items, { quotationId: null }, null, itemReferences);
     // The Work Order is always created as DRAFT; the request never carries status.
     return prisma.$transaction(async tx => {
-      // Serialize same-quotation requests before the duplicate read and numbering.
-      // Inspectors are locked separately: two different quotations may still
-      // conflict when they share an inspector in an overlapping period.
-      if (quotation.quotationId) await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId);
       await assertInspectorsAvailable(tx, actor.officeBranchId, inspectors, input.startDate, input.endDate);
       const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
-      const row = await tx.workOrder.create({ data: { ...fields, ...quotation, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
+      const row = await tx.workOrder.create({ data: { ...fields, ...header, ...basis, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
         createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectors) },
         items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       return saveHistory(tx, row, null, actor, 'CREATE');
+    }, { maxWait: 10000, timeout: 20000 });
+  },
+  /**
+   * Quotation basis (POST /work-orders/from-quotation). The quotation was
+   * validated live against Marketing before this call, so the stored quotation
+   * snapshot matches the approved document and the companyId is the company of
+   * that quotation.
+   *
+   * Marketing is notified of the new link before the transaction commits, so
+   * the quotation records the Work Order reference together with the Work
+   * Order itself. A failed notification aborts the transaction and no Work
+   * Order is created, which keeps both services consistent.
+   */
+  async createByQuotation(input: CreateWorkOrderByQuotationInput, quotation: QuotationSnapshot, actor: Actor,
+    beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
+    const {
+      inspectors = [], items,
+      quotationId: _quotationId,
+      subject: _subject, officialReport: _officialReport,
+      dailyReport: _dailyReport, officialReportDelivery: _officialReportDelivery,
+      dailyReportDelivery: _dailyReportDelivery, poNumber: _poNumber, poDate: _poDate,
+      ...fields
+    } = input;
+    const header = resolveCreateHeaderByQuotation(input, quotation);
+    const basis = reference({ quotationId: input.quotationId }, quotation, actor);
+    checkDates(input.startDate, input.endDate);
+    // The item description is never client-supplied: a quotation basis resolves
+    // it from the live Marketing quotation line.
+    const itemRows = resolveItemSnapshots(items, { quotationId: input.quotationId }, quotation);
+    // The Work Order is always created as DRAFT; the request never carries status.
+    return prisma.$transaction(async tx => {
+      // Serialize same-quotation requests before the duplicate read and numbering.
+      await assertQuotationNotInUse(tx, actor.officeBranchId, basis.quotationId!);
+      await assertInspectorsAvailable(tx, actor.officeBranchId, inspectors, input.startDate, input.endDate);
+      const identity = await nextWorkOrderIdentity(tx, actor.officeBranchId);
+      const row = await tx.workOrder.create({ data: { ...fields, ...header, ...basis, ...identity, officeBranchId: actor.officeBranchId, status: 'DRAFT',
+        createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectors) },
+        items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
+          quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
+      const history = await saveHistory(tx, row, null, actor, 'CREATE');
+      // Marketing is told before the commit. A failed callback aborts the
+      // transaction, so the Work Order and the quotation link cannot disagree.
+      if (beforeCommit) await beforeCommit(row);
+      return history;
     }, { maxWait: 10000, timeout: 20000 });
   },
   async list(input: z.infer<typeof listWorkOrderSchema>, actor: Actor) {
@@ -225,7 +356,11 @@ export const workOrderRepository = {
         select: {
           id: true, officeBranchId: true, number: true, date: true, contractId: true,
           quotationSnapshot: true, contractSnapshot: true,
-          quotationId: true, startDate: true, endDate: true, status: true, revoked: true, version: true,
+          quotationId: true, startDate: true, endDate: true,
+          companyId: true, subject: true, officialReport: true,
+          dailyReport: true, officialReportDelivery: true, dailyReportDelivery: true,
+          poNumber: true, poDate: true,
+          status: true, revoked: true, version: true,
           createdById: true, createdByName: true, updatedById: true, updatedByName: true,
           createdAt: true, updatedAt: true,
         },
@@ -242,8 +377,18 @@ export const workOrderRepository = {
         quotationDate: typeof quotation?.date === 'string' && quotation.date ? quotation.date.slice(0, 10) : null,
         contractNumber: typeof contract?.contractNumber === 'string' ? contract.contractNumber : null,
         contractDate: typeof contract?.contractDate === 'string' && contract.contractDate ? contract.contractDate.slice(0, 10) : null,
-        companyId: typeof contract?.companyId === 'string' ? contract.companyId : null,
-        company: typeof contract?.companyName === 'string' ? contract.companyName : null,
+        companyId: row.companyId,
+        company: typeof contract?.companyName === 'string' ? contract.companyName
+          : (quotation && typeof quotation.companySnapshot === 'object' && quotation.companySnapshot && !Array.isArray(quotation.companySnapshot)
+            && typeof (quotation.companySnapshot as Record<string, unknown>).name === 'string'
+            ? String((quotation.companySnapshot as Record<string, unknown>).name) : null),
+        subject: row.subject,
+        officialReport: row.officialReport,
+        dailyReport: row.dailyReport.toISOString().slice(0, 10),
+        officialReportDelivery: row.officialReportDelivery.toISOString().slice(0, 10),
+        dailyReportDelivery: row.dailyReportDelivery.toISOString().slice(0, 10),
+        poNumber: row.poNumber,
+        poDate: row.poDate.toISOString().slice(0, 10),
         date: row.date.toISOString().slice(0, 10),
         startDate: row.startDate.toISOString().slice(0, 10),
         endDate: row.endDate?.toISOString().slice(0, 10) ?? null,

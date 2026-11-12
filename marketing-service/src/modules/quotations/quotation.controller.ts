@@ -1,12 +1,10 @@
 import { Request, Response } from 'express';
 import { quotationApproval } from './quotation-approval.service.js';
 import { quotationRepository } from './quotation.repository.js';
-import { ListQuotationsInput, createWorkOrderFromQuotationSchema } from './quotation.schemas.js';
+import { ListQuotationsInput } from './quotation.schemas.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
-import { getAccessToken } from '../../utils/requestTokens.js';
-import { serviceUrl } from '../../utils/serviceUrl.js';
 import { HttpError } from '../../utils/httpError.js';
-import { hasActiveWorkOrder, notifyFieldServiceWorkOrderRevoked } from './work-order.integration.js';
+import { hasActiveWorkOrder } from './work-order.integration.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
@@ -63,80 +61,6 @@ export const quotationController = {
     // Validation middleware already checked the request. The repository also parses
     // raw input for non-HTTP callers, including converting date strings to Date.
     send(req, res, 201, 'Quotation created successfully', await quotationRepository.create(req.body, getOfficeBranchId(res), getAuditActor(res)));
-  },
-  /**
-   * Creates a DRAFT Work Order in Field Service for an APPROVED quotation. The
-   * quotation is loaded locally to fail fast (404/409) before the cross-service
-   * call, and the same access token is forwarded so Field Service re-validates
-   * identity, branch and section. The payload carries quotationId with startDate,
-   * endDate and inspectors as an array of { userId, name } pairs; Field Service
-   * re-validates every pair against the live Auth directory of the caller branch
-   * and stores the confirmed userId and name. Quotation content is resolved live by
-   * Field Service from
-   * Marketing's quotation reference, so no quotation version is forwarded.
-   *
-   * The client only selects which quotation items become Work Order lines. The
-   * quantities are copied from those quotation lines, never from the client, and a
-   * selected size outside the quotation is rejected locally before the cross-service
-   * call.
-   */
-  async createWorkOrder(req: Request, res: Response) {
-    const input = createWorkOrderFromQuotationSchema.parse(req.body);
-    const branch = getOfficeBranchId(res);
-    if (input.quotationId !== res.locals.params.quotationId) throw new HttpError('quotationId must match the quotation in the URL', 400);
-    const quote = await quotationRepository.findActive(input.quotationId, branch);
-    if (quote.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
-    const lines = new Map(quote.items.map(item => [item.itemSizeId, item]));
-    const items = input.items.map(selection => {
-      const line = lines.get(selection.itemSizeId);
-      if (!line) throw new HttpError('Every selected item must belong to the quotation', 400);
-      return {
-        itemSizeId: selection.itemSizeId,
-        quantityInspection: Number(line.quantityInspection),
-        quantityMaintenance: Number(line.quantityMaintenance),
-      };
-    });
-    const token = getAccessToken(req);
-    if (!token) throw new HttpError('Access token is required', 401);
-    const path = 'fieldservice/work-orders';
-    let response: globalThis.Response;
-    try {
-      response = await fetch(serviceUrl(path), {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`,
-          ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
-        body: JSON.stringify({
-          quotationId: quote.id,
-          startDate: input.startDate, endDate: input.endDate,
-          inspectors: input.inspectors,
-          items,
-        }),
-      });
-    } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }
-    if (!response.ok) {
-      const body = await response.json().catch(() => null) as { message?: string } | null;
-      const status = [400, 401, 403, 404, 409].includes(response.status) ? response.status : 502;
-      throw new HttpError(body?.message || 'Unable to create the Work order in Field Service', status);
-    }
-    try {
-      const workOrder = (await response.json() as { data: { id: string; number: string; status: string; quotationId: string | null; officeBranchId: string; revoked: boolean; version: number } }).data;
-      if (!workOrder?.id || workOrder.quotationId !== quote.id || workOrder.officeBranchId !== branch || workOrder.revoked !== false
-        || !Number.isInteger(workOrder.version)) {
-        throw new HttpError('Invalid response from Field Service', 502);
-      }
-      try {
-        await quotationRepository.attachWorkOrder(quote.id, branch, workOrder, getAuditActor(res));
-      } catch (error) {
-        // Marketing could not store the link, so the Work Order must not stay
-        // live: revoke it in Field Service before reporting the failure.
-        await notifyFieldServiceWorkOrderRevoked(workOrder.id, workOrder.version, req).catch(() => undefined);
-        throw error;
-      }
-      send(req, res, 201, 'Work order created successfully', workOrder);
-    } catch (error) {
-      if (error instanceof HttpError) throw error;
-      throw new HttpError('Invalid response from Field Service', 502);
-    }
   },
   async delete(req: Request, res: Response) {
     const branch = getOfficeBranchId(res);

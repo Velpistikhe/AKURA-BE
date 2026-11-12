@@ -78,19 +78,6 @@ export const quotationSchemas = {
       note:{type:'string',maxLength:5000,nullable:true,description:'Optional note for this quotation item.'},
     },
   },
-  CreateWorkOrderFromQuotationRequest: {
-    type: 'object', additionalProperties: false, required: ['quotationId', 'startDate', 'endDate', 'inspectors', 'items'],
-    properties: {
-      quotationId: { type: 'string', format: 'uuid', description: 'Must match the quotationId in the path. The quotation must be APPROVED in the authenticated branch.' },
-      startDate: { type: 'string', format: 'date' },
-      endDate: { type: 'string', format: 'date', description: 'Required. Must be on or after startDate.' },
-      inspectors: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 255 }, description: 'Inspector display names (firstName + lastName) in display order. The names are forwarded verbatim to Field Service and are the only inspector reference the Work Order keeps; case-insensitive duplicates are rejected.' },
-      items: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['itemSizeId'], properties: { itemSizeId: { type: 'string', format: 'uuid', description: 'Quotation item size to include in the Work Order. Must belong to this quotation and may appear only once.' } } }, description: 'Required selection of the quotation items that become Work Order lines. Only itemSizeId is accepted: quantityInspection and quantityMaintenance are copied from the quotation line itself and any quantity submitted by the client is rejected (400). A size outside the quotation is also rejected (400).' },
-    },
-    example: { quotationId: '00000000-0000-4000-8000-000000000009', startDate: '2026-09-15', endDate: '2026-09-18', inspectors: ['Budi Santoso'], items: [{ itemSizeId: '00000000-0000-4000-8000-000000000002' }] },
-  },
-
-
   CreateQuotationRequest: {
     type: 'object', additionalProperties: false, required: [...requiredHeader, 'items'],
     properties: { ...header, items: { type: 'array', minItems: 1, maxItems: 100, items: ref('QuotationItemInput') } },
@@ -190,32 +177,31 @@ const commonErrors = {
 const common = { tags: ['Quotations'], security: [{ bearerAuth: [] }, { accessTokenCookie: [] }] };
 const idParameter = { in: 'path', name: 'quotationId', required: true, schema: uuid };
 export const quotationPaths = {
-  '/api/v1/marketing/internal/work-orders/events': {
+  '/api/v1/marketing/internal/quotations/{quotationId}/work-order': {
     post: {
-      tags: ['Quotations'], summary: 'Internal: synchronize a Field Service Work Order link and status', security: [],
-      description: 'Field Service delivers link, status-change, or revoke events through the Gateway. Requires Field Service credentials and the Work Order sync secret. Branch ownership is checked before updating a quotation. Duplicate events are idempotent; CANCELED clears workOrderStatus and revoke clears the Work Order link.',
+      tags: ['Quotations'], summary: 'Internal: update the Work Order link of a quotation', security: [],
+      description: 'Field Service delivers the Work Order link of a quotation through the Gateway after a quotation-based Work Order was created, or a link update and a revoke. Requires Field Service credentials and the Work Order sync secret. The quotation is updated in place: hasWorkOrder marks the quotation as backing a live Work Order and workOrderId stores that Work Order id. Branch ownership is checked before updating a quotation. Duplicate deliveries are idempotent; CANCELED clears the mirrored status and a revoke clears the whole Work Order link.',
       parameters: [
+        { in: 'path', name: 'quotationId', required: true, schema: uuid },
         { in: 'header', name: 'x-service-name', required: true, schema: { type: 'string', enum: ['fieldservice-service'] } },
         { in: 'header', name: 'x-service-secret', required: true, schema: { type: 'string' } },
         { in: 'header', name: 'x-work-order-sync-secret', required: true, schema: { type: 'string' } },
       ],
       requestBody: { required: true, content: { 'application/json': { schema: {
         type: 'object', additionalProperties: false,
-        required: ['workOrderId', 'quotationId', 'officeBranchId', 'revoked', 'workOrderSnapshot'],
-        properties: { workOrderId: uuid, quotationId: uuid, officeBranchId: uuid, revoked: { type: 'boolean' },
-          workOrderSnapshot: { type: 'object', additionalProperties: true, required: ['number', 'status'], properties: {
-            number: { type: 'string', minLength: 1, maxLength: 100 }, status: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED'] },
-          } },
-        },
+        required: ['workOrderId', 'workOrderNumber', 'workOrderStatus', 'officeBranchId'],
+        properties: { workOrderId: uuid, workOrderNumber: { type: 'string', minLength: 1, maxLength: 100 },
+          workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED'] },
+          officeBranchId: uuid, revoked: { type: 'boolean', default: false } },
       } } } },
       responses: {
-        200: { description: 'Link event acknowledged after commit', content: { 'application/json': { schema: {
-          type: 'object', required: ['success', 'workOrderId', 'quotationId', 'revoked'], properties: {
-            success: { type: 'boolean', enum: [true] }, workOrderId: uuid, quotationId: uuid, revoked: { type: 'boolean' },
-            workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, description: 'Mirrored Work Order status; null for a canceled Work Order.' },
+        200: { description: 'Link update acknowledged after commit', content: { 'application/json': { schema: {
+          type: 'object', required: ['success', 'quotationId', 'workOrderId', 'revoked'], properties: {
+            success: { type: 'boolean', enum: [true] }, quotationId: uuid, workOrderId: uuid, revoked: { type: 'boolean' },
+            workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, description: 'Mirrored Work Order status; null for a canceled or revoked Work Order.' },
           },
         } } } },
-        400: response('Invalid Work Order event', 'ErrorResponse'),
+        400: response('Invalid Work Order link request', 'ErrorResponse'),
         403: { description: 'Invalid service or Work Order delivery credentials', content: { 'application/json': { schema: {
           type: 'object', required: ['success', 'message'], properties: { success: { type: 'boolean', enum: [false] }, message: { type: 'string' } },
         } } } },
@@ -240,14 +226,6 @@ export const quotationPaths = {
     },
   },
 
-  '/api/v1/marketing/quotations/{quotationId}/work-orders': {
-    post: {
-      ...common, summary: 'Create a DRAFT Work Order from an approved quotation', parameters: [idParameter],
-      description: 'Creates the Work Order in Field Service using the selected active quotation in the authenticated branch. Requires an APPROVED quotation with any price source, including contract pricing. The payload must include quotationId (matching the path), startDate, endDate, the inspectors array of { userId, name } pairs copied verbatim from the Field Service inspector options snapshot (at least one pair), and items: the required selection of at least one quotation item as [{ itemSizeId }] with duplicates rejected. Clients never submit quantities: quantityInspection and quantityMaintenance are copied from each selected quotation line, and a quantity field in an item or a size outside the quotation returns 400 before any cross-service call. After all other validations pass Field Service re-validates every inspector pair against the live Auth directory of the authenticated branch (the name must equal the Auth display name firstName+lastName) and stores the confirmed userId and name in the Work Order, rejecting mismatches or IDs outside the authenticated branch. The user access token is forwarded and independently verified by Field Service. While another non-revoked Work Order in the branch already references the same quotation, Field Service rejects the creation with 409 because one quotation may back only one live Work Order; revoking that Work Order frees the quotation for a new creation. Status is always DRAFT; number/date and audit data are generated by Field Service. Creation persists its CREATE history atomically. Field Service unavailability returns 503; the operation is not retried automatically.',
-      requestBody: { required: true, content: { 'application/json': { schema: ref('CreateWorkOrderFromQuotationRequest') } } },
-      responses: { ...commonErrors, 201: response('DRAFT Work Order created', 'WorkOrderResponse'), 400: response('quotationId does not match the path quotation, a submitted quantity, a duplicate or missing item selection, or a selected size outside the quotation', 'ErrorResponse'), 404: response('Active quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation is not approved, the quotation already backs a non-revoked Work Order in this branch, or an inspector schedule overlaps', 'ErrorResponse'), 503: response('Field Service is unavailable', 'ErrorResponse') },
-    },
-  },
   '/api/v1/marketing/quotations/{quotationId}/approve': {
     post: {
       ...common, summary: 'Approve quotation, generate PDF and store in Neon', parameters: [idParameter],

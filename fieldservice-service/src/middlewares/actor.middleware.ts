@@ -15,6 +15,7 @@ const resolveActor = (sections: readonly string[]) => async (req: Request, res: 
     if ((req as AuthenticatedRequest).user?.officeBranchId !== profile.officeBranchId) throw new HttpError('Office branch assignment has changed; please sign in again', 401);
     if (!['ADMIN', 'APP_MANAGER'].includes(profile.role) && !sections.includes(profile.section ?? '')) throw new HttpError('Access to this section is required', 403);
     res.locals.workOrderSection = profile.section;
+    res.locals.workOrderRole = profile.role;
     res.locals.workOrderActor = { id: profile.id, name: `${profile.firstName} ${profile.lastName}`.trim() || profile.username, officeBranchId: profile.officeBranchId } satisfies Actor;
     next();
   } catch (error) { next(error); }
@@ -23,5 +24,12 @@ export const requireActor = resolveActor(['MARKETING', 'FIELD_SERVICE']);
 export const requireWorkOrderReferenceActor = resolveActor(['MARKETING', 'FIELD_SERVICE', 'FINANCE', 'ACCOUNTING']);
 export const requireWorkOrderSection = (...sections: string[]) => (_req: Request, res: Response, next: NextFunction) => {
   if (!sections.includes(res.locals.workOrderSection)) return next(new HttpError('Access to this section is required', 403));
+  next();
+};
+/** POST work-order creation: MARKETING section with ADMIN or USER role only. */
+export const requireMarketingAdminOrUser = (_req: Request, res: Response, next: NextFunction) => {
+  if (res.locals.workOrderSection !== 'MARKETING') return next(new HttpError('Access to this section is required', 403));
+  const role = res.locals.workOrderRole as string | undefined;
+  if (role !== 'ADMIN' && role !== 'USER') return next(new HttpError('ADMIN or USER role is required', 403));
   next();
 };

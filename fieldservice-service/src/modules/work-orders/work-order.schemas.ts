@@ -21,23 +21,56 @@ const fields = {
   // PATCH replaces the full list, so an empty array clears the inspectors.
   inspectors: inspectorNames.optional(),
 };
+const createItemRows = z.array(z.object({
+  itemSizeId: z.string().uuid(),
+  quantityInspection: quantity,
+  quantityMaintenance: quantity,
+}).strict()).min(1, 'At least one item is required');
+const createInspectors = inspectorNameList
+  .min(1, 'At least one inspector is required')
+  .refine(uniqueInspectorNames, 'Inspector names must be unique');
+const workOrderHeaderRequired = {
+  companyId: z.string().uuid(),
+  subject: z.string().trim().min(1).max(255),
+  officialReport: z.boolean(),
+  dailyReport: date,
+  officialReportDelivery: date,
+  dailyReportDelivery: date,
+  poNumber: z.string().trim().min(1).max(100),
+  poDate: date,
+};
+const quotationHeaderOptional = {
+  subject: z.string().trim().min(1).max(255).optional(),
+  officialReport: z.boolean().optional(),
+  dailyReport: date.optional(),
+  officialReportDelivery: date.optional(),
+  dailyReportDelivery: date.optional(),
+  poNumber: z.string().trim().min(1).max(100).optional(),
+  poDate: date.optional(),
+};
 type Reference = {
   quotationId?: string | null; contractId?: string | null;
 };
 const validReference = (value: Reference) =>
   Number(!!value.quotationId) + Number(!!value.contractId) >= 1;
-// Creation always starts at DRAFT; status transitions are edits, never part of create.
-// The quotation/contract content is snapshotted by the server, so clients only send IDs.
-// Every creation carries the inspector names; at least one is required for
-// both quotation and contract bases (PATCH keeps the same array and []).
-export const createWorkOrderSchema = z.object({ ...fields, inspectors: inspectorNameList.min(1, 'At least one inspector is required').refine(uniqueInspectorNames, 'Inspector names must be unique'), items: z.array(z.object({
-  itemSizeId: z.string().uuid(),
-  quantityInspection: quantity,
-  quantityMaintenance: quantity,
-}).strict()).min(1, 'At least one item is required') }).strict()
-  .refine(validReference, 'At least one of quotationId or contractId is required')
-  .refine(value => !value.quotationId || value.endDate !== undefined,
-    'A quotation-based Work order requires quotationId, startDate and endDate');
+/** POST /work-orders — company basis; companyId is validated live against Marketing. */
+export const createWorkOrderByCompanySchema = z.object({
+  ...workOrderHeaderRequired,
+  contractId: z.string().uuid().nullable().optional(),
+  startDate: date,
+  endDate: date.optional(),
+  inspectors: createInspectors,
+  items: createItemRows,
+}).strict();
+/** POST /work-orders/from-quotation — quotation basis; companyId is taken from the quotation snapshot only. */
+export const createWorkOrderByQuotationSchema = z.object({
+  quotationId: z.string().uuid(),
+  startDate: date,
+  endDate: date,
+  ...quotationHeaderOptional,
+  inspectors: createInspectors,
+  items: createItemRows,
+}).strict();
 // The DRAFT -> IN_PROGRESS transition must go through POST /:id/start (which
 // re-validates the quotation snapshot against Marketing); PATCH may not set it.
 // Other statuses remain simple CRUD labels as before.
@@ -59,7 +92,9 @@ export const listWorkOrderSchema = z.object({
   revoked: z.enum(['true', 'false']).transform(value => value === 'true').default('false'),
   search: z.string().trim().max(100).optional(),
 }).strict();
-export type CreateWorkOrderInput = z.infer<typeof createWorkOrderSchema>;
+export type CreateWorkOrderByCompanyInput = z.infer<typeof createWorkOrderByCompanySchema>;
+export type CreateWorkOrderByQuotationInput = z.infer<typeof createWorkOrderByQuotationSchema>;
+export type CreateWorkOrderInput = CreateWorkOrderByCompanyInput | CreateWorkOrderByQuotationInput;
 export type UpdateWorkOrderInput = z.infer<typeof updateWorkOrderSchema>;
 
 export const workOrderHistorySchema = listWorkOrderSchema.pick({ page: true, limit: true });

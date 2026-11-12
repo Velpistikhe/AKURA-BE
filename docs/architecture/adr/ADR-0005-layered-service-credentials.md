@@ -135,7 +135,7 @@ gap. Recorded here as an open question rather than a decision.
 | Gateway secret injection | `api-gateway/src/routes/proxy.routes.ts:32-46` |
 | Per-service gateway secret check | `*/src/middlewares/gateway.middleware.ts` |
 | `internalCaller` route guard | `api-gateway/src/routes/proxy.routes.ts:10-18` |
-| Event secret verification | `marketing-service/src/modules/taxes/tax-events.routes.ts`, `.../work-order-events.routes.ts` |
+| Event secret verification | `marketing-service/src/modules/taxes/tax-events.routes.ts`, `.../work-order-link.routes.ts` |
 | Model A vs Model B | `marketing-service/src/middlewares/authorize.middleware.ts` vs `app-manager-service/src/middlewares/authorize.middleware.ts:28-53` |
 | Sync secret minimum length | `*/src/config/env.ts` |
 

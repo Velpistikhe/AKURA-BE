@@ -52,25 +52,3 @@ export async function hasActiveWorkOrder(req: Request, quotationId: string, offi
   return true;
 }
 
-/**
- * Compensation used when Marketing fails to persist the link after Field Service
- * already created the Work Order. The Work Order is revoked in Field Service so
- * the quotation is not left pointing at a live Work Order. Field Service derives
- * the branch from the forwarded token, so the call stays branch scoped.
- */
-export async function notifyFieldServiceWorkOrderRevoked(workOrderId: string, version: number, req: Request): Promise<void> {
-  const path = fieldServicePath(`work-orders/${workOrderId}`);
-  const token = getAccessToken(req);
-  if (!token) throw new HttpError('Access token is required', 401);
-  let response: globalThis.Response;
-  try {
-    response = await fetch(serviceUrl(path), {
-      method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(10000),
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...serviceHeaders(path),
-        ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
-      body: JSON.stringify({ version }),
-    });
-  } catch { throw new HttpError('Field Service is unavailable; retry later', 503); }
-  if (!response.ok) throw new HttpError('Unable to revoke Work Order after quotation update failure', [404, 409].includes(response.status) ? response.status : 503);
-}
-

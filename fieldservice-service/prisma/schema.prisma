@@ -24,6 +24,14 @@ model WorkOrder {
   quotationSnapshot Json? @map("quotation_snapshot") @db.JsonB
   startDate DateTime @map("start_date") @db.Date
   endDate DateTime? @map("end_date") @db.Date
+  companyId String @map("company_id") @db.Uuid
+  subject String @db.VarChar(255)
+  officialReport Boolean @map("official_report")
+  dailyReport DateTime @map("daily_report") @db.Date
+  officialReportDelivery DateTime @map("official_report_delivery") @db.Date
+  dailyReportDelivery DateTime @map("daily_report_delivery") @db.Date
+  poNumber String @map("po_number") @db.VarChar(100)
+  poDate DateTime @map("po_date") @db.Date
   status WorkOrderStatus @default(DRAFT)
   revoked Boolean @default(false)
   version Int @default(0)

@@ -40,15 +40,13 @@ URL anywhere in the codebase.
 | # | Caller | Call | Purpose | File |
 |---|---|---|---|---|
 | 1 | marketing | `GET auth/me` | Live profile for authorization | `src/middlewares/authorize.middleware.ts:33` |
-| 2 | marketing | `POST fieldservice/work-orders` | Create a Work Order from a quotation | `src/modules/quotations/quotation.controller.ts:151` |
-| 3 | marketing | `DELETE fieldservice/work-orders/:id` | Compensating revoke | `src/modules/quotations/work-order.integration.ts` |
-| 4 | marketing | `GET fieldservice/work-orders/by-quotation/:id` | Check for an existing live Work Order | `src/modules/quotations/quotation.controller.ts:89` |
-| 5 | finance | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
-| 6 | fieldservice | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
-| 7 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
-| 8 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
-| 9 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
-| 10 | fieldservice | `GET marketing/quotation-references` | Quotation options list | `src/integrations/gateway.ts:273` |
+| 2 | marketing | `GET fieldservice/work-orders/by-quotation/:id` | Check for an existing live Work Order | `src/modules/quotations/quotation.controller.ts:89` |
+| 3 | finance | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
+| 4 | fieldservice | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
+| 5 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
+| 6 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
+| 7 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
+| 8 | fieldservice | `GET marketing/quotation-references` | Quotation options list | `src/integrations/gateway.ts:273` |
 | — | all services | `GET auth/.well-known/jwks.json` | Key material | `*/src/utils/tokens.ts:11` |
 
 ### 2.2 The standard call shape
@@ -138,20 +136,22 @@ explicit allowlist projection"*
 
 ### 2.6 Compensation for partial failure
 
-**VERIFIED** — the one place where a two-service operation spans a transaction
-boundary, Marketing compensates:
+**VERIFIED** — a two-service operation never spans a transaction boundary:
+Field Service calls Marketing *inside* its own transaction, so a failed
+notification aborts the Work Order write instead of leaving the two services
+disagreeing.
 
 ```ts
-try {
-  await quotationRepository.attachWorkOrder(quote.id, branch, workOrder, getAuditActor(res));
-} catch (error) {
-  // Marketing could not store the link, so the Work Order must not stay
-  // live: revoke it in Field Service before reporting the failure.
-  await notifyFieldServiceWorkOrderRevoked(workOrder.id, workOrder.version, req).catch(() => undefined);
-  throw error;
-}
+const history = await saveHistory(tx, row, null, actor, 'CREATE');
+// Marketing is told before the commit. A failed callback aborts the
+// transaction, so the Work Order and the quotation link cannot disagree.
+if (beforeCommit) await beforeCommit(row);
 ```
-— `marketing-service/src/modules/quotations/quotation.controller.ts:178-183`
+— `fieldservice-service/src/modules/work-orders/work-order.repository.ts:342-346`
+
+The callback posts to `marketing/internal/quotations/{quotationId}/work-order` with
+the `x-work-order-sync-secret` header. Marketing stores the quotation link inside
+its own transaction, so a link conflict (409) also rolls the Work Order back.
 
 ---
 
@@ -184,7 +184,8 @@ Producer transaction:
 |---|---|---|---|---|---|
 | 1 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` | `tax_events`, `tax_deliveries` |
 
-**The second event endpoint** — `POST /api/v1/marketing/internal/work-orders/events`
+**The second event endpoint** — `POST
+/api/v1/marketing/internal/quotations/{quotationId}/work-order`
 — is **not** an outbox delivery. It is a synchronous callback made from inside
 the Field Service transaction. See §4.
 
@@ -331,9 +332,10 @@ producer's state regardless of how many times an event arrives.
 
 **VERIFIED** — `fieldservice-service/src/integrations/gateway.ts:176-203`.
 
-The Work Order link-state callback posts to
-`marketing/internal/work-orders/events` with `x-work-order-sync-secret`, but
-it is invoked **inside the Field Service write path**, not from an outbox:
+The Work Order link callback posts to
+`marketing/internal/quotations/{quotationId}/work-order` with
+`x-work-order-sync-secret`, but it is invoked **inside the Field Service write
+path**, not from an outbox:
 
 > *"For revokes the callback also clears the quotation reference; it is
 > synchronous so any failure aborts the Field Service transaction and the two

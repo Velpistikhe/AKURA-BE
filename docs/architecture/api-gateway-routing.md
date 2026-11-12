@@ -40,7 +40,7 @@ holds no database and no business logic.
 | Prefix | Target service | `authRequired` | `internalCaller` | Path rewrite |
 |---|---|---|---|---|
 | `/api/v1/marketing/internal/taxes/events` | marketing | **false** | `finance-service` | `^/` → `/internal/taxes/events` |
-| `/api/v1/marketing/internal/work-orders/events` | marketing | **false** | `fieldservice-service` | `^/` → `/internal/work-orders/events` |
+| `/api/v1/marketing/internal/quotations` | marketing | **false** | `fieldservice-service` | `^/` → `/internal/quotations` |
 | `/api/v1/auth` | auth | **false** | — | `^/api/v1/auth` → `''` |
 | `/api/v1/app-manager` | app-manager | **true** | — | `^/api/v1/app-manager` → `''` |
 | `/api/v1/marketing` | marketing | **true** | — | `^/api/v1/marketing` → `''` |
