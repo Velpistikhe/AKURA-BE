@@ -153,6 +153,21 @@ The callback posts to `marketing/internal/quotations/{quotationId}/work-order` w
 the `x-work-order-sync-secret` header. Marketing stores the quotation link inside
 its own transaction, so a link conflict (409) also rolls the Work Order back.
 
+**Gateway rewrite.** The callback travels through the API Gateway, which mounts
+`/api/v1/marketing/internal/quotations` and rewrites the stripped path to
+`/internal/quotations/`. The rewrite target **must** end with `/`: without it
+the quotation id is glued to the segment (`/internal/quotations<uuid>/work-order`),
+the request matches no Marketing route, and it falls through to the user
+authentication middleware — which answers `401 Unauthorized: missing access
+token`. Field Service surfaces that as a 503 and rolls the Work Order back, so
+the visible symptom is a failed `POST /work-orders/from-quotation` even though
+the quotation lookup itself succeeded.
+
+The callback carries **service credentials only** (`x-service-name`,
+`x-service-secret`) plus `x-work-order-sync-secret` — never a user bearer token,
+because it is a service-to-service call and the gateway route is registered with
+`authRequired: false` and an `internalCaller` guard for `fieldservice-service`.
+
 ---
 
 ## 3. Asynchronous delivery — the transactional outbox

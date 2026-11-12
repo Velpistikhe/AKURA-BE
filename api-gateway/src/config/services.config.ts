@@ -29,8 +29,9 @@ export const servicesConfig: ServiceRouteConfig[] = [
     internalCaller: 'fieldservice-service',
     // Express removes the entire mounted prefix before invoking the proxy, so
     // only the quotation id and the work-order segment are left. They are put
-    // back on the internal quotation path.
-    pathRewrite: { '^/': '/internal/quotations' },
+    // back on the internal quotation path (the trailing slash is required so
+    // `/uuid/work-order` does not concatenate onto `quotations`).
+    pathRewrite: { '^/': '/internal/quotations/' },
     description: 'Internal Field Service Work Order link delivery to Marketing',
   },
   {

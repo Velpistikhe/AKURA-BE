@@ -17,13 +17,19 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import {
+  GATEWAY,
   gatewayIdentityHeaders, loginAs, prismaFor, seedMarketingTax,
   seedOfficeBranch, seedUser,
   type SeededUser,
 } from './support/fixtures.js';
+import {
+  approveQuotation,
+  buildCatalogFixture,
+  createSubmittedQuotation,
+} from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { TEST_PORTS } from './support/env.js';
-import { TEST_TAX_SYNC_SECRET, TEST_GATEWAY_SECRETS } from './support/harness.js';
+import { TEST_TAX_SYNC_SECRET, TEST_GATEWAY_SECRETS, TEST_WORK_ORDER_SYNC_SECRET } from './support/harness.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
 import type { ServiceProcess } from './support/harness.js';
@@ -38,7 +44,13 @@ const MARKETING_HEADERS = { 'x-gateway-secret': TEST_GATEWAY_SECRETS.marketing }
 
 let auth: ServiceProcess;
 let marketing: ServiceProcess;
+let fieldservice: ServiceProcess;
 let gateway: ServiceProcess;
+
+const FIELDSERVICE_SERVICE_HEADERS = {
+  'x-service-name': 'fieldservice-service',
+  'x-service-secret': TEST_GATEWAY_SECRETS.fieldservice,
+};
 
 let admin: SeededUser;
 let branchId: string;
@@ -61,17 +73,18 @@ const taxEvent = (version: number, percentage = '10') => ({
 describe('marketing-service event synchronisation', () => {
   // Every test starts from an empty marketing database, so the version guards
   // are asserted against a known state.
-  resetBeforeEach(['marketing']);
+  resetBeforeEach(['marketing', 'fieldservice']);
 
   before(async () => {
     await ensureDatabases();
     auth = await startService('auth');
     marketing = await startService('marketing');
+    fieldservice = await startService('fieldservice');
     gateway = await startGateway();
   });
 
   after(async () => {
-    for (const process_ of [gateway, marketing, auth]) await process_?.stop();
+    for (const process_ of [gateway, fieldservice, marketing, auth]) await process_?.stop();
   });
 
   beforeEach(async () => {
@@ -147,6 +160,75 @@ describe('marketing-service event synchronisation', () => {
       assert.equal(rows.length, 1, 'exactly one tax row may exist for the branch');
     } finally {
       await prisma.$disconnect();
+    }
+  });
+
+  test('GATEWAY ROUTING: Work Order link callback reaches Marketing without a bearer token', async () => {
+    const fixture = await buildCatalogFixture(admin.accessToken);
+    const submitted = await createSubmittedQuotation(admin.accessToken, fixture);
+    await approveQuotation(admin.accessToken, submitted.id, submitted.version);
+    const workOrderId = randomUUID();
+    const response = await httpRequest(
+      `${GATEWAY}/api/v1/marketing/internal/quotations/${submitted.id}/work-order`,
+      {
+        method: 'POST',
+        headers: {
+          ...FIELDSERVICE_SERVICE_HEADERS,
+          'x-work-order-sync-secret': TEST_WORK_ORDER_SYNC_SECRET,
+        },
+        body: {
+          workOrderId,
+          workOrderNumber: 'WO/2026/00001',
+          workOrderStatus: 'DRAFT',
+          officeBranchId: branchId,
+          revoked: false,
+        },
+      },
+    );
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const body = response.body as { success?: boolean; quotationId?: string; workOrderId?: string };
+    assert.equal(body.success, true);
+    assert.equal(body.quotationId, submitted.id);
+    assert.equal(body.workOrderId, workOrderId);
+
+    const prisma = prismaFor('marketing');
+    try {
+      const quote = await prisma.quotation.findUniqueOrThrow({ where: { id: submitted.id } });
+      assert.equal(quote.hasWorkOrder, true);
+      assert.equal(quote.workOrderId, workOrderId);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+  test('CREATE FROM QUOTATION: synchronous Marketing callback commits both sides', async () => {
+    const fixture = await buildCatalogFixture(admin.accessToken);
+    const submitted = await createSubmittedQuotation(admin.accessToken, fixture);
+    await approveQuotation(admin.accessToken, submitted.id, submitted.version);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+      method: 'POST',
+      token: admin.accessToken,
+      body: {
+        quotationId: submitted.id,
+        startDate: today,
+        endDate: today,
+        inspectors: ['RelTest Inspector'],
+        items: [{ itemSizeId: fixture.itemSizeId, quantityInspection: 1, quantityMaintenance: 0 }],
+      },
+    });
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    const workOrder = (response.body as { data: { id: string; quotationId: string } }).data;
+    assert.equal(workOrder.quotationId, submitted.id);
+
+    const marketingPrisma = prismaFor('marketing');
+    try {
+      const quote = await marketingPrisma.quotation.findUniqueOrThrow({ where: { id: submitted.id } });
+      assert.equal(quote.hasWorkOrder, true);
+      assert.equal(quote.workOrderId, workOrder.id);
+    } finally {
+      await marketingPrisma.$disconnect();
     }
   });
 });

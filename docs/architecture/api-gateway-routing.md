@@ -40,7 +40,7 @@ holds no database and no business logic.
 | Prefix | Target service | `authRequired` | `internalCaller` | Path rewrite |
 |---|---|---|---|---|
 | `/api/v1/marketing/internal/taxes/events` | marketing | **false** | `finance-service` | `^/` → `/internal/taxes/events` |
-| `/api/v1/marketing/internal/quotations` | marketing | **false** | `fieldservice-service` | `^/` → `/internal/quotations` |
+| `/api/v1/marketing/internal/quotations` | marketing | **false** | `fieldservice-service` | `^/` → `/internal/quotations/` |
 | `/api/v1/auth` | auth | **false** | — | `^/api/v1/auth` → `''` |
 | `/api/v1/app-manager` | app-manager | **true** | — | `^/api/v1/app-manager` → `''` |
 | `/api/v1/marketing` | marketing | **true** | — | `^/api/v1/marketing` → `''` |
@@ -80,9 +80,18 @@ Net effect for an internal route:
                                            →  pathRewrite    →  /internal/taxes/events
 ```
 
+Work Order link callback (Field Service → Marketing; the rewrite target
+**must** end with `/` so the quotation id is not glued to `quotations`):
+
+```
+/api/v1/marketing/internal/quotations/{quotationId}/work-order
+  →  Express strips  →  /{quotationId}/work-order
+  →  pathRewrite    →  /internal/quotations/{quotationId}/work-order
+```
+
 The internal routes use `^/` → `/internal/...` rather than stripping the
 full prefix, because Express has already removed the mount prefix by then.
-This is exactly what the code comment at `services.config.ts:29` states.
+This is exactly what the code comment at `services.config.ts:30-33` states.
 
 ---
 
