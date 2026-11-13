@@ -49,8 +49,9 @@ describe('marketing-service quotation concurrency', () => {
     s3 = await startS3Stub();
     auth = await startService('auth');
     marketing = await startService('marketing', s3Environment(s3));
-    // Marketing calls Field Service when a quotation is revised, to check
-    // whether a live Work Order still references it.
+    // Field Service is started so the Work Order link callback of a quotation
+    // has its counterpart: Marketing mirrors the link of a Work Order that
+    // Field Service created.
     fieldservice = await startService('fieldservice');
     gateway = await startGateway();
   });

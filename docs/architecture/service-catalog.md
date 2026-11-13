@@ -127,7 +127,7 @@ See [`authentication-flow.md`](./authentication-flow.md#4-two-authorization-mode
 | Database | `akura_marketing` |
 | Modules | `companies/`, `company-staff/`, `contract-prices/`, `contracts/`, `items/`, `quotations/`, `services/`, `taxes/` |
 | Inbound event endpoints | `POST /internal/taxes/events`, `POST /internal/quotations/:quotationId/work-order` — mounted **before** `authenticate` (`src/app.ts:23-25`) |
-| Outbound calls | `GET auth/me` (live profile check), `GET fieldservice/work-orders/by-quotation/:id` (live Work Order lookup before a quotation revision or deletion), `GET auth/.well-known/jwks.json` |
+| Outbound calls | `GET auth/me` (live profile check), `GET auth/.well-known/jwks.json` |
 | Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
 | Special | The only service with a test suite. Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
 
@@ -159,11 +159,11 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 | Entry point | `fieldservice-service/src/server.ts` → `src/app.ts` |
 | Runtime deps | `@prisma/client`, `jose`, `express`, `zod`, `winston` |
 | Database | `akura_fieldservice` |
-| Modules | `work-orders/`, `options/` |
-| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `GET /work-orders/by-quotation/:quotationId`, `POST /work-orders` (company basis), `POST /work-orders/from-quotation` (quotation basis), `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start`, `GET /options/quotations`, `GET /options/quotations/:quotationId` |
-| Outbound calls | `GET auth/me`, `GET marketing/quotation-references*`, `GET marketing/companies/:companyId`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
+| Modules | `work-orders/` |
+| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `POST /work-orders` (company basis), `POST /work-orders/from-quotation` (quotation basis), `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start` |
+| Outbound calls | `GET auth/me`, `GET marketing/quotation-references/:quotationId`, `GET marketing/companies/:companyId`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
 | Key config | `WORK_ORDER_SYNC_SECRET`, |
-| Special | `requireWorkOrderReferenceActor` admits sections MARKETING, FIELD_SERVICE, FINANCE, ACCOUNTING for read-only reference access; `requireActor` for mutations admits only MARKETING and FIELD_SERVICE (`src/middlewares/actor.middleware.ts:22-23`). Has a hand-written SQL migration: `prisma/sql/0001_drop_work_order_inspector_user_id.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), dropping the inspector user ID column |
+| Special | `requireMarketingUser` admits section MARKETING with role USER only for the Work Order creation and update endpoints (`src/middlewares/actor.middleware.ts`); `requireActor` admits sections MARKETING and FIELD_SERVICE for the read endpoints, and `requireWorkOrderSection('MARKETING')` guards the start and delete endpoints. The end date must not precede the start date; the same day is allowed. Has a hand-written SQL migration: `prisma/sql/0001_drop_work_order_inspector_user_id.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), dropping the inspector user ID column |
 | Local development | Direct browser access on `http://localhost:5005` with Bearer token |
 
 ---

@@ -25,7 +25,6 @@ router.get('/company-contract-references/:companyId', asyncHandler(requireQuotat
   const contract = await contractRepository.resolveCompanyReference(res.locals.params.companyId, getOfficeBranchId(res));
   res.json({ status: 200, success: true, data: contract, requestId: req.headers['x-request-id'] });
 }));
-router.get('/quotation-references', asyncHandler(requireQuotationReferenceAccess), asyncHandler(quotationController.listReference));
 router.get('/quotation-references/:quotationId', asyncHandler(requireQuotationReferenceAccess), validate('params', quotationIdSchema), asyncHandler(quotationController.getReference));
 router.get('/item-size-references/:itemSizeId', asyncHandler(requireQuotationReferenceAccess), validate('params', itemSizeIdSchema), asyncHandler(async (req, res) => {
   const branch = getOfficeBranchId(res);

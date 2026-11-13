@@ -283,21 +283,6 @@ export const quotationRepository = {
       .find(value => typeof value === 'string') as string | undefined;
     return { ...quote, ...(contractId ? { contractId } : {}), items };
   },
-  /**
-   * Cross-section list of APPROVED quotations as downstream document bases
-   * (Field Service work-order options). The branch always comes from the
-   * caller's access token. All quotation price sources are eligible.
-   */
-  async listReference(officeBranchId: string) {
-    const where: Prisma.QuotationWhereInput = { officeBranchId, status: 'APPROVED', isActive: true, pdfDocument: { isNot: null } };
-    const rows = await prisma.quotation.findMany({
-      where, take: 1000,
-      orderBy: [{ pdfDocument: { approvedAt: 'desc' } }, { id: 'asc' }],
-      select: { ...listSelect,
-        pdfDocument: { select: { approvedAt: true } } },
-    });
-    return { quotations: rows.map(({ pdfDocument, ...row }) => ({ ...row, approvedAt: pdfDocument!.approvedAt })) };
-  },
   async create(input: unknown, officeBranchId: string, actor: AuditActor) {
     const { items, companyId, date: _clientDate, ...data } = createQuotationSchema.parse(input);
     return prisma.$transaction(async (tx) => {

@@ -396,11 +396,6 @@ export const workOrderRepository = {
     });
     return { workOrders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
-  async findActiveByQuotation(quotationId: string, actor: Actor) {
-    return prisma.workOrder.findFirst({ where: { quotationId, officeBranchId: actor.officeBranchId, revoked: false },
-      select: { id: true, quotationId: true, officeBranchId: true, revoked: true, number: true, status: true, version: true,
-        contractId: true, quotationSnapshot: true } });
-  },
   async get(id: string, actor: Actor) {
     const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
     if (!workOrder) throw new HttpError('Work order not found', 404);
@@ -413,10 +408,14 @@ export const workOrderRepository = {
       ? reference({ quotationId, contractId }, quote, actor) : {};
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
+      if (!before) throw new HttpError('Work order not found', 404);
+      // The effective date pair is resolved against the stored row, so a PATCH
+      // that submits only one of the two dates is still validated. The check
+      // runs before the version claim, so an invalid period never writes.
+      checkDates(fields.startDate ?? before.startDate, fields.endDate !== undefined ? fields.endDate : before.endDate);
       const claimed = await tx.workOrder.updateMany({ where: { id, officeBranchId: actor.officeBranchId, version, revoked: false },
         data: { version: { increment: 1 }, updatedById: actor.id, updatedByName: actor.name } });
       if (!claimed.count) {
-        if (!await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId } })) throw new HttpError('Work order not found', 404);
         throw new HttpError('Work order has changed or is revoked; reload before retrying', 409);
       }
       const current = await tx.workOrder.findUniqueOrThrow({ where: { id } });
@@ -425,7 +424,6 @@ export const workOrderRepository = {
       if ('quotationId' in quotation && typeof quotation.quotationId === 'string' && quotation.quotationId) {
         await assertQuotationNotInUse(tx, actor.officeBranchId, quotation.quotationId, id);
       }
-      checkDates(fields.startDate ?? current.startDate, fields.endDate !== undefined ? fields.endDate : current.endDate);
       // The schedule guard runs before the inspector rows are replaced, so an
       // overlapping PATCH is rejected with 409 and the previous state survives.
       // It applies whenever the schedule can change: a new inspector list or a

@@ -206,10 +206,14 @@ describe('marketing-service event synchronisation', () => {
     const submitted = await createSubmittedQuotation(admin.accessToken, fixture);
     await approveQuotation(admin.accessToken, submitted.id, submitted.version);
     const today = new Date().toISOString().slice(0, 10);
+    // The Work Order write endpoints require the marketing-officer role, so
+    // the creation is performed by a USER in the MARKETING section.
+    const officer = await seedUser({ role: 'USER', section: 'MARKETING', officeBranchId: branchId });
+    await loginAs(officer);
 
     const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
       method: 'POST',
-      token: admin.accessToken,
+      token: officer.accessToken,
       body: {
         quotationId: submitted.id,
         startDate: today,

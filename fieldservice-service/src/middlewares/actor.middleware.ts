@@ -21,15 +21,18 @@ const resolveActor = (sections: readonly string[]) => async (req: Request, res: 
   } catch (error) { next(error); }
 }
 export const requireActor = resolveActor(['MARKETING', 'FIELD_SERVICE']);
-export const requireWorkOrderReferenceActor = resolveActor(['MARKETING', 'FIELD_SERVICE', 'FINANCE', 'ACCOUNTING']);
 export const requireWorkOrderSection = (...sections: string[]) => (_req: Request, res: Response, next: NextFunction) => {
   if (!sections.includes(res.locals.workOrderSection)) return next(new HttpError('Access to this section is required', 403));
   next();
 };
-/** POST work-order creation: MARKETING section with ADMIN or USER role only. */
-export const requireMarketingAdminOrUser = (_req: Request, res: Response, next: NextFunction) => {
+/**
+ * Work Order creation and update: MARKETING section with the USER role only.
+ * ADMIN and APP_MANAGER are rejected, so the marketing officer who owns the
+ * document is the only actor allowed to write a Work Order.
+ */
+export const requireMarketingUser = (_req: Request, res: Response, next: NextFunction) => {
   if (res.locals.workOrderSection !== 'MARKETING') return next(new HttpError('Access to this section is required', 403));
   const role = res.locals.workOrderRole as string | undefined;
-  if (role !== 'ADMIN' && role !== 'USER') return next(new HttpError('ADMIN or USER role is required', 403));
+  if (role !== 'USER') return next(new HttpError('USER role is required', 403));
   next();
 };

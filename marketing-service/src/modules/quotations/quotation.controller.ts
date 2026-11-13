@@ -4,7 +4,6 @@ import { quotationRepository } from './quotation.repository.js';
 import { ListQuotationsInput } from './quotation.schemas.js';
 import { getAuditActor, getOfficeBranchId, restrictListVisibility } from '../../utils/officeBranch.js';
 import { HttpError } from '../../utils/httpError.js';
-import { hasActiveWorkOrder } from './work-order.integration.js';
 
 const send = (req: Request, res: Response, status: number, message: string, data: unknown): void => {
   res.status(status).json({ status, success: true, message, data, requestId: req.headers['x-request-id'] });
@@ -30,11 +29,10 @@ export const quotationController = {
     const branch = getOfficeBranchId(res);
     const quotationId = res.locals.params.quotationId;
     const quote = await quotationRepository.findActive(quotationId, branch);
-    // Local flag is checked first for a fast 409 without a network call. The
-    // live Field Service lookup is authoritative: it also rejects when Marketing
-    // is unreachable (fail-closed) and when a Work Order was created but this
-    // quotation row has not yet recorded the link.
-    if (quote.hasWorkOrder || await hasActiveWorkOrder(req, quotationId, branch)) {
+    // The mirrored Work Order reference is authoritative. Field Service writes it
+    // in the same transaction that creates the Work Order, so the quotation row
+    // and the Work Order cannot disagree about a live link.
+    if (quote.hasWorkOrder || quote.workOrderId) {
       throw new HttpError('A quotation with an active Work Order cannot be revised until the Work Order is revoked', 409);
     }
     send(req, res, 201, 'Quotation revised successfully', await quotationRepository.revise(quotationId, res.locals.body.version, branch, getAuditActor(res)));
@@ -53,10 +51,6 @@ export const quotationController = {
   async getReference(req: Request, res: Response) {
     send(req, res, 200, 'Quotation retrieved successfully', await quotationRepository.findActive(res.locals.params.quotationId, getOfficeBranchId(res)));
   },
-  /** Branch-scoped list of APPROVED quotations as downstream document bases. */
-  async listReference(req: Request, res: Response) {
-    send(req, res, 200, 'Quotation references retrieved successfully', await quotationRepository.listReference(getOfficeBranchId(res)));
-  },
   async create(req: Request, res: Response) {
     // Validation middleware already checked the request. The repository also parses
     // raw input for non-HTTP callers, including converting date strings to Date.
@@ -66,7 +60,7 @@ export const quotationController = {
     const branch = getOfficeBranchId(res);
     const quotationId = res.locals.params.quotationId;
     const quote = await quotationRepository.findActive(quotationId, branch);
-    if (quote.hasWorkOrder || quote.workOrderId || await hasActiveWorkOrder(req, quotationId, branch)) {
+    if (quote.hasWorkOrder || quote.workOrderId) {
       throw new HttpError('A quotation with an active Work Order cannot be deleted until the Work Order is revoked', 409);
     }
     send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(quotationId, res.locals.body, branch, getAuditActor(res)));

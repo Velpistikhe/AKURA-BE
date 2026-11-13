@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { z } from 'zod';
-import { Actor, requireActor, requireMarketingAdminOrUser, requireWorkOrderReferenceActor, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingUser, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
 import { loadCompany, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus } from '../../integrations/gateway.js';
@@ -18,13 +17,6 @@ const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => res.status(status).json({ status, success: true, message: 'Request completed successfully', data, requestId: req.headers['x-request-id'] });
-// Read-only reference used by Marketing to check whether a quotation still
-// backs a live Work Order before it is revised or deleted. It exposes the
-// Work Order identity and status only.
-router.get('/by-quotation/:quotationId', requireWorkOrderReferenceActor, asyncHandler(async (req, res) => {
-  const quotationId = z.string().uuid().parse(req.params.quotationId);
-  send(req, res, await repository.findActiveByQuotation(quotationId, actor(res)));
-}));
 router.use(requireActor);
 router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
 router.get('/:id/history', asyncHandler(async (req, res) => {
@@ -35,7 +27,7 @@ router.get('/:id', asyncHandler(async (req, res) => { send(req, res, await repos
 // Company basis: the Work Order is not derived from a Marketing quotation. The
 // company is validated live against Marketing, so an unknown, revoked or
 // other-branch company is rejected before anything is stored.
-router.post('/', requireMarketingAdminOrUser, asyncHandler(async (req, res) => {
+router.post('/', requireMarketingUser, asyncHandler(async (req, res) => {
   const input = createWorkOrderByCompanySchema.parse(req.body);
   const branch = actor(res).officeBranchId;
   const company = await loadCompany(req, input.companyId, branch);
@@ -46,7 +38,7 @@ router.post('/', requireMarketingAdminOrUser, asyncHandler(async (req, res) => {
 // Quotation basis: the Work Order is derived from an approved Marketing
 // quotation. The company is never taken from the client; it is read from the
 // quotation company snapshot returned by Marketing.
-router.post('/from-quotation', requireMarketingAdminOrUser, asyncHandler(async (req, res) => {
+router.post('/from-quotation', requireMarketingUser, asyncHandler(async (req, res) => {
   const input = createWorkOrderByQuotationSchema.parse(req.body);
   const quotation = await loadQuotationForBasis(req, input.quotationId, actor(res).officeBranchId);
   // Marketing records the quotation link inside the same transaction that
@@ -64,7 +56,7 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
   const quote = current.quotationId ? await loadQuotationForStart(req, current.quotationId, actor(res).officeBranchId) : null;
   send(req, res, await repository.start(id, version, quote, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
 }));
-router.patch('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
+router.patch('/:id', requireMarketingUser, asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   const quotation = (input.quotationId !== undefined || input.contractId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;

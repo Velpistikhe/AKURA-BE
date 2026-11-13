@@ -20,7 +20,7 @@ Legend: **●** = hard runtime dependency · **—** = none
 | **api-gateway** | — | ● | ● | ● | ● | ● |
 | **auth** | ● | — | — | — | — | — |
 | **app-manager** | — | ● | — | — | — | — |
-| **marketing** | ● | ● | — | — | — | ● |
+| **marketing** | ● | ● | — | — | — | — |
 | **finance** | ● | ● | — | — | — | — |
 | **fieldservice** | ● | ● | — | ● | — | — |
 
@@ -30,8 +30,6 @@ all five domain services.
 
 ### Reading the matrix
 
-- **marketing → fieldservice**: synchronous Work Order creation plus a
-  compensating delete.
 - **fieldservice → marketing**: synchronous quotation/contract/item reference
   reads, plus the asynchronous Work Order link-state callback.
 - **finance → marketing**: asynchronous tax snapshot delivery.
@@ -61,22 +59,7 @@ snapshots to Marketing and Field Service through an outbox; that replication is
 gone. Auth now only serves the profile and the directory, and the consumers
 *pull* what they need.
 
-### 2.3 marketing → fieldservice (read-only lookup)
-
-**VERIFIED** — `marketing-service/src/modules/quotations/work-order.integration.ts`.
-
-| Direction | Call | Purpose |
-|---|---|---|
-| Marketing → Field Service | `GET fieldservice/work-orders/by-quotation/:id` | Check whether a live Work Order already backs a quotation |
-
-The Work Order is **not** created through Marketing. The client creates it
-directly on Field Service (`POST /api/v1/fieldservice/work-orders/from-quotation`),
-and Field Service resolves the quotation through the Marketing quotation
-reference and notifies Marketing of the new link. Marketing only reads back the
-live Work Order state before a quotation revision or deletion, so the remaining
-call is read-only and fail-closed.
-
-### 2.4 fieldservice → marketing (quotation basis and link callback)
+### 2.3 fieldservice → marketing (quotation basis and link callback)
 
 **VERIFIED** — `fieldservice-service/src/integrations/gateway.ts:181-203`.
 
@@ -103,7 +86,7 @@ This is a **synchronous** call dressed as an event endpoint. It uses the
 `/internal/quotations/{quotationId}/work-order` path and the
 `x-work-order-sync-secret` header, but it is not an outbox delivery.
 
-### 2.5 finance → marketing (async)
+### 2.4 finance → marketing (async)
 
 **VERIFIED** — `finance-service/src/modules/taxes/tax-delivery.ts`.
 
@@ -114,7 +97,7 @@ with `x-tax-sync-secret`.
 Delivery targets are validated to point at the configured gateway URL
 (`tax-delivery.ts:22`), so a tax snapshot cannot bypass the edge.
 
-### 2.6 marketing / finance / fieldservice → auth (sync)
+### 2.5 marketing / finance / fieldservice → auth (sync)
 
 **VERIFIED** — `GET auth/me` via the gateway, from:
 
@@ -133,7 +116,7 @@ This is the **live profile check**: it catches a user whose account was
 deactivated, whose branch assignment changed, or whose section changed since
 the token was issued.
 
-### 2.7 app-manager → auth (live profile check)
+### 2.6 app-manager → auth (live profile check)
 
 **VERIFIED** — `app-manager-service/src/middlewares/authorize.middleware.ts`
 resolves the caller with `GET {API_GATEWAY_URL}/api/v1/auth/me` when a request
@@ -153,7 +136,7 @@ API and depends on nobody else.
 | Coupling | Strength | Where |
 |---|---|---|
 | Gateway ↔ every service | **High** | Every request, every event |
-| Marketing ↔ Field Service | **High** | Bidirectional; shared quotation/work-order semantics and a shared secret |
+| Field Service → Marketing | **High** | Shared quotation/work-order semantics and a shared secret |
 | Everything → Auth | **Medium** | Every authorisation decision performs a live profile read |
 | Auth → Marketing/Field Service | **Low-Medium** | Async, eventually consistent read models |
 | Finance → Marketing | **Low-Medium** | Async, eventually consistent read model |
@@ -182,17 +165,20 @@ by the client instead.
 
 ### 3.3 Circular dependencies
 
-**VERIFIED** — exactly one cycle exists:
+**VERIFIED** — no cycle exists any more.
 
 ```
-Marketing  ──(POST work-orders)──▶  Field Service
-Marketing  ◀──(work-order events)──  Field Service
+Field Service  ──(POST work-order link)──▶  Marketing
 ```
 
-This cycle is broken by making the return leg **idempotent** and by having
-Marketing **compensate** (revoke the Work Order) if it fails to persist the
-link. See [ADR-0003](./adr/ADR-0003-http-outbox-over-message-broker.md) for
-why an outbox was chosen over a broker on the asynchronous legs.
+The Work Order is **not** created through Marketing. The client creates it
+directly on Field Service (`POST /api/v1/fieldservice/work-orders/from-quotation`),
+and Field Service resolves the quotation through the Marketing quotation
+reference and notifies Marketing of the new link. The callback is synchronous
+and idempotent, and Marketing mirrors the link on its own quotation row, so no
+return leg to Field Service is needed. See
+[ADR-0003](./adr/ADR-0003-http-outbox-over-message-broker.md) for why an outbox
+was chosen over a broker on the asynchronous legs.
 
 ### 3.4 Fan-in and fan-out
 
@@ -200,8 +186,8 @@ why an outbox was chosen over a broker on the asynchronous legs.
 |---|---|---|
 | api-gateway | 5 | 6 (all others, for outbound calls) |
 | auth | 0 | 5 |
-| marketing | 3 | 3 (gateway, auth, fieldservice) |
-| fieldservice | 5 | 3 (gateway, auth, marketing) |
+| marketing | 2 | 2 (gateway, auth) |
+| fieldservice | 5 | 2 (gateway, auth) |
 | finance | 2 | 2 (gateway, marketing via tax delivery) |
 | app-manager | 1 (auth) | 1 (gateway only) |
 
@@ -225,8 +211,7 @@ call from service A to service B:
    service credentials instead.
 5. **Handle upstream failure explicitly.** The codebase convention is to map
    4xx upstream statuses through and convert everything else to `503` — see
-   `fieldservice-service/src/integrations/gateway.ts:22-33` and
-   `marketing-service/src/modules/quotations/work-order.integration.ts:29-33`.
+   `fieldservice-service/src/integrations/gateway.ts:22-33`.
 6. **Never call a service directly.** A direct URL would bypass the gateway
    secret, the gateway's JWT verification, and the identity headers.
 
@@ -236,11 +221,10 @@ call from service A to service B:
 
 | Risk | Impact | Mitigation in place |
 |---|---|---|
-| Marketing ↔ Field Service cycle | A failure in either blocks the other | Compensation (revoke), fail-closed `503`s, idempotent receivers |
+| Field Service → Marketing callback | A Marketing outage rolls the Field Service write back | Fail-closed `503`s, idempotent receiver, transaction rollback |
 | Auth is on every authorisation path | Auth degradation blocks all writes | Local JWKS cache (~10 min) lets services keep verifying tokens |
 | Eventual consistency in read models | Stale tax data | Version guards on the tax cache; the user directory is read live, so it is never stale |
 | **No broker** → delivery depends on a reachable gateway | An outage delays sync until retry | Outbox persistence, exponential backoff, in-request batch fallback |
 | **Conditional routing** → a service can be absent | 404 instead of a clear error | `servicesConfig` only registers a service when URL + secret are both set — but nothing alerts on the omission |
 | No shared library | Fixes must be replicated across 6 packages | Documented conventions; `npm run typecheck` per service |
-
 

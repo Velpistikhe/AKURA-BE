@@ -240,27 +240,6 @@ export async function loadQuotationForBasis(req: Request, id: string, branch: st
   return quotation;
 }
 
-export const quotationReferenceOptionSchema = z.object({
-  id: z.string().uuid(), officeBranchId: z.string().uuid(),
-  no: z.number().int().nullable(), numberYear: z.number().int().nullable(),
-  subject: z.string(), companySnapshot: z.record(z.unknown()),
-  version: z.number().int().nonnegative(), revision: z.number().int().nonnegative(),
-  approvedAt: z.string().datetime().nullable(),
-}).passthrough();
-export type QuotationReferenceOption = z.infer<typeof quotationReferenceOptionSchema>;
-
-/** Branch-scoped list of APPROVED, active quotation options with any price source. */
-export async function loadQuotationOptions(req: Request): Promise<QuotationReferenceOption[]> {
-  const parsed = z.object({ quotations: z.array(quotationReferenceOptionSchema) }).passthrough()
-    .safeParse(await gatewayGet('marketing/quotation-references', req));
-  if (!parsed.success) throw new HttpError('Invalid quotation reference list response', 502);
-  const branch = (req as AuthenticatedRequest).user?.officeBranchId;
-  if (!branch || parsed.data.quotations.some(quotation => quotation.officeBranchId !== branch)) {
-    throw new HttpError('Quotation reference list does not match the authenticated branch', 502);
-  }
-  return parsed.data.quotations;
-}
-
 const contractDate = z.union([z.string().datetime(), z.string().date()])
   .transform(value => value.length === 10 ? `${value}T00:00:00.000Z` : value);
 export const contractSchema = z.object({

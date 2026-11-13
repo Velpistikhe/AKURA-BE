@@ -2,6 +2,14 @@ import { z } from 'zod';
 import { WorkOrderStatus } from '@prisma/client';
 const date = z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`));
 const version = z.number().int().min(0).max(2147483646);
+// The end date must not precede the start date. The same day is allowed, so a
+// one-day Work Order keeps the same start and end date.
+const END_DATE_BEFORE_START = 'End date cannot precede start date';
+// Both dates are already normalised to UTC midnight, so a plain comparison is
+// an exact calendar-day comparison.
+const endDateNotBeforeStart = (value: { startDate?: Date; endDate?: Date | null }) =>
+  value.startDate === undefined || value.endDate === undefined || value.endDate === null
+  || value.endDate.getTime() >= value.startDate.getTime();
 // Matches PostgreSQL Decimal(15,3), avoiding implicit rounding or database errors.
 const quantity = z.number().finite().nonnegative().max(999999999999.999)
   .refine(value => /^\d{1,12}(\.\d{1,3})?$/.test(String(value)), 'Quantity must have at most three decimal places');
@@ -61,7 +69,8 @@ export const createWorkOrderByCompanySchema = z.object({
   endDate: date.optional(),
   inspectors: createInspectors,
   items: createItemRows,
-}).strict();
+}).strict()
+  .refine(endDateNotBeforeStart, { message: END_DATE_BEFORE_START, path: ['endDate'] });
 /** POST /work-orders/from-quotation — quotation basis; companyId is taken from the quotation snapshot only. */
 export const createWorkOrderByQuotationSchema = z.object({
   quotationId: z.string().uuid(),
@@ -70,13 +79,18 @@ export const createWorkOrderByQuotationSchema = z.object({
   ...quotationHeaderOptional,
   inspectors: createInspectors,
   items: createItemRows,
-}).strict();
+}).strict()
+  .refine(endDateNotBeforeStart, { message: END_DATE_BEFORE_START, path: ['endDate'] });
 // The DRAFT -> IN_PROGRESS transition must go through POST /:id/start (which
 // re-validates the quotation snapshot against Marketing); PATCH may not set it.
 // Other statuses remain simple CRUD labels as before.
 export const updateWorkOrderSchema = z.object({ ...fields, endDate: date.nullable().optional(),
   status: z.nativeEnum(WorkOrderStatus).refine(value => value !== 'IN_PROGRESS', 'Use POST /:id/start to move a Work order to IN_PROGRESS').optional() }).partial().extend({ version }).strict()
   .refine(value => !['quotationId','contractId'].some(key => key in value) || validReference(value), 'At least one of quotationId or contractId is required when replacing the document basis')
+  // A PATCH that submits both dates is checked here. When only one date is
+  // submitted the effective pair is only known against the stored Work Order,
+  // so the repository compares it with the current row inside the transaction.
+  .refine(endDateNotBeforeStart, { message: END_DATE_BEFORE_START, path: ['endDate'] })
   .refine(value => Object.keys(value).some(key => key !== 'version'), 'At least one editable field is required');
 export const deleteWorkOrderSchema = z.object({ version }).strict();
 // Moving DRAFT -> IN_PROGRESS requires live Marketing validation, so it only

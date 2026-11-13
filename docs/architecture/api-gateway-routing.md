@@ -264,13 +264,13 @@ services, and Bearer tokens echoed from login / `GET /api/v1/auth/me`.
 | `openapi.ts` | 127 KB | Core spec + auth, app-manager, and marketing catalog paths |
 | `catalog.ts` | 40 KB | Company, staff, service, item, and contract-price schemas/paths |
 | `quotation.ts` | 40 KB | Quotation lifecycle, PDF, work-order creation, internal work-order event |
-| `work-orders.ts` | 35 KB | Work Order lifecycle, options, and the Marketing reference endpoints Field Service uses |
+| `work-orders.ts` | 35 KB | Work Order lifecycle and the Marketing reference endpoint Field Service uses |
 | `tax.ts` | 7 KB | Finance tax endpoints + the internal tax event endpoint |
 | `audit-trail.ts` | 5.5 KB | App Manager audit trail endpoints |
 | `operational-documents.ts` | 3 KB | Quotation and item-size reference endpoints |
 | `module-tags.ts` | 4 KB | Maps each path to an OpenAPI tag |
 
-**Path count: 98 path definitions** (135 operations), with **no duplicate path
+**Path count: 94 path definitions** (131 operations), with **no duplicate path
 keys** between files (verified by extracting every path key and grouping by
 value). The user directory is not read over the network: Auth owns the users
 table, and the directory lookups that other services used to consume have been
@@ -294,9 +294,9 @@ the per-flow sync secret (`tax.ts:55`, `quotation.ts:198-200`).
 |---|---|---|
 | Auth | 11 | 12 |
 | App Manager | 13 | 24 |
-| Marketing | 56 | 77 |
+| Marketing | 55 | 76 |
 | Finance | 4 | 5 |
-| Field Service | 8 | 11 |
+| Field Service | 5 | 8 |
 | Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | 4 |
 | Internal event endpoints | 2 (counted within the above) | 2 |
 

@@ -146,25 +146,6 @@ export const quotationSchemas = {
     type: 'object', required: ['quotations', 'pagination'],
     properties: { quotations: { type: 'array', items: ref('QuotationListRow') }, pagination: ref('Pagination') },
   }),
-  QuotationReferenceRow: {
-    type: 'object',
-    required: ['id', 'officeBranchId', 'date', 'no', 'numberYear', 'subject', 'customerSnapshot', 'companyId', 'companyName', 'status', 'subTotal', 'taxAmount', 'total', 'version', 'revision', 'isActive', 'createdAt', 'updatedAt', 'approvedAt'],
-    properties: {
-      id: uuid, officeBranchId: uuid, date: { ...timestamp, nullable: true }, no: { type: 'integer', nullable: true }, numberYear: { type: 'integer', nullable: true },
-      subject: text, customerSnapshot: { type: 'string' }, companyId: { ...uuid, nullable: true }, companyName: { type: 'string', nullable: true },
-      status: ref('QuotationStatus'), subTotal: money, taxAmount: money, total: money,
-      version: { type: 'integer' }, revision: { type: 'integer' }, isActive: { type: 'boolean' }, createdAt: timestamp, updatedAt: timestamp,
-      hasWorkOrder: { type: 'boolean', readOnly: true, description: 'True while this quotation has a live Work Order.' },
-      workOrderStatus: { type: 'string', enum: ['DRAFT', 'IN_PROGRESS', 'COMPLETED'], nullable: true, readOnly: true, description: 'Latest Field Service Work Order status. Null when no active Work Order is linked or its status is CANCELED.' },
-      workOrderId: { ...uuid, nullable: true, readOnly: true, description: 'Field Service Work Order currently linked to this quotation.' },
-      approvedAt: { ...timestamp, nullable: true, description: 'Approval time of the stored quotation PDF document.' },
-    },
-  },
-  QuotationReferenceListResponse: envelope({
-    type: 'object', required: ['quotations'],
-    description: 'Branch-scoped APPROVED, active quotations with any price source including contract pricing, newest approval first, capped at 1000 rows.',
-    properties: { quotations: { type: 'array', items: ref('QuotationReferenceRow') } },
-  }),
 };
 const response = (description: string, name: string) => ({ description, content: { 'application/json': { schema: ref(name) } } });
 const commonErrors = {
@@ -208,14 +189,6 @@ export const quotationPaths = {
         404: response('Quotation not found in the event branch', 'ErrorResponse'),
         409: response('Conflicting Work Order link or quotation state', 'ErrorResponse'),
       },
-    },
-  },
-  '/api/v1/marketing/quotation-references': {
-    get: {
-      ...common, summary: 'List quotation references for downstream document bases',
-      description: 'Branch-scoped, read-only list of active APPROVED quotations including those using contract pricing. The branch comes from the access token only. Ordered by approval time descending and capped at 1000 rows. Allowed sections: MARKETING, FINANCE, ACCOUNTING and FIELD_SERVICE, plus ADMIN and APP_MANAGER roles. Field Service uses this list for the work-order quotation options and resolves the chosen quotation again through GET /api/v1/marketing/quotation-references/{quotationId} when the Work Order is created.',
-      responses: { ...commonErrors, 200: response('Quotation reference list retrieved', 'QuotationReferenceListResponse'),
-        403: response('Section access denied for quotation references', 'ErrorResponse') },
     },
   },
   '/api/v1/marketing/quotations/{quotationId}/pdf': {

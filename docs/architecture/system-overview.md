@@ -211,12 +211,12 @@ the invoice and proforma invoice modules"* (`finance-service/src/integrations/ga
   `COMPLETED` / `CANCELED`, with soft revocation, per-branch numbering,
   inspectors, item snapshots, and history
   (`src/modules/work-orders/`).
-- **Work Order options** for the creation form — live quotation lookups
-  (`src/modules/options/`).
 - Stores the inspectors by display name; no user directory is read over the
   network, so nothing is replicated.
 - Notifies Marketing of Work Order link state and revocation
   (`src/integrations/gateway.ts:181-203`).
+- The Work Order write endpoints require section MARKETING with role USER, and
+  the end date must not precede the start date (the same day is allowed).
 
 ---
 
@@ -237,7 +237,7 @@ API Gateway
   ▼
 Field Service
   │  verifyGatewaySecret → authenticate → requireActor (GET auth/me)
-  │  → requireMarketingAdminOrUser (section MARKETING, role ADMIN or USER)
+  │  → requireMarketingUser (section MARKETING, role USER)
   │  → GET marketing/quotation-references/{id} via Gateway (snapshot basis)
   │  → persist Work Order
   │  → POST marketing/internal/quotations/{id}/work-order (synchronous, in-transaction)
@@ -250,7 +250,7 @@ Two properties of this flow are worth naming explicitly:
 
 - **Fail-closed on upstream errors.** A timeout or 5xx from an upstream service
   becomes a `503`, never a silent `false`. See
-  `marketing-service/src/modules/quotations/work-order.integration.ts:43-53`.
+  `fieldservice-service/src/integrations/gateway.ts:22-33`.
 - **No cross-service transaction boundary.** The quotation link is written by
   Marketing inside the callback that Field Service makes from within its own
   transaction. A failed callback rolls the Work Order back, so the two

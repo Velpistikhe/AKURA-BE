@@ -40,13 +40,11 @@ URL anywhere in the codebase.
 | # | Caller | Call | Purpose | File |
 |---|---|---|---|---|
 | 1 | marketing | `GET auth/me` | Live profile for authorization | `src/middlewares/authorize.middleware.ts:33` |
-| 2 | marketing | `GET fieldservice/work-orders/by-quotation/:id` | Check for an existing live Work Order | `src/modules/quotations/quotation.controller.ts:89` |
-| 3 | finance | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
-| 4 | fieldservice | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
-| 5 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
-| 6 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
-| 7 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
-| 8 | fieldservice | `GET marketing/quotation-references` | Quotation options list | `src/integrations/gateway.ts:273` |
+| 2 | finance | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
+| 3 | fieldservice | `GET auth/me` | Live profile for authorization | `src/middlewares/actor.middleware.ts:10` |
+| 4 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
+| 5 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
+| 6 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
 | — | all services | `GET auth/.well-known/jwks.json` | Key material | `*/src/utils/tokens.ts:11` |
 
 ### 2.2 The standard call shape
