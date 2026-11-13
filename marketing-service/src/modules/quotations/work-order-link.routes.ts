@@ -23,6 +23,7 @@ export const workOrderLinkSchema = z.object({
   workOrderNumber: z.string().min(1).max(100),
   workOrderStatus: z.enum(['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELED']),
   officeBranchId: z.string().uuid(),
+  workOrderSnapshot: z.record(z.unknown()).optional(),
   // True when the Work Order was revoked: the quotation reference is cleared.
   revoked: z.boolean().default(false),
 }).strict();
@@ -39,7 +40,7 @@ router.post('/internal/quotations/:quotationId/work-order', asyncHandler(async (
   const quotationId = z.string().uuid().parse(req.params.quotationId);
   const parsed = workOrderLinkSchema.safeParse(req.body);
   if (!parsed.success) throw new HttpError('Invalid Work Order link request', 400);
-  const { workOrderId, workOrderNumber, workOrderStatus, officeBranchId, revoked } = parsed.data;
+  const { workOrderId, workOrderNumber, workOrderStatus, officeBranchId, workOrderSnapshot, revoked } = parsed.data;
   if (revoked) {
     // A revoked Work Order clears the whole reference.
     await quotationRepository.clearWorkOrder(quotationId, officeBranchId, workOrderId);
@@ -49,7 +50,7 @@ router.post('/internal/quotations/:quotationId/work-order', asyncHandler(async (
   // A canceled Work Order clears the mirrored status instead of storing one it
   // does not have.
   const workOrder = { id: workOrderId, number: workOrderNumber, status: workOrderStatus, quotationId, officeBranchId };
-  await quotationRepository.attachWorkOrder(quotationId, officeBranchId, workOrder, { id: workOrderId, name: 'Field Service' });
+  await quotationRepository.attachWorkOrder(quotationId, officeBranchId, workOrder, workOrderSnapshot, { id: workOrderId, name: 'Field Service' });
   res.json({ success: true, quotationId, workOrderId, revoked: false, workOrderStatus: workOrderStatusMirror(workOrderStatus) });
 }));
 export default router;

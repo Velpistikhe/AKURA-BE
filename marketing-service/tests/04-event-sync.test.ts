@@ -201,7 +201,7 @@ describe('marketing-service event synchronisation', () => {
     }
   });
 
-  test('CREATE FROM QUOTATION: synchronous Marketing callback commits both sides', async () => {
+  test('CREATE FROM QUOTATION: outbox delivery updates Marketing after the Work Order commits', async () => {
     const fixture = await buildCatalogFixture(admin.accessToken);
     const submitted = await createSubmittedQuotation(admin.accessToken, fixture);
     await approveQuotation(admin.accessToken, submitted.id, submitted.version);

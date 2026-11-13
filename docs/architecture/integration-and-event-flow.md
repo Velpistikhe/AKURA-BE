@@ -134,22 +134,15 @@ explicit allowlist projection"*
 
 ### 2.6 Compensation for partial failure
 
-**VERIFIED** — a two-service operation never spans a transaction boundary:
-Field Service calls Marketing *inside* its own transaction, so a failed
-notification aborts the Work Order write instead of leaving the two services
-disagreeing.
-
-```ts
-const history = await saveHistory(tx, row, null, actor, 'CREATE');
-// Marketing is told before the commit. A failed callback aborts the
-// transaction, so the Work Order and the quotation link cannot disagree.
-if (beforeCommit) await beforeCommit(row);
-```
-— `fieldservice-service/src/modules/work-orders/work-order.repository.ts:342-346`
+**VERIFIED** — quotation link updates use the same outbox pattern as tax:
+Field Service commits the Work Order and a `work_order_link_events` row together,
+then delivers the Marketing callback asynchronously (`work-order-link-delivery.ts`).
+A failed delivery does **not** roll back the Work Order; the job retries with
+backoff until Marketing acknowledges or an operator intervenes.
 
 The callback posts to `marketing/internal/quotations/{quotationId}/work-order` with
 the `x-work-order-sync-secret` header. Marketing stores the quotation link inside
-its own transaction, so a link conflict (409) also rolls the Work Order back.
+its own transaction and is idempotent on duplicate deliveries.
 
 **Gateway rewrite.** The callback travels through the API Gateway, which mounts
 `/api/v1/marketing/internal/quotations` and rewrites the stripped path to
@@ -157,9 +150,8 @@ its own transaction, so a link conflict (409) also rolls the Work Order back.
 the quotation id is glued to the segment (`/internal/quotations<uuid>/work-order`),
 the request matches no Marketing route, and it falls through to the user
 authentication middleware — which answers `401 Unauthorized: missing access
-token`. Field Service surfaces that as a 503 and rolls the Work Order back, so
-the visible symptom is a failed `POST /work-orders/from-quotation` even though
-the quotation lookup itself succeeded.
+token`. The outbox delivery records `lastError` and retries; the Work Order
+remains committed while Marketing catches up.
 
 The callback carries **service credentials only** (`x-service-name`,
 `x-service-secret`) plus `x-work-order-sync-secret` — never a user bearer token,
@@ -409,7 +401,7 @@ would be an inconsistent pair of records.
 |---|---|---|---|
 | **No broker → delivery requires a reachable gateway** | Medium | If the gateway is down, outbox deliveries cannot be sent | Outbox persists across restarts; backoff + jitter; the in-request fallback covers the serverless case |
 | **No dead-letter queue** | Medium | A permanently failing delivery retries every 5 minutes forever, silently | `attempts` and `lastError` are exposed via the delivery-monitoring endpoints |
-| **Work Order changes fail when Marketing is down** | Medium | Field Service writes are coupled to Marketing availability | Deliberate: consistency over availability. The compensation path also depends on Marketing |
+| **Quotation link lags behind Work Order** | Medium | Marketing mirror is eventual after WO commit | Outbox + in-request flush; monitor `work_order_link_deliveries` |
 | **No cross-service tracing** | Low | `x-request-id` propagates through the gateway and is forwarded on outbound calls, but there is no distributed tracing | Correlation IDs are present in every log line; enough to follow a request manually |
 | **Delivery target URLs are validated, but not the secret** | Low | Finance validates that the tax delivery target is the gateway URL (`tax-delivery.ts:22`) | The gateway still has to route the request |
 

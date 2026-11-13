@@ -61,30 +61,23 @@ gone. Auth now only serves the profile and the directory, and the consumers
 
 ### 2.3 fieldservice → marketing (quotation basis and link callback)
 
-**VERIFIED** — `fieldservice-service/src/integrations/gateway.ts:181-203`.
+**VERIFIED** — `fieldservice-service/src/integrations/gateway.ts` (reads) and
+`fieldservice-service/src/modules/work-orders/work-order-link-delivery.ts` (async link).
 
 | Direction | Call | Purpose |
 |---|---|---|
 | Field Service → Marketing | `GET marketing/quotation-references/:id` | Live quotation basis for a Work Order |
 | Field Service → Marketing | `GET marketing/contract-references/:id` | Live contract basis |
 | Field Service → Marketing | `GET marketing/item-size-references/:id` | Catalog identity for an item size |
+| Field Service → Marketing | `POST marketing/internal/quotations/:id/work-order` | Async quotation link mirror (outbox) |
 
-`notifyMarketingWorkOrderStatus` is called from within the Work Order
-repository's write path, so a Work Order status change is only committed if
-Marketing accepts it:
-
-> *"It is synchronous so any failure aborts the Field Service transaction and
-> the two services remain consistent."*
-> — `fieldservice-service/src/integrations/gateway.ts:176-180`
-
-The same callback also carries the **new link** when a quotation-based Work
-Order is created, so the quotation records its Work Order reference in the same
-transaction that creates the Work Order. A failed callback rolls the creation
-back.
-
-This is a **synchronous** call dressed as an event endpoint. It uses the
-`/internal/quotations/{quotationId}/work-order` path and the
-`x-work-order-sync-secret` header, but it is not an outbox delivery.
+Quotation-based Work Order writes enqueue a link event in the Field Service
+database (`work_order_link_events` / `work_order_link_deliveries`) in the same
+transaction as the Work Order row. A worker (and an in-request bounded batch)
+delivers `POST marketing/internal/quotations/{quotationId}/work-order` with
+`x-work-order-sync-secret`. The client's HTTP response succeeds when the Work
+Order commits; Marketing's `hasWorkOrder` / `workOrderSnapshot` update is
+**eventually consistent**, with idempotent retries on failure.
 
 ### 2.4 finance → marketing (async)
 

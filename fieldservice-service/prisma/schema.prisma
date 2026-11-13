@@ -135,3 +135,31 @@ model AuditLog {
   @@index([officeBranchId, createdAt])
   @@map("audit_logs")
 }
+
+model WorkOrderLinkEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  quotationId    String   @map("quotation_id") @db.Uuid
+  officeBranchId String   @map("office_branch_id") @db.Uuid
+  payload        Json     @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at")
+  deliveries     WorkOrderLinkDelivery[]
+
+  @@index([quotationId, createdAt])
+  @@index([officeBranchId, createdAt])
+  @@map("work_order_link_events")
+}
+
+model WorkOrderLinkDelivery {
+  id            String    @id @default(uuid()) @db.Uuid
+  eventId       String    @map("event_id") @db.Uuid
+  event         WorkOrderLinkEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  targetService String    @map("target_service")
+  attempts      Int       @default(0)
+  nextRetryAt   DateTime  @default(now()) @map("next_retry_at")
+  deliveredAt   DateTime? @map("delivered_at")
+  lastError     String?   @map("last_error")
+
+  @@unique([eventId, targetService])
+  @@index([deliveredAt, nextRetryAt])
+  @@map("work_order_link_deliveries")
+}

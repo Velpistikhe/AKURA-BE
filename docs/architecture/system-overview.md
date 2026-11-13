@@ -240,7 +240,7 @@ Field Service
   │  → requireMarketingUser (section MARKETING, role USER)
   │  → GET marketing/quotation-references/{id} via Gateway (snapshot basis)
   │  → persist Work Order
-  │  → POST marketing/internal/quotations/{id}/work-order (synchronous, in-transaction)
+  │  → enqueue work-order link outbox → POST marketing/internal/quotations/{id}/work-order (async)
   ▼
 Marketing Service
      attachWorkOrder(quotation, workOrder)  ← same DB transaction as the audit entry

@@ -7,6 +7,9 @@ import { recordAudit } from '../../utils/audit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderByCompanyInput, CreateWorkOrderByQuotationInput, CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
+import { enqueueWorkOrderLink } from './work-order-link-outbox.js';
+
+export type WorkOrderWriteResult = { row: WorkOrderSnapshot; linkEventId?: string };
 const include = { inspectors: { orderBy: { position: 'asc' as const } }, items: true };
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 type WorkOrderSnapshot = Prisma.WorkOrderGetPayload<{ include: typeof include }>;
@@ -308,13 +311,10 @@ export const workOrderRepository = {
    * snapshot matches the approved document and the companyId is the company of
    * that quotation.
    *
-   * Marketing is notified of the new link before the transaction commits, so
-   * the quotation records the Work Order reference together with the Work
-   * Order itself. A failed notification aborts the transaction and no Work
-   * Order is created, which keeps both services consistent.
+   * A link delivery event is queued in the same transaction; Marketing is updated
+   * asynchronously from the transactional outbox after the Work Order commits.
    */
-  async createByQuotation(input: CreateWorkOrderByQuotationInput, quotation: QuotationSnapshot, actor: Actor,
-    beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
+  async createByQuotation(input: CreateWorkOrderByQuotationInput, quotation: QuotationSnapshot, actor: Actor): Promise<WorkOrderWriteResult> {
     const {
       inspectors = [], items,
       quotationId: _quotationId,
@@ -340,10 +340,8 @@ export const workOrderRepository = {
         items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       const history = await saveHistory(tx, row, null, actor, 'CREATE');
-      // Marketing is told before the commit. A failed callback aborts the
-      // transaction, so the Work Order and the quotation link cannot disagree.
-      if (beforeCommit) await beforeCommit(row);
-      return history;
+      const event = await enqueueWorkOrderLink(tx, history);
+      return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
   async list(input: z.infer<typeof listWorkOrderSchema>, actor: Actor) {
@@ -401,8 +399,7 @@ export const workOrderRepository = {
     if (!workOrder) throw new HttpError('Work order not found', 404);
     return workOrder;
   },
-  async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor,
-    beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
+  async update(id: string, input: UpdateWorkOrderInput, quote: QuotationSnapshot | ContractSnapshot | null, actor: Actor): Promise<WorkOrderWriteResult> {
     const { version, inspectors, quotationId, contractId, ...fields } = input;
     const quotation = (quotationId !== undefined || contractId !== undefined)
       ? reference({ quotationId, contractId }, quote, actor) : {};
@@ -444,11 +441,9 @@ export const workOrderRepository = {
       }
       const row = await tx.workOrder.update({ where: { id }, data: { ...fields, ...quotation }, include });
       const history = await saveHistory(tx, row, before, actor, 'UPDATE');
-      // Marketing is told before the commit. A failed callback aborts the
-      // transaction, so the Work Order status and the mirrored quotation
-      // status cannot disagree.
-      if (beforeCommit && row.quotationId && row.status !== before?.status) await beforeCommit(row);
-      return history;
+      const event = row.quotationId && row.status !== before?.status
+        ? await enqueueWorkOrderLink(tx, history) : null;
+      return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
   /**
@@ -459,7 +454,7 @@ export const workOrderRepository = {
    * The claim itself is an optimistic updateMany on status/version/revoked, so
    * concurrent starters cannot both succeed.
    */
-  async start(id: string, version: number, quote: QuotationSnapshot | null, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
+  async start(id: string, version: number, quote: QuotationSnapshot | null, actor: Actor): Promise<WorkOrderWriteResult> {
     const stored = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
     if (!stored) throw new HttpError('Work order not found', 404);
     if (stored.version !== version || stored.status !== 'DRAFT' || stored.revoked) {
@@ -489,11 +484,11 @@ export const workOrderRepository = {
       }
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
       const history = await saveHistory(tx, row, before, actor, 'START');
-      if (beforeCommit && row.quotationId) await beforeCommit(row);
-      return history;
+      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history) : null;
+      return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
-  async revoke(id: string, version: number, actor: Actor, beforeCommit?: (workOrder: WorkOrderSnapshot) => Promise<void>) {
+  async revoke(id: string, version: number, actor: Actor): Promise<WorkOrderWriteResult> {
     return prisma.$transaction(async tx => {
       const before = await tx.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
       if (!before) throw new HttpError('Work order not found', 404);
@@ -511,14 +506,8 @@ export const workOrderRepository = {
       // The history row is written before the Marketing callback so the only
       // remaining step after Marketing acknowledges is the commit itself.
       const history = await saveHistory(tx, row, before, actor, 'REVOKE');
-      // Marketing is told before the commit. A failed callback aborts the
-      // transaction, so the Work Order stays live and both services agree.
-      if (beforeCommit && row.quotationId) await beforeCommit(row);
-      return history;
-    // The transaction timeout must outlive the Marketing callback timeout (10s)
-    // plus the local writes. With Prisma's default 5s timeout the transaction
-    // could roll back after Marketing had already cleared the quotation link,
-    // leaving the two services disagreeing about the Work Order state.
+      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { revoked: true }) : null;
+      return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
 };

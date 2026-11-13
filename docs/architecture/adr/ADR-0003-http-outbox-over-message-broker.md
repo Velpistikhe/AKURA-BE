@@ -30,7 +30,7 @@ The two flows:
 | Producer | Consumer | Endpoint | Secret |
 |---|---|---|---|
 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` |
-| fieldservice | marketing | `POST /api/v1/marketing/internal/quotations/{quotationId}/work-order` | `x-work-order-sync-secret` (synchronous callback, see below) |
+| fieldservice | marketing | `POST /api/v1/marketing/internal/quotations/{quotationId}/work-order` | `x-work-order-sync-secret` |
 
 The user directory is deliberately **not** replicated. Auth is the source of
 truth, and no service reads it over the network: the directory lookups have
@@ -61,19 +61,11 @@ been removed, so there is nothing left for an outbox to deliver.
 Both call the same delivery function, so the advisory lock makes concurrent
 execution safe.
 
-### One deliberate exception
-
-The Work Order link callback (`POST
-/api/v1/marketing/internal/quotations/{quotationId}/work-order`) is **not** an
-outbox delivery. It is a synchronous call made from inside the Field Service
-write path:
-
-> *"It is synchronous so any failure aborts the Field Service transaction and
-> the two services remain consistent."*
-> — `fieldservice-service/src/integrations/gateway.ts:176-180`
-
-Here, consistency matters more than availability: a Work Order that exists
-without Marketing knowing about it would be an inconsistent pair of records.
+The Work Order link delivery uses the same outbox pattern as tax: Field Service
+commits the Work Order and an outbox row together, then delivers the HTTP callback
+asynchronously. Marketing's quotation mirror (`hasWorkOrder`, `workOrderSnapshot`)
+is **eventually consistent** with Field Service. The receiver is idempotent, and
+the producer does not fail the client's write when delivery is delayed.
 
 ## Consequences
 
@@ -123,7 +115,8 @@ without Marketing knowing about it would be an inconsistent pair of records.
 | Acknowledgement shape validation | `tax-delivery.ts:59-60` |
 | Receiver version guard | `marketing-service/src/modules/taxes/tax-events.routes.ts:33-51` |
 | Ack only after commit | `api-gateway/src/docs/tax.ts:56` |
-| Synchronous work-order callback | `fieldservice-service/src/integrations/gateway.ts:176-203` |
+| Work-order outbox delivery | `fieldservice-service/src/modules/work-orders/work-order-link-delivery.ts` |
+| Work-order outbox enqueue | `fieldservice-service/src/modules/work-orders/work-order-link-outbox.ts` |
 | No broker client dependency | All six `package.json` manifests |
 
 ## Related

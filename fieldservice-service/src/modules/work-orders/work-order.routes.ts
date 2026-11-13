@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express';
 import { Actor, requireActor, requireMarketingUser, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
-import { loadCompany, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart, notifyMarketingWorkOrderStatus } from '../../integrations/gateway.js';
-import { workOrderRepository as repository } from './work-order.repository.js';
+import { loadCompany, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForStart } from '../../integrations/gateway.js';
+import { processDueWorkOrderLinkDeliveries, wakeWorkOrderLinkDelivery } from './work-order-link-delivery.js';
+import { WorkOrderWriteResult, workOrderRepository as repository } from './work-order.repository.js';
 import { createWorkOrderByCompanySchema, createWorkOrderByQuotationSchema, startWorkOrderSchema, updateWorkOrderSchema, deleteWorkOrderSchema, listWorkOrderSchema, workOrderIdSchema, workOrderHistorySchema } from './work-order.schemas.js';
 type BasisInput = { quotationId?: string | null; contractId?: string | null };
 // The payload carries IDs only. Quotation and contract content is fetched live from
@@ -17,6 +18,15 @@ const resolveBasis = async (req: Request, body: BasisInput, branch: string) => {
 const router = Router();
 const actor = (res: Response): Actor => res.locals.workOrderActor;
 const send = (req: Request, res: Response, data: unknown, status = 200) => res.status(status).json({ status, success: true, message: 'Request completed successfully', data, requestId: req.headers['x-request-id'] });
+const flushQuotationLink = async (branchId: string, linkEventId?: string) => {
+  if (!linkEventId) return;
+  await processDueWorkOrderLinkDeliveries(branchId, linkEventId);
+  wakeWorkOrderLinkDelivery();
+};
+const sendWrite = async (req: Request, res: Response, branchId: string, result: WorkOrderWriteResult, status = 200) => {
+  await flushQuotationLink(branchId, result.linkEventId);
+  send(req, res, result.row, status);
+};
 router.use(requireActor);
 router.get('/', asyncHandler(async (req, res) => { send(req, res, await repository.list(listWorkOrderSchema.parse(req.query), actor(res))); }));
 router.get('/:id/history', asyncHandler(async (req, res) => {
@@ -41,9 +51,7 @@ router.post('/', requireMarketingUser, asyncHandler(async (req, res) => {
 router.post('/from-quotation', requireMarketingUser, asyncHandler(async (req, res) => {
   const input = createWorkOrderByQuotationSchema.parse(req.body);
   const quotation = await loadQuotationForBasis(req, input.quotationId, actor(res).officeBranchId);
-  // Marketing records the quotation link inside the same transaction that
-  // creates the Work Order, so a failed callback rolls the Work Order back.
-  send(req, res, await repository.createByQuotation(input, quotation, actor(res), row => notifyMarketingWorkOrderStatus(row, req)), 201);
+  await sendWrite(req, res, actor(res).officeBranchId, await repository.createByQuotation(input, quotation, actor(res)), 201);
 }));
 router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id);
@@ -54,16 +62,16 @@ router.post('/:id/start', requireWorkOrderSection('MARKETING'), asyncHandler(asy
   const current = await repository.get(id, actor(res));
   if (current.version !== version || current.status !== 'DRAFT' || current.revoked) throw new HttpError('Work order has changed or is not a draft; reload before retrying', 409);
   const quote = current.quotationId ? await loadQuotationForStart(req, current.quotationId, actor(res).officeBranchId) : null;
-  send(req, res, await repository.start(id, version, quote, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
+  await sendWrite(req, res, actor(res).officeBranchId, await repository.start(id, version, quote, actor(res)));
 }));
 router.patch('/:id', requireMarketingUser, asyncHandler(async (req, res) => {
   const id = workOrderIdSchema.parse(req.params.id), input = updateWorkOrderSchema.parse(req.body);
   const quotation = (input.quotationId !== undefined || input.contractId !== undefined)
     ? await resolveBasis(req, input, actor(res).officeBranchId) : null;
-  send(req, res, await repository.update(id, input, quotation, actor(res), row => notifyMarketingWorkOrderStatus(row, req)));
+  await sendWrite(req, res, actor(res).officeBranchId, await repository.update(id, input, quotation, actor(res)));
 }));
 router.delete('/:id', requireWorkOrderSection('MARKETING'), asyncHandler(async (req, res) => {
   const { version } = deleteWorkOrderSchema.parse(req.body);
-  send(req, res, await repository.revoke(workOrderIdSchema.parse(req.params.id), version, actor(res), row => notifyMarketingWorkOrderStatus({ ...row, revoked: true }, req)));
+  await sendWrite(req, res, actor(res).officeBranchId, await repository.revoke(workOrderIdSchema.parse(req.params.id), version, actor(res)));
 }));
 export default router;

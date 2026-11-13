@@ -184,35 +184,6 @@ export async function loadQuotationForStart(req: Request, id: string, branch: st
   return quotation;
 }
 
-/**
- * Notifies Marketing of a Work Order status transition. For revokes the callback
- * also clears the quotation reference; it is synchronous so any failure aborts
- * the Field Service transaction and the two services remain consistent.
- */
-export async function notifyMarketingWorkOrderStatus(workOrder: { id: string; number: string; status: string; quotationId: string | null; officeBranchId: string; revoked?: boolean }, req: Request): Promise<void> {
-  if (!workOrder.quotationId) return;
-  if (!env.WORK_ORDER_SYNC_SECRET) throw new HttpError('Work Order callback credentials are not configured', 503);
-  const callbackPath = `marketing/internal/quotations/${workOrder.quotationId}/work-order`;
-  let response: globalThis.Response;
-  try {
-    response = await fetch(serviceUrl(callbackPath), {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
-      headers: { 'content-type': 'application/json', 'x-work-order-sync-secret': env.WORK_ORDER_SYNC_SECRET,
-        ...serviceHeaders(callbackPath), ...(typeof req.headers['x-request-id'] === 'string' ? { 'x-request-id': req.headers['x-request-id'] } : {}) },
-      body: JSON.stringify({ workOrderId: workOrder.id, workOrderNumber: workOrder.number, workOrderStatus: workOrder.status,
-        officeBranchId: workOrder.officeBranchId, revoked: workOrder.revoked === true }),
-    });
-  } catch { throw new HttpError('Marketing Service is unavailable; Work Order status change was not applied', 503); }
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new HttpError(body?.message || 'Marketing Service rejected the Work Order status change', response.status === 404 || response.status === 409 ? response.status : 503);
-  }
-  const acknowledgment = await response.json().catch(() => null) as { success?: boolean; workOrderId?: string } | null;
-  if (acknowledgment?.success !== true || acknowledgment.workOrderId !== workOrder.id) {
-    throw new HttpError('Invalid acknowledgment from Marketing Service; Work Order status change was not applied', 502);
-  }
-}
-
 const companySchema = z.object({
   id: z.string().uuid(),
   officeBranchId: z.string().uuid(),

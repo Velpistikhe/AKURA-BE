@@ -60,7 +60,7 @@ export const quotationController = {
     const branch = getOfficeBranchId(res);
     const quotationId = res.locals.params.quotationId;
     const quote = await quotationRepository.findActive(quotationId, branch);
-    if (quote.hasWorkOrder || quote.workOrderId) {
+    if (quote.hasWorkOrder) {
       throw new HttpError('A quotation with an active Work Order cannot be deleted until the Work Order is revoked', 409);
     }
     send(req, res, 200, 'Quotation deleted successfully', await quotationRepository.deactivate(quotationId, res.locals.body, branch, getAuditActor(res)));

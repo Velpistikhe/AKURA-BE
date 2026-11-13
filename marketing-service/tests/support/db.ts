@@ -143,6 +143,7 @@ export const truncateTestTables = async (service: ServiceName): Promise<void> =>
       case 'fieldservice': {
         await prisma.$executeRawUnsafe(`
           TRUNCATE TABLE
+            "work_order_link_deliveries", "work_order_link_events",
             "work_order_histories", "work_order_inspectors", "work_order_items", "work_order",
             "work_order_sequences", "audit_logs"
           RESTART IDENTITY CASCADE
