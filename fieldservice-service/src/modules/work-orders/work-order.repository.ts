@@ -204,17 +204,34 @@ function resolveItemSnapshots(items: CreateWorkOrderInput['items'], input: { quo
  * Work order frees the quotation again.
  *
  * The advisory transaction lock is scoped per branch + quotation and taken before
- * the duplicate read, so concurrent creations for the same quotation serialize
- * instead of both passing a check-then-insert race (the same per-key advisory
- * lock pattern used by the quotation snapshot and tax cache receiver).
+ * either check, so concurrent creations for the same quotation serialize instead
+ * of both passing a check-then-insert race. Any unacknowledged Marketing delivery
+ * for the quotation (CREATE, STATUS or REVOKE) also blocks a new creation: the
+ * mirror may still be stale until that event is delivered.
  */
 async function assertQuotationNotInUse(tx: Prisma.TransactionClient, officeBranchId: string, quotationId: string, excludeId?: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'work-order-quotation:' + officeBranchId + ':' + quotationId}))`;
+
+  const pendingDelivery = await tx.workOrderLinkDelivery.findFirst({
+    where: {
+      deliveredAt: null,
+      event: { officeBranchId, quotationId },
+    },
+    select: { id: true, event: { select: { action: true, workOrderNumber: true } } },
+    orderBy: { nextRetryAt: 'asc' },
+  });
+  if (pendingDelivery) {
+    throw new HttpError(
+      `Quotation synchronisation is pending for Work Order ${pendingDelivery.event.workOrderNumber} (${pendingDelivery.event.action}); retry after the sync is delivered`,
+      409,
+    );
+  }
+
   const existing = await tx.workOrder.findFirst({
     where: { officeBranchId, quotationId, revoked: false, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { number: true },
   });
-  if (existing) throw new HttpError(`Quotation already has an active work order (${existing.number}); revoke it before creating another`, 409);
+  if (existing) throw new HttpError(`Quotation already has a Work Order (${existing.number}); revoke it before creating another`, 409);
 }
 /**
  * Advisory lock keys for the inspector schedule. Inspectors are identified by
@@ -340,7 +357,7 @@ export const workOrderRepository = {
         items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       const history = await saveHistory(tx, row, null, actor, 'CREATE');
-      const event = await enqueueWorkOrderLink(tx, history);
+      const event = await enqueueWorkOrderLink(tx, history, { action: 'CREATE' });
       return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
@@ -442,7 +459,7 @@ export const workOrderRepository = {
       const row = await tx.workOrder.update({ where: { id }, data: { ...fields, ...quotation }, include });
       const history = await saveHistory(tx, row, before, actor, 'UPDATE');
       const event = row.quotationId && row.status !== before?.status
-        ? await enqueueWorkOrderLink(tx, history) : null;
+        ? await enqueueWorkOrderLink(tx, history, { action: 'UPDATE' }) : null;
       return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
@@ -484,7 +501,7 @@ export const workOrderRepository = {
       }
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
       const history = await saveHistory(tx, row, before, actor, 'START');
-      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history) : null;
+      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { action: 'START' }) : null;
       return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
@@ -506,7 +523,7 @@ export const workOrderRepository = {
       // The history row is written before the Marketing callback so the only
       // remaining step after Marketing acknowledges is the commit itself.
       const history = await saveHistory(tx, row, before, actor, 'REVOKE');
-      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { revoked: true }) : null;
+      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { revoked: true, action: 'REVOKE' }) : null;
       return { row: history, linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },

@@ -99,6 +99,8 @@ re-verified and found false; see
 | `WorkOrderInspector` | Assigned inspectors with an ordered position |
 | `WorkOrderSequence` | Sequencing data |
 | `WorkOrderHistory` | Status-change history |
+| `WorkOrderLinkEvent` | Outbox events that mirror a Work Order into a Marketing quotation. Holds the Work Order reference in indexed columns (`workOrderId`, `workOrderNumber`, `workOrderStatus`, `action`, `revoked`) next to the JSONB payload, so the synchronisation history of one Work Order is read with an index instead of a JSONB scan |
+| `WorkOrderLinkDelivery` | Delivery state per event and target service: attempts, next retry, acknowledgement time and last error |
 | `AuditLog` | Work-order audit entries |
 
 ---
@@ -444,9 +446,11 @@ actually is was not established from the repository.
 
 **App Manager and Field Service are the exceptions**: they maintain
 hand-written SQL migrations in `prisma/sql/`, applied by
-`scripts/apply-migrations.mjs`. The scripts are idempotent
-(`CREATE UNIQUE INDEX IF NOT EXISTS`, `DROP COLUMN IF EXISTS`) and fail loudly
-if the table does not exist yet.
+`scripts/apply-migrations.mjs`. The scripts are idempotent and fail loudly
+if the target table does not exist. Field Service currently has:
+
+- `prisma/sql/0001_drop_work_order_inspector_user_id.sql`
+- `prisma/sql/0002_add_work_order_link_event_work_order.sql` — idempotently adds and backfills indexed Work Order identity/action fields on the Field Service link outbox.
 
 **Recommendation:** adopt `prisma migrate` (or at minimum a versioned SQL
 migration directory) for production, and resolve the `taxes` ownership

@@ -82,6 +82,11 @@ export const quotationSchema = z.object({
   deliveryReports: z.string(), deliveryInvoice: z.string(), staffId: z.string().uuid(),
   customerSnapshot: z.string(), companySnapshot: z.record(z.unknown()),
   subTotal: money, tax: money, taxAmount: money, total: money, createdAt: dateTime, updatedAt: dateTime,
+  // The mirrored Work Order link of the quotation, as Marketing reports it. It
+  // is validated, never persisted: the Work Order snapshot keeps an explicit
+  // allowlist, so these two fields stay out of the stored document.
+  hasWorkOrder: z.boolean(),
+  workOrderId: z.string().uuid().nullable().optional(),
   items: z.array(quotationItemSchema),
 }).passthrough();
 export type QuotationSnapshot = z.infer<typeof quotationSchema>;
@@ -208,6 +213,28 @@ export async function loadQuotationForBasis(req: Request, id: string, branch: st
   const quotation = parsed.data;
   if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError('Quotation not found', 404);
   if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
+  return quotation;
+}
+
+/**
+ * The quotation basis of a Work Order that is being created.
+ *
+ * On top of the branch, lifecycle and approval checks of loadQuotationForBasis,
+ * the quotation must not already back a Work Order. Marketing owns the mirrored
+ * link, so the same rule Marketing applies when it claims the quotation is
+ * checked here: a quotation is "in use" while it has the link flag or the
+ * Work Order reference.
+ *
+ * The mirrored link is cleared when Field Service revokes the Work Order, and
+ * that delivery is asynchronous. Until Marketing has accepted the revoke, the
+ * quotation is still reported as in use, so a second Work Order for it is
+ * rejected instead of being created against a stale mirror.
+ */
+export async function loadQuotationForNewWorkOrder(req: Request, id: string, branch: string): Promise<QuotationSnapshot> {
+  const quotation = await loadQuotationForBasis(req, id, branch);
+  if (quotation.hasWorkOrder || quotation.workOrderId) {
+    throw new HttpError('Quotation already has a Work Order; revoke it before creating another', 409);
+  }
   return quotation;
 }
 

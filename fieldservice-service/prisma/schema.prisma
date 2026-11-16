@@ -137,15 +137,28 @@ model AuditLog {
 }
 
 model WorkOrderLinkEvent {
-  id             String   @id @default(uuid()) @db.Uuid
-  quotationId    String   @map("quotation_id") @db.Uuid
-  officeBranchId String   @map("office_branch_id") @db.Uuid
-  payload        Json     @db.JsonB
-  createdAt      DateTime @default(now()) @map("created_at")
-  deliveries     WorkOrderLinkDelivery[]
+  id              String   @id @default(uuid()) @db.Uuid
+  quotationId     String   @map("quotation_id") @db.Uuid
+  officeBranchId  String   @map("office_branch_id") @db.Uuid
+  /// The Work Order this event belongs to. The reference is denormalised out of
+  /// the payload so the synchronisation history of one Work Order can be read
+  /// with an indexed filter instead of a JSONB scan.
+  workOrderId     String   @map("work_order_id") @db.Uuid
+  workOrderNumber String   @map("work_order_number") @db.VarChar(100)
+  /// The Work Order status at the moment the event was written.
+  workOrderStatus String   @map("work_order_status") @db.VarChar(20)
+  /// The Work Order write that produced this event.
+  action          String   @db.VarChar(20)
+  /// True when the event clears the quotation link because the Work Order was
+  /// revoked.
+  revoked         Boolean  @default(false) @map("revoked")
+  payload         Json     @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at")
+  deliveries      WorkOrderLinkDelivery[]
 
   @@index([quotationId, createdAt])
   @@index([officeBranchId, createdAt])
+  @@index([workOrderId, createdAt])
   @@map("work_order_link_events")
 }
 

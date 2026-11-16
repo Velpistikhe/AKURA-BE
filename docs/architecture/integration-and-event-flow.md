@@ -158,6 +158,25 @@ The callback carries **service credentials only** (`x-service-name`,
 because it is a service-to-service call and the gateway route is registered with
 `authRequired: false` and an `internalCaller` guard for `fieldservice-service`.
 
+### 2.7 A pending synchronisation blocks a new Work Order
+
+**VERIFIED** — creating a Work Order from a quotation is refused with **409**
+while a Marketing synchronisation event for that quotation is still queued and
+not yet acknowledged (`fieldservice-service/src/modules/work-orders/work-order.repository.ts`,
+`assertQuotationNotInUse`).
+
+The check runs inside the write transaction, after the branch-scoped advisory
+lock for `branch + quotation` is taken, so two concurrent creations for the
+same quotation serialize instead of both passing the check. It covers every
+event action (`CREATE`, `START`, `UPDATE`, `REVOKE`): while a revoke is still
+in flight, the mirrored link in Marketing is stale, and a second Work Order
+would be created against a quotation that Marketing still reports as linked.
+
+Because an unacknowledged event blocks the quotation, the delivery worker
+**polls continuously** (`POLL_INTERVAL_MS`), including when nothing is queued.
+A delivery can become due without a write waking the worker, and an event that
+was never retried would block its quotation forever.
+
 ---
 
 ## 3. Asynchronous delivery — the transactional outbox
@@ -298,6 +317,66 @@ again and create a duplicate. The delivery will be retried by the worker.
 
 This is a deliberate consistency trade-off: **the tax write succeeds even if
 delivery fails**. The read model converges later.
+
+### 3.8 Monitoring a Work Order synchronisation
+
+**VERIFIED** — the Work Order link outbox has its own read endpoint, because
+Field Service owns the outbox and is therefore the only service that knows the
+delivery state of a synchronisation.
+
+`GET /api/v1/fieldservice/work-orders/{id}/sync` returns the recorded
+deliveries of one Work Order as an **array** (`data`), with the pagination next
+to it:
+
+| Field | Meaning |
+|---|---|
+| `action` | The Work Order write that produced the event: `CREATE`, `START`, `UPDATE`, `REVOKE` |
+| `revoked` | True when the event clears the quotation link |
+| `workOrderStatus` | The Work Order status at the moment the event was written |
+| `delivery.deliveryStatus` | `DELIVERED` (acknowledged), `PENDING` (queued, not sent), `RETRYING` (last attempt failed, next retry scheduled) |
+
+The endpoint reads the local database only and never calls Marketing, so it
+also works while Marketing is down — which is exactly when the delivery state
+matters. There is **no permanent failure state**, because a delivery is retried
+until it is acknowledged.
+
+The Work Order reference is stored in indexed columns on
+`work_order_link_events` (`work_order_id`, `work_order_number`,
+`work_order_status`, `action`, `revoked`) next to the JSONB payload, so the
+history of one Work Order is read with an index instead of a JSONB scan. The
+columns are filled by the application on every write; the hand-written
+migration `prisma/sql/0002_add_work_order_link_event_work_order.sql` backfills
+them for rows that existed before the columns were added.
+
+### 3.9 Load behaviour of the Work Order creation path
+
+**MEASURED** — `marketing-service/tests/14-stress-work-order-quotation.test.ts`,
+recorded in `docs/testing/work-order-quotation-stress-report.json`.
+
+The creation path was measured under concurrent load, because it is the write
+that carries the new rules: the Marketing validation, the mirrored link check,
+the pending synchronisation check and the branch scoped advisory lock.
+
+| Scenario | Concurrency | Requests | Outcome |
+|---|---|---|---|
+| `contended-create` | 12 | 12 | 1 created, 11 refused with 409 |
+| `parallel-create` | 12 | 24 | 24 created |
+| `pending-event-create` | 10 | 20 | 20 refused with 409 |
+| `revoke` | 6 | 12 | 12 revoked |
+| `read-list` | 20 | 120 | 120 listed |
+
+Two properties were confirmed under load. A quotation backs **at most one**
+Work Order: twelve simultaneous creations for the same quotation produce
+exactly one Work Order, and the refusal leaves no row behind. Distinct
+quotations do not block each other: twenty four simultaneous creations for
+twenty four quotations all succeed.
+
+The contended path is serialised on purpose, so its latency grows with the
+number of simultaneous requests for the **same** quotation. The write waits
+for the synchronisation acknowledgement, which is what keeps the mirror
+consistent; that wait is the main contributor to the write latency and is the
+price paid for the guarantee. The measured numbers are a regression baseline
+for one machine, not a capacity claim; see `docs/testing/README.md`.
 
 ---
 

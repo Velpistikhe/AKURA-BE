@@ -186,13 +186,16 @@ try {
     console.log(`Applied  ${file}`);
   }
 
-  // Report the columns of the migrated table, so the operator can see the
+  // Report the columns of the migrated tables, so the operator can see the
   // result without querying the database by hand.
-  const columns = await prisma.$queryRawUnsafe(
-    `SELECT column_name FROM information_schema.columns
-      WHERE table_name = 'work_order_inspectors' ORDER BY column_name`,
-  );
-  console.log('work_order_inspectors columns:', columns.map((column) => column.column_name).join(', '));
+  for (const table of ['work_order_inspectors', 'work_order_link_events']) {
+    const columns = await prisma.$queryRawUnsafe(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = $1 ORDER BY column_name`,
+      table,
+    );
+    console.log(`${table} columns:`, columns.map((column) => column.column_name).join(', '));
+  }
 } finally {
   await prisma.$disconnect();
 }

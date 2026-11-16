@@ -117,6 +117,7 @@ the producer does not fail the client's write when delivery is delayed.
 | Ack only after commit | `api-gateway/src/docs/tax.ts:56` |
 | Work-order outbox delivery | `fieldservice-service/src/modules/work-orders/work-order-link-delivery.ts` |
 | Work-order outbox enqueue | `fieldservice-service/src/modules/work-orders/work-order-link-outbox.ts` |
+| Work-order sync monitoring endpoint | `fieldservice-service/src/modules/work-orders/work-order-sync.repository.ts` |
 | No broker client dependency | All six `package.json` manifests |
 
 ## Related

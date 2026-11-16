@@ -160,20 +160,17 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 | Runtime deps | `@prisma/client`, `jose`, `express`, `zod`, `winston` |
 | Database | `akura_fieldservice` |
 | Modules | `work-orders/` |
-| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `POST /work-orders` (company basis), `POST /work-orders/from-quotation` (quotation basis), `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start` |
-| Outbound calls | `GET auth/me`, `GET marketing/quotation-references/:quotationId`, `GET marketing/companies/:companyId`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the work-order status callback POST |
+| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `GET /work-orders/:id/sync`, `POST /work-orders` (company basis), `POST /work-orders/from-quotation` (quotation basis), `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start` |
+| Outbound calls | `GET auth/me`, `GET marketing/quotation-references/:quotationId`, `GET marketing/companies/:companyId`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the outbox delivery `POST marketing/internal/quotations/:quotationId/work-order` |
 | Key config | `WORK_ORDER_SYNC_SECRET`, |
-| Special | `requireMarketingUser` admits section MARKETING with role USER only for the Work Order creation and update endpoints (`src/middlewares/actor.middleware.ts`); `requireActor` admits sections MARKETING and FIELD_SERVICE for the read endpoints, and `requireWorkOrderSection('MARKETING')` guards the start and delete endpoints. The end date must not precede the start date; the same day is allowed. Has a hand-written SQL migration: `prisma/sql/0001_drop_work_order_inspector_user_id.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`), dropping the inspector user ID column |
+| Special | `requireMarketingUser` admits section MARKETING with role USER only for the Work Order creation and update endpoints (`src/middlewares/actor.middleware.ts`); `requireActor` admits sections MARKETING and FIELD_SERVICE for the read endpoints, and `requireWorkOrderSection('MARKETING')` guards the start and delete endpoints. The end date must not precede the start date; the same day is allowed. Creating a Work Order from a quotation validates the quotation live against Marketing: it must belong to the actor branch, be active and APPROVED, and must not already back a Work Order. A quotation with an unacknowledged Marketing synchronisation event also blocks the creation with 409 until the event is delivered. `GET /work-orders/:id/sync` returns the recorded Marketing synchronisation of one Work Order as an array (`data`) with the pagination next to it, read from the local outbox only. Has two hand-written SQL migrations: `prisma/sql/0001_drop_work_order_inspector_user_id.sql` and `prisma/sql/0002_add_work_order_link_event_work_order.sql`, applied by `npm run db:migrate` (`scripts/apply-migrations.mjs`); the second one denormalises the Work Order reference out of the link event payload |
 | Local development | Direct browser access on `http://localhost:5005` with Bearer token |
 
 ---
 
 ## 4. Endpoint index by service
 
-**VERIFIED** — assembled from the gateway's OpenAPI source
-(`api-gateway/src/docs/*.ts`, spec version **2.8.2**). The gateway documents **98 path definitions**
-across 7 files, with **no duplicate path keys** between files (verified by
-extracting every path key and grouping).
+**VERIFIED** — the gateway OpenAPI source defines **95 distinct path keys** across its source files; **7** are under Field Service (six Work Order endpoints including `/sync`, plus health). Other category counts in the table below remain to be re-counted after this change and should not be read as current authoritative totals.
 
 | Service | Documented path count | Source files |
 |---|---|---|
@@ -181,7 +178,7 @@ extracting every path key and grouping).
 | App Manager | 13 | `openapi.ts`, `audit-trail.ts` |
 | Marketing | 55 | `catalog.ts`, `quotation.ts`, `operational-documents.ts`, `work-orders.ts`, `tax.ts` |
 | Finance | 4 | `tax.ts` |
-| Field Service | 9 | `work-orders.ts`, `quotation.ts` |
+| Field Service | 10 | `work-orders.ts`, `quotation.ts` |
 | Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | `openapi.ts` |
 | Internal event endpoints | 2 | `tax.ts`, `quotation.ts` |
 

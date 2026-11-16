@@ -91,6 +91,48 @@ export const buildStressMetrics = (
   };
 };
 
+/** A sample set plus the wall-clock time the whole batch took. */
+export interface LoadResult {
+  samples: StressSample[];
+  wallClockMs: number;
+}
+
+/**
+ * Runs `total` requests with at most `concurrency` in flight at any time.
+ *
+ * The worker pool keeps the load steady instead of firing everything at once.
+ * A request that throws is recorded as a failed sample instead of aborting the
+ * batch, so one broken request cannot hide the behaviour of the others.
+ */
+export const runLoad = async (
+  total: number,
+  concurrency: number,
+  handler: (index: number) => Promise<{ status: number; durationMs: number; error?: string }>,
+): Promise<LoadResult> => {
+  const samples: StressSample[] = [];
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = next;
+      next += 1;
+      if (index >= total) return;
+      try {
+        const response = await handler(index);
+        samples.push({
+          status: response.status,
+          durationMs: response.durationMs,
+          ...(response.error ? { error: response.error } : {}),
+        });
+      } catch (error) {
+        samples.push({ status: 0, durationMs: 0, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  };
+  const started = performance.now();
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return { samples, wallClockMs: performance.now() - started };
+};
+
 /**
  * A barrier that releases every waiter at once. Used to force a deterministic
  * interleaving instead of relying on Promise.all scheduling luck.
