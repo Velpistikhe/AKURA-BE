@@ -16,15 +16,11 @@
 | Failure mode | Fails the caller's request | Retried in the background |
 | Consistency | Strong at the moment of the call | Eventual |
 | Used for | Reading data owned by another service | Replicating data into a read model |
-
-**The user directory is read, not replicated.** Auth owns the users table, and
-the consumers pull the contacts and inspectors they need live. There is no
-replica of it and therefore no user event flow.
-
-**The user directory is read, not replicated.** Auth owns the users table, and
-the consumers pull the contacts and inspectors they need live. There is no
-replica of it and therefore no user event flow.
 | Inventory | 12 distinct calls | 2 flows |
+
+**The user directory is read, not replicated.** Auth owns the users table, and
+the consumers pull the contacts and inspectors they need live. There is no
+replica of it and therefore no user event flow.
 
 **Both patterns traverse the API Gateway.** There is no direct service-to-service
 URL anywhere in the codebase.
@@ -202,16 +198,17 @@ Producer transaction:
     on failure  → attempts++, nextRetryAt = now + backoff, lastError = msg
 ```
 
-### 3.2 The one flow
+### 3.2 The two flows
 
 | # | Producer | Consumer | Endpoint | Secret header | Outbox tables |
 |---|---|---|---|---|---|
 | 1 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` | `tax_events`, `tax_deliveries` |
+| 2 | fieldservice | marketing | `POST /api/v1/marketing/internal/quotations/{quotationId}/work-order` | `x-work-order-sync-secret` | `work_order_link_events`, `work_order_link_deliveries` |
 
-**The second event endpoint** — `POST
-/api/v1/marketing/internal/quotations/{quotationId}/work-order`
-— is **not** an outbox delivery. It is a synchronous callback made from inside
-the Field Service transaction. See §4.
+Both flows use the same delivery machinery described in the sections below. Field
+Service's link worker additionally uses a **blocking** advisory lock
+(`pg_advisory_xact_lock`) so concurrent in-request flushes cannot both return
+before Marketing has the mirror (`work-order-link-delivery.ts:18-25`).
 
 **The user event endpoints are gone.** Auth used to push user snapshots to
 Marketing and Field Service; the directory is now read live, so there is no
@@ -354,8 +351,8 @@ them for rows that existed before the columns were added.
 recorded in `docs/testing/work-order-quotation-stress-report.json`.
 
 The creation path was measured under concurrent load, because it is the write
-that carries the new rules: the Marketing validation, the mirrored link check,
-the pending synchronisation check and the branch scoped advisory lock.
+that carries the Marketing validation, the mirrored link check, the pending
+synchronisation check and the branch scoped advisory lock.
 
 | Scenario | Concurrency | Requests | Outcome |
 |---|---|---|---|
@@ -372,11 +369,12 @@ quotations do not block each other: twenty four simultaneous creations for
 twenty four quotations all succeed.
 
 The contended path is serialised on purpose, so its latency grows with the
-number of simultaneous requests for the **same** quotation. The write waits
-for the synchronisation acknowledgement, which is what keeps the mirror
-consistent; that wait is the main contributor to the write latency and is the
-price paid for the guarantee. The measured numbers are a regression baseline
-for one machine, not a capacity claim; see `docs/testing/README.md`.
+number of simultaneous requests for the **same** quotation. The route flushes
+the synchronisation event before it answers, and a pending event blocks another
+Work Order for that quotation, so the mirror is consistent before a second Work
+Order can be accepted; that wait is the main contributor to the write latency
+and is the price paid for the guarantee. The measured numbers are a regression
+baseline for one machine, not a capacity claim; see `docs/testing/README.md`.
 
 ---
 
@@ -412,27 +410,37 @@ await tx.taxCacheRevision.upsert({ where: { officeBranchId: event.officeBranchId
 **Consequence:** at-least-once delivery is safe. The receiver converges to the
 producer's state regardless of how many times an event arrives.
 
-### 4.3 The work-order callback is synchronous, not queued
+### 4.3 The work-order link receiver
 
-**VERIFIED** — `fieldservice-service/src/integrations/gateway.ts:176-203`.
+**VERIFIED** — `marketing-service/src/modules/quotations/work-order-link.routes.ts`
+and `quotation.repository.ts` (attach / clear helpers).
 
 The Work Order link callback posts to
 `marketing/internal/quotations/{quotationId}/work-order` with
-`x-work-order-sync-secret`, but it is invoked **inside the Field Service write
-path**, not from an outbox:
+`x-work-order-sync-secret`. Field Service delivers it **from the outbox**
+(`work-order-link-delivery.ts`), not from the synchronous reference lookups in
+`gateway.ts`.
 
-> *"For revokes the callback also clears the quotation reference; it is
-> synchronous so any failure aborts the Field Service transaction and the two
-> services remain consistent."*
-> — `fieldservice-service/src/integrations/gateway.ts:176-180`
+Marketing applies a **link guard** instead of a version counter:
 
-**Consequence:** if Marketing is unavailable, the Work Order status change is
-**not committed**. The two services stay consistent by refusing to advance
-one without the other — at the cost of Field Service writes failing while
-Marketing is down.
+- Re-sending the same `workOrderId` acknowledges without changing the quotation
+  again.
+- A callback for a **different** Work Order than the one currently linked is
+  rejected so a late delivery cannot overwrite a newer reference.
+- `revoked: true` clears the mirrored link (`hasWorkOrder`, `workOrderId`,
+  snapshot).
 
-The receiver is still idempotent (duplicate events are ignored), so a retry
-after a network timeout is safe.
+**Consequence:** if Marketing is unavailable, the Work Order write has **already
+committed** and the outbox row remains queued. The client's response still
+reflects the Field Service truth; Marketing's mirror converges when delivery
+succeeds. The write path calls `deliverWorkOrderLinkAndWait` so the caller does
+not finish while an earlier link for the same quotation is still pending, which
+is what enforces the 409 guard on concurrent Work Order creation
+(§2.7). A failed delivery does **not** roll back the Work Order; it retries with
+backoff like the tax outbox (§3.3).
+
+The receiver is idempotent on duplicate deliveries, so at-least-once delivery is
+safe.
 
 ### 4.4 Receiver-side secret handling
 
@@ -467,10 +475,15 @@ outbox event is recorded in one transaction; delivery happens afterwards. If
 delivery fails, the retry loop handles it, and Marketing's cache converges
 (`tax-delivery.ts:55-59`).
 
-**Worked example — a Work Order status change.** Here the opposite applies. If
-Marketing cannot record the new link state, the Work Order change is rolled
-back, because a Work Order that exists without Marketing knowing about it
-would be an inconsistent pair of records.
+**Worked example — a Work Order quotation link.** Like the tax write, the Work
+Order row and the outbox event commit together; delivery happens afterwards
+(`work-order-link-outbox.ts`, `work-order-link-delivery.ts`). If Marketing is
+temporarily unreachable, the Work Order still exists and the delivery worker
+retries. Creation from the same quotation is blocked with 409 while an event is
+still unacknowledged, so a second Work Order is not created against a quotation
+that Marketing still reports as linked. The mirror may lag briefly, but it
+converges without requiring Field Service writes to fail whenever Marketing is
+down.
 
 ---
 

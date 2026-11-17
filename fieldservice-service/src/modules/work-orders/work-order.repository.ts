@@ -269,15 +269,34 @@ async function assertInspectorsAvailable(tx: Prisma.TransactionClient, officeBra
   if (existing) throw new HttpError(`One or more inspectors have an overlapping work order (${existing.number})`, 409);
 }
 export const workOrderRepository = {
+  /**
+   * The change history of one Work Order.
+   *
+   * Only the recorded changes are returned: the field-level differences, the
+   * action and the actor. The stored before/after snapshots of the whole Work
+   * Order stay in the database and are deliberately not exposed, so the response
+   * holds the difference instead of two copies of the record.
+   */
   async history(id: string, page: number, limit: number, actor: Actor) {
     await this.get(id, actor);
     const where = { workOrderId: id, workOrder: { officeBranchId: actor.officeBranchId } };
     const [rows, total] = await prisma.$transaction([
-      prisma.workOrderHistory.findMany({ where, orderBy: { version: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      // The snapshots are not selected, so the large JSONB documents are never
+      // read from the database for a response that does not carry them.
+      prisma.workOrderHistory.findMany({
+        where, orderBy: { version: 'desc' }, skip: (page - 1) * limit, take: limit,
+        select: {
+          id: true, workOrderId: true, version: true, action: true, changes: true,
+          createdById: true, createdByName: true, createdAt: true,
+        },
+      }),
       prisma.workOrderHistory.count({ where }),
     ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const history = rows.map(entry => ({
-      ...entry, actionLabel: historyActions[entry.action] ?? entry.action,
+      id: entry.id, workOrderId: entry.workOrderId, version: entry.version,
+      action: entry.action, actionLabel: historyActions[entry.action] ?? entry.action,
+      changes: entry.changes,
+      createdById: entry.createdById, createdByName: entry.createdByName, createdAt: entry.createdAt,
       changedBy: { id: entry.createdById, name: entry.createdByName }, changedAt: entry.createdAt,
     }));
     return { history, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };

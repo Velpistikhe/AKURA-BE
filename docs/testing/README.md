@@ -75,9 +75,10 @@ regression, not a capacity claim.
   number of simultaneous requests for the same quotation. The measured
   latencies include the Marketing validation call and the acknowledgement
   wait, so they are higher than the raw database time.
-- The creation path makes one Marketing call per request and waits for the
-  synchronisation acknowledgement. That wait is what makes the mirror
-  consistent, and it is the main contributor to the write latency.
+- The creation path enqueues one Marketing link event per Work Order and flushes
+  it before returning. A failed delivery remains queued for retry rather than
+  rolling back the Work Order; a pending-event guard prevents another Work Order
+  for the quotation until the link is caught up.
 - The preparation step (approving a quotation renders a PDF and stores it) is
   far slower than the Work Order path itself. It is throttled on purpose, so
   a saturated connection pool is reported as a preparation problem instead of
