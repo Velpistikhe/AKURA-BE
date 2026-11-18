@@ -2,7 +2,8 @@
  * WORK ORDER WRITE RULES - authorization and date validation.
  *
  * Covers the contract of the Field Service Work Order write endpoints:
- *   - creation and PATCH require section MARKETING with role USER only
+ *   - the quotation-based creation requires section MARKETING with role USER or
+ *     ADMIN; the company-based creation and PATCH require role USER only
  *   - the end date must not precede the start date; the same day is allowed
  *   - the removed read-only endpoints are no longer mounted
  */
@@ -93,11 +94,37 @@ describe('fieldservice-service work order write rules', () => {
     await loginAs(user);
   });
 
-  test('AUTHORIZATION: an ADMIN cannot create a Work Order from a quotation', async () => {
+  test('AUTHORIZATION: an ADMIN in MARKETING creates a Work Order from a quotation', async () => {
     const { fixture, quotationId } = await approvedQuotation();
     const today = new Date().toISOString().slice(0, 10);
 
     const response = await createFromQuotation(quotationId, fixture.itemSizeId, today, today, admin.accessToken);
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+  });
+
+  test('AUTHORIZATION: an ADMIN outside MARKETING is rejected with 403', async () => {
+    const { fixture, quotationId } = await approvedQuotation();
+    const today = new Date().toISOString().slice(0, 10);
+
+    // An admin of another section may not create a Work Order: the write guard
+    // requires the MARKETING section, not only the ADMIN role.
+    const fieldAdmin = await seedUser({ role: 'ADMIN', section: 'FIELD_SERVICE', officeBranchId: branchId });
+    await loginAs(fieldAdmin);
+
+    const response = await createFromQuotation(quotationId, fixture.itemSizeId, today, today, fieldAdmin.accessToken);
+    assert.equal(response.status, 403, JSON.stringify(response.body));
+  });
+
+  test('AUTHORIZATION: an APP_MANAGER in MARKETING is rejected with 403', async () => {
+    const { fixture, quotationId } = await approvedQuotation();
+    const today = new Date().toISOString().slice(0, 10);
+
+    // The quotation-based creation admits USER and ADMIN only; APP_MANAGER is
+    // still refused.
+    const manager = await seedUser({ role: 'APP_MANAGER', section: 'MARKETING', officeBranchId: branchId });
+    await loginAs(manager);
+
+    const response = await createFromQuotation(quotationId, fixture.itemSizeId, today, today, manager.accessToken);
     assert.equal(response.status, 403, JSON.stringify(response.body));
   });
 

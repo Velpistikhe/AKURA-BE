@@ -215,8 +215,10 @@ the invoice and proforma invoice modules"* (`finance-service/src/integrations/ga
   network, so nothing is replicated.
 - Notifies Marketing of Work Order link state and revocation
   (`src/integrations/gateway.ts:181-203`).
-- The Work Order write endpoints require section MARKETING with role USER, and
-  the end date must not precede the start date (the same day is allowed).
+- The Work Order write endpoints require section MARKETING: the quotation-based
+  creation admits role USER or ADMIN, the company-based creation and PATCH
+  admit role USER only, and the end date must not precede the start date (the
+  same day is allowed).
 
 ---
 
@@ -237,7 +239,7 @@ API Gateway
   ▼
 Field Service
   │  verifyGatewaySecret → authenticate → requireActor (GET auth/me)
-  │  → requireMarketingUser (section MARKETING, role USER)
+  │  → requireMarketingUserOrAdmin (section MARKETING, role USER or ADMIN)
   │  → GET marketing/quotation-references/{id} via Gateway (snapshot basis)
   │  → persist Work Order
   │  → enqueue work-order link outbox → POST marketing/internal/quotations/{id}/work-order (async)

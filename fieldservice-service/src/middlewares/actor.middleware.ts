@@ -26,13 +26,27 @@ export const requireWorkOrderSection = (...sections: string[]) => (_req: Request
   next();
 };
 /**
- * Work Order creation and update: MARKETING section with the USER role only.
- * ADMIN and APP_MANAGER are rejected, so the marketing officer who owns the
- * document is the only actor allowed to write a Work Order.
+ * Work Order creation from a company and Work Order update: MARKETING section
+ * with the USER role only. ADMIN and APP_MANAGER are rejected, so the
+ * marketing officer who owns the document is the only actor allowed to write
+ * a Work Order.
  */
 export const requireMarketingUser = (_req: Request, res: Response, next: NextFunction) => {
   if (res.locals.workOrderSection !== 'MARKETING') return next(new HttpError('Access to this section is required', 403));
   const role = res.locals.workOrderRole as string | undefined;
   if (role !== 'USER') return next(new HttpError('USER role is required', 403));
+  next();
+};
+/**
+ * Work Order creation from a quotation: MARKETING section with the USER role
+ * or the ADMIN role. The marketing admin who approves the quotation may also
+ * turn it into a Work Order, so the marketing officer is not the only actor
+ * allowed to write it. The section stays MARKETING: an ADMIN of another section
+ * and the APP_MANAGER role are still rejected with 403.
+ */
+export const requireMarketingUserOrAdmin = (_req: Request, res: Response, next: NextFunction) => {
+  if (res.locals.workOrderSection !== 'MARKETING') return next(new HttpError('Access to this section is required', 403));
+  const role = res.locals.workOrderRole as string | undefined;
+  if (role !== 'USER' && role !== 'ADMIN') return next(new HttpError('USER or ADMIN role is required', 403));
   next();
 };

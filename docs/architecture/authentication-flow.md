@@ -290,6 +290,11 @@ authorization middleware (`marketing-service/src/middlewares/authorize.middlewar
 **VERIFIED** — Finance tax *writes* are stricter: role `ADMIN` **and** section
 `FINANCE` or `MARKETING` (`finance-service/src/middlewares/actor.middleware.ts:18`).
 
+**VERIFIED** — Field Service Work Order writes are stricter still: the
+quotation-based creation (`POST /work-orders/from-quotation`) requires section
+`MARKETING` **and** role `USER` or `ADMIN`, while the company-based creation and
+`PATCH` require role `USER` only (`fieldservice-service/src/middlewares/actor.middleware.ts`).
+
 ---
 
 ## 7. Internal service authentication

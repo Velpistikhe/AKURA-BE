@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Actor, requireActor, requireMarketingUser, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
+import { Actor, requireActor, requireMarketingUser, requireMarketingUserOrAdmin, requireWorkOrderSection } from '../../middlewares/actor.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { HttpError } from '../../utils/httpError.js';
 import { loadCompany, loadContract, loadItemSizeReference, loadQuotationForBasis, loadQuotationForNewWorkOrder, loadQuotationForStart } from '../../integrations/gateway.js';
@@ -73,8 +73,10 @@ router.post('/', requireMarketingUser, asyncHandler(async (req, res) => {
 // quotation. The company is never taken from the client; it is read from the
 // quotation company snapshot returned by Marketing. A quotation that already
 // backs a Work Order is rejected here, before the write, so the Work Order is
-// never created against a quotation that is already in use.
-router.post('/from-quotation', requireMarketingUser, asyncHandler(async (req, res) => {
+// never created against a quotation that is already in use. The marketing
+// admin is admitted next to the marketing officer, so the admin who approves a
+// quotation may also turn it into a Work Order.
+router.post('/from-quotation', requireMarketingUserOrAdmin, asyncHandler(async (req, res) => {
   const input = createWorkOrderByQuotationSchema.parse(req.body);
   const quotation = await loadQuotationForNewWorkOrder(req, input.quotationId, actor(res).officeBranchId);
   await sendWrite(req, res, actor(res).officeBranchId, await repository.createByQuotation(input, quotation, actor(res)), 201);
