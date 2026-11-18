@@ -389,9 +389,11 @@ second line of defence.
 concurrently.
 
 **App Manager head branch** — a transaction advisory lock plus a partial
-unique index in the database (`prisma/sql/0001_single_head_office_branch.sql`).
+unique index in the database. Prisma cannot express a partial unique index, so
+the service creates the index itself on start-up
+(`src/utils/databaseInvariants.ts`).
 
-The migration file explains the layering:
+The invariant module documents the layering:
 
 > *"The application also guards the rule with a transaction advisory lock,
 > but that lock only protects writers that go through the service. This index
@@ -429,7 +431,6 @@ recorded in the audit trail.
 |---|---|
 | `npm run db:generate` | `prisma generate` — regenerate the client |
 | `npm run db:push` | `prisma db push` — apply the schema directly |
-| `npm run db:migrate` | *(App Manager and Field Service only)* — apply the hand-written SQL migrations via `prisma db execute` |
 | `npm run db:studio` | `prisma studio` |
 | `npm run db:seed` | Seed data |
 
@@ -444,27 +445,28 @@ rollout has no ordered, replayable set of migrations to apply — only a
 schema-state diff. **UNKNOWN** — what the production rollout procedure
 actually is was not established from the repository.
 
-**App Manager and Field Service are the exceptions**: they maintain
-hand-written SQL migrations in `prisma/sql/`, applied by
-`prisma db execute`. The SQL files are idempotent and fail loudly if the
-target table does not exist. Field Service currently has:
+**App Manager is the exception**: it has one database rule that Prisma cannot
+express — the partial unique index that enforces the single head office branch
+invariant. The service ensures that index on start-up
+(`src/utils/databaseInvariants.ts`), so a deployment only has to run
+`npm run db:push` and then start the service. The statements are idempotent,
+and the module fails loudly when `office_branches` does not exist yet.
 
-- `prisma/sql/0001_drop_work_order_inspector_user_id.sql`
-- `prisma/sql/0002_add_work_order_link_event_work_order.sql` — idempotently adds and backfills indexed Work Order identity/action fields on the Field Service link outbox.
+Field Service applies its schema with `npm run db:push` only. The
+`WorkOrderLinkEvent` denormalised columns and indexes are defined in
+`fieldservice-service/prisma/schema.prisma`; there is no separate SQL migration
+in the repository.
 
-**VERIFIED** — `prisma db execute` accepts a single `--file` and runs that file
-with the simple query protocol, so a multi-statement file is applied as a
-whole. When a service has more than one SQL file, each one is applied with its
-own `prisma db execute` call, in file-name order; `npm run db:migrate` chains
-them with `&&`, and the test harness
-(`marketing-service/tests/support/db.ts`) loops over the directory. Passing
-several `--file` arguments to one call executes only the last file, so that
-form must not be used.
+**VERIFIED** — the repository contains **no** `.sql` migration files and no
+separate migration script. The reliability test harness
+(`marketing-service/tests/support/db.ts`) only runs `prisma db push`; the
+invariants appear in the test databases because the App Manager service creates
+them when it boots in the test.
 
-**VERIFIED** — `prisma db push` cannot migrate an existing database that still
-holds rows in the old shape: it stops on an interactive data-loss prompt
-instead. The hand-written SQL files therefore remain the upgrade path for a
-database that already has data.
+**VERIFIED** — on a development database that still holds legacy rows,
+`prisma db push` may stop on an interactive data-loss prompt instead of
+completing silently. Reset the development database (or accept data loss
+explicitly) before pushing when the schema removes tables or columns.
 
 **Recommendation:** adopt `prisma migrate` (or at minimum a versioned SQL
 migration directory) for production, and resolve the `taxes` ownership

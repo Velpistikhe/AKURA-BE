@@ -6,7 +6,6 @@
  * a test run cannot be affected by (or affect) development data.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import {
@@ -79,59 +78,15 @@ export const pushTestSchema = (service: ServiceName): void => {
 };
 
 /**
- * Applies the SQL files in a service's `prisma/sql/` directory.
- *
- * These files hold the database-level invariants that Prisma cannot express,
- * such as the partial unique index that enforces a single head office branch.
- * They are applied after the schema push, because `db push` only synchronises
- * what the Prisma schema describes.
- *
- * The Prisma CLI is invoked through its Node entry point instead of the .cmd
- * shim, because execFileSync cannot spawn a .cmd file on Windows.
- *
- * `prisma db execute` accepts a single `--file`, and it runs that file with the
- * simple query protocol, so a multi-statement file is applied as a whole. The
- * files are therefore executed one by one, in name order.
- */
-export const applySqlMigrations = (service: ServiceName): void => {
-  const directory = serviceDirectory(service);
-  const sqlDirectory = resolve(directory, 'prisma', 'sql');
-  if (!existsSync(sqlDirectory)) return;
-
-  const files = readdirSync(sqlDirectory)
-    .filter((name) => name.endsWith('.sql'))
-    .sort();
-  if (!files.length) return;
-
-  const prismaCli = resolve(directory, 'node_modules', 'prisma', 'build', 'index.js');
-  for (const file of files) {
-    execFileSync(
-      process.execPath,
-      [prismaCli, 'db', 'execute', '--file', resolve(sqlDirectory, file), '--schema=prisma/schema.prisma'],
-      {
-        cwd: directory,
-        env: {
-          ...process.env,
-          DATABASE_URL: localDatabaseUrl(service),
-          CHECKPOINT_DISABLE: '1',
-        },
-        stdio: 'pipe',
-        encoding: 'utf8',
-      },
-    );
-  }
-};
-
-/**
  * Creates and provisions every test database the suite needs.
  */
 export const provisionTestDatabases = async (services: ServiceName[]): Promise<void> => {
   for (const service of services) {
     await createTestDatabase(service);
+    // The schema push covers everything the Prisma schema describes. The
+    // invariants that Prisma cannot express are ensured by the service itself
+    // when it boots, which happens in every test that starts the service.
     pushTestSchema(service);
-    // The schema push only covers what Prisma describes, so the SQL
-    // invariants are applied afterwards.
-    applySqlMigrations(service);
   }
 };
 

@@ -341,9 +341,8 @@ The Work Order reference is stored in indexed columns on
 `work_order_link_events` (`work_order_id`, `work_order_number`,
 `work_order_status`, `action`, `revoked`) next to the JSONB payload, so the
 history of one Work Order is read with an index instead of a JSONB scan. The
-columns are filled by the application on every write; the hand-written
-migration `prisma/sql/0002_add_work_order_link_event_work_order.sql` backfills
-them for rows that existed before the columns were added.
+columns are filled by the application on every write; they are defined in
+`fieldservice-service/prisma/schema.prisma` and applied with `prisma db push`.
 
 ### 3.9 Load behaviour of the Work Order creation path
 

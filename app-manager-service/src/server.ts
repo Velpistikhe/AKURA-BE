@@ -1,12 +1,16 @@
 import app from './app.js';
 import { connectDb, disconnectDb } from './config/db.js';
 import { env } from './config/env.js';
+import { ensureDatabaseInvariants } from './utils/databaseInvariants.js';
 import { getErrorMessage } from './utils/errorDetails.js';
 import { logger } from './utils/logger.js';
 
 const startServer = async (): Promise<void> => {
   try {
     await connectDb();
+    // The schema invariants that Prisma cannot express are ensured on boot, so
+    // a deployment only has to run `prisma db push`.
+    await ensureDatabaseInvariants();
     const server = app.listen(env.PORT, () => {
       logger.info(`App Manager Service is running on port ${env.PORT} [${env.NODE_ENV}]`);
       logger.info(`Health check: http://localhost:${env.PORT}/health`);
