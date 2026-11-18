@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:migrate": "node scripts/apply-migrations.mjs"
+    "db:migrate": "prisma db execute --file prisma/sql/0001_single_head_office_branch.sql --schema prisma/schema.prisma"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

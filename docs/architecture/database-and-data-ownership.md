@@ -429,7 +429,7 @@ recorded in the audit trail.
 |---|---|
 | `npm run db:generate` | `prisma generate` — regenerate the client |
 | `npm run db:push` | `prisma db push` — apply the schema directly |
-| `npm run db:migrate` | *(App Manager and Field Service only)* — apply the hand-written SQL migrations via `scripts/apply-migrations.mjs` |
+| `npm run db:migrate` | *(App Manager and Field Service only)* — apply the hand-written SQL migrations via `prisma db execute` |
 | `npm run db:studio` | `prisma studio` |
 | `npm run db:seed` | Seed data |
 
@@ -446,11 +446,25 @@ actually is was not established from the repository.
 
 **App Manager and Field Service are the exceptions**: they maintain
 hand-written SQL migrations in `prisma/sql/`, applied by
-`scripts/apply-migrations.mjs`. The scripts are idempotent and fail loudly
-if the target table does not exist. Field Service currently has:
+`prisma db execute`. The SQL files are idempotent and fail loudly if the
+target table does not exist. Field Service currently has:
 
 - `prisma/sql/0001_drop_work_order_inspector_user_id.sql`
 - `prisma/sql/0002_add_work_order_link_event_work_order.sql` — idempotently adds and backfills indexed Work Order identity/action fields on the Field Service link outbox.
+
+**VERIFIED** — `prisma db execute` accepts a single `--file` and runs that file
+with the simple query protocol, so a multi-statement file is applied as a
+whole. When a service has more than one SQL file, each one is applied with its
+own `prisma db execute` call, in file-name order; `npm run db:migrate` chains
+them with `&&`, and the test harness
+(`marketing-service/tests/support/db.ts`) loops over the directory. Passing
+several `--file` arguments to one call executes only the last file, so that
+form must not be used.
+
+**VERIFIED** — `prisma db push` cannot migrate an existing database that still
+holds rows in the old shape: it stops on an interactive data-loss prompt
+instead. The hand-written SQL files therefore remain the upgrade path for a
+database that already has data.
 
 **Recommendation:** adopt `prisma migrate` (or at minimum a versioned SQL
 migration directory) for production, and resolve the `taxes` ownership

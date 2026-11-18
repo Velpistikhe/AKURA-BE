@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:migrate": "node scripts/apply-migrations.mjs"
+    "db:migrate": "prisma db execute --file prisma/sql/0001_drop_work_order_inspector_user_id.sql --schema prisma/schema.prisma && prisma db execute --file prisma/sql/0002_add_work_order_link_event_work_order.sql --schema prisma/schema.prisma"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

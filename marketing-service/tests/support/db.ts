@@ -6,7 +6,7 @@
  * a test run cannot be affected by (or affect) development data.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import {
@@ -88,21 +88,38 @@ export const pushTestSchema = (service: ServiceName): void => {
  *
  * The Prisma CLI is invoked through its Node entry point instead of the .cmd
  * shim, because execFileSync cannot spawn a .cmd file on Windows.
+ *
+ * `prisma db execute` accepts a single `--file`, and it runs that file with the
+ * simple query protocol, so a multi-statement file is applied as a whole. The
+ * files are therefore executed one by one, in name order.
  */
 export const applySqlMigrations = (service: ServiceName): void => {
   const directory = serviceDirectory(service);
-  const script = resolve(directory, 'scripts', 'apply-migrations.mjs');
-  if (!existsSync(script)) return;
-  execFileSync(process.execPath, [script], {
-    cwd: directory,
-    env: {
-      ...process.env,
-      DATABASE_URL: localDatabaseUrl(service),
-      CHECKPOINT_DISABLE: '1',
-    },
-    stdio: 'pipe',
-    encoding: 'utf8',
-  });
+  const sqlDirectory = resolve(directory, 'prisma', 'sql');
+  if (!existsSync(sqlDirectory)) return;
+
+  const files = readdirSync(sqlDirectory)
+    .filter((name) => name.endsWith('.sql'))
+    .sort();
+  if (!files.length) return;
+
+  const prismaCli = resolve(directory, 'node_modules', 'prisma', 'build', 'index.js');
+  for (const file of files) {
+    execFileSync(
+      process.execPath,
+      [prismaCli, 'db', 'execute', '--file', resolve(sqlDirectory, file), '--schema=prisma/schema.prisma'],
+      {
+        cwd: directory,
+        env: {
+          ...process.env,
+          DATABASE_URL: localDatabaseUrl(service),
+          CHECKPOINT_DISABLE: '1',
+        },
+        stdio: 'pipe',
+        encoding: 'utf8',
+      },
+    );
+  }
 };
 
 /**
