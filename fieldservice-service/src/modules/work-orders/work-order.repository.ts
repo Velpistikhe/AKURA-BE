@@ -9,10 +9,43 @@ import { CreateWorkOrderByCompanyInput, CreateWorkOrderByQuotationInput, CreateW
 import { nextWorkOrderIdentity } from './work-order-number.js';
 import { enqueueWorkOrderLink } from './work-order-link-outbox.js';
 
-export type WorkOrderWriteResult = { row: WorkOrderSnapshot; linkEventId?: string };
+export type WorkOrderWriteResult = { row: WorkOrderPublic; linkEventId?: string };
+/** The complete Work Order row, including the document snapshots. */
 const include = { inspectors: { orderBy: { position: 'asc' as const } }, items: true };
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 type WorkOrderSnapshot = Prisma.WorkOrderGetPayload<{ include: typeof include }>;
+/**
+ * The Work Order fields an API response exposes.
+ *
+ * The two document snapshots are excluded on purpose. They are internal storage
+ * that Field Service needs to detect drift against Marketing, but they are not
+ * part of the API contract, so a response never carries them. Not selecting
+ * them also keeps the large JSONB documents out of the read path of a
+ * response that does not use them.
+ */
+const publicSelect = {
+  id: true, officeBranchId: true, number: true, date: true,
+  contractId: true, quotationId: true, startDate: true, endDate: true,
+  companyId: true, subject: true, officialReport: true,
+  dailyReport: true, officialReportDelivery: true, dailyReportDelivery: true,
+  poNumber: true, poDate: true, status: true, revoked: true, version: true,
+  createdById: true, createdByName: true, updatedById: true, updatedByName: true,
+  createdAt: true, updatedAt: true,
+  inspectors: { orderBy: { position: 'asc' as const } }, items: true,
+};
+/** A Work Order as it is returned to a client: without the document snapshots. */
+export type WorkOrderPublic = Omit<WorkOrderSnapshot, 'quotationSnapshot' | 'contractSnapshot'>;
+/**
+ * Removes the document snapshots from a Work Order row.
+ *
+ * The write paths need the complete row for the change history, the audit trail
+ * and the Marketing link delivery, so the snapshots are removed at the
+ * response boundary instead of at the query.
+ */
+function withoutSnapshots(row: WorkOrderSnapshot): WorkOrderPublic {
+  const { quotationSnapshot: _quotationSnapshot, contractSnapshot: _contractSnapshot, ...rest } = row;
+  return rest;
+}
 const historyLabels: Record<string, string> = {
   number: 'Work order number', date: 'Document date', quotationId: 'Quotation',
   quotationSnapshot: 'Quotation snapshot', contractId: 'Contract',
@@ -24,6 +57,15 @@ const historyLabels: Record<string, string> = {
 };
 const historyActions: Record<string, string> = { CREATE: 'Work order created', UPDATE: 'Work order updated', START: 'Work order started', REVOKE: 'Work order deleted' };
 const historyFields = Object.keys(historyLabels) as (keyof typeof historyLabels)[];
+/**
+ * The fields whose stored value is never exposed through the history.
+ *
+ * The snapshots stay in the database as the record of the document that was
+ * used, but their content is not part of the API contract. The history still
+ * reports that the document basis changed, with the value itself reduced to
+ * null so the response cannot leak the captured document.
+ */
+const snapshotFields = new Set<string>(['quotationSnapshot', 'contractSnapshot']);
 async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot, before: WorkOrderSnapshot | null, actor: Actor, action: 'CREATE' | 'UPDATE' | 'START' | 'REVOKE') {
   const afterValues = JSON.parse(JSON.stringify(row));
   const beforeValues = before ? JSON.parse(JSON.stringify(before)) : {};
@@ -32,7 +74,10 @@ async function saveHistory(tx: Prisma.TransactionClient, row: WorkOrderSnapshot,
     ? values.inspectors?.map((item: { name: string }) => item.name) ?? [] : values[field] ?? null;
   const changes = historyFields.flatMap(field => {
     const previous = value(beforeValues, field), next = value(afterValues, field);
-    return JSON.stringify(previous) === JSON.stringify(next) ? [] : [{ field, label: historyLabels[field], before: previous, after: next }];
+    if (JSON.stringify(previous) === JSON.stringify(next)) return [];
+    // A changed document basis is reported by its field and label only.
+    if (snapshotFields.has(field)) return [{ field, label: historyLabels[field], before: null, after: null }];
+    return [{ field, label: historyLabels[field], before: previous, after: next }];
   });
   await tx.workOrderHistory.create({ data: { workOrderId: row.id, version: row.version, action,
     beforeSnapshot: before ? json(before) : Prisma.DbNull, snapshot: json(row), changes: json(changes),
@@ -338,7 +383,7 @@ export const workOrderRepository = {
         createdById: actor.id, createdByName: actor.name, inspectors: { create: inspectorRows(inspectors) },
         items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
-      return saveHistory(tx, row, null, actor, 'CREATE');
+      return withoutSnapshots(await saveHistory(tx, row, null, actor, 'CREATE'));
     }, { maxWait: 10000, timeout: 20000 });
   },
   /**
@@ -377,7 +422,7 @@ export const workOrderRepository = {
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       const history = await saveHistory(tx, row, null, actor, 'CREATE');
       const event = await enqueueWorkOrderLink(tx, history, { action: 'CREATE' });
-      return { row: history, linkEventId: event?.id };
+      return { row: withoutSnapshots(history), linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
   async list(input: z.infer<typeof listWorkOrderSchema>, actor: Actor) {
@@ -431,7 +476,9 @@ export const workOrderRepository = {
     return { workOrders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   },
   async get(id: string, actor: Actor) {
-    const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, include });
+    // The snapshots are not selected, so the large JSONB documents are never
+    // read for a response that does not carry them.
+    const workOrder = await prisma.workOrder.findFirst({ where: { id, officeBranchId: actor.officeBranchId }, select: publicSelect });
     if (!workOrder) throw new HttpError('Work order not found', 404);
     return workOrder;
   },
@@ -479,7 +526,7 @@ export const workOrderRepository = {
       const history = await saveHistory(tx, row, before, actor, 'UPDATE');
       const event = row.quotationId && row.status !== before?.status
         ? await enqueueWorkOrderLink(tx, history, { action: 'UPDATE' }) : null;
-      return { row: history, linkEventId: event?.id };
+      return { row: withoutSnapshots(history), linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
   /**
@@ -521,7 +568,7 @@ export const workOrderRepository = {
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
       const history = await saveHistory(tx, row, before, actor, 'START');
       const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { action: 'START' }) : null;
-      return { row: history, linkEventId: event?.id };
+      return { row: withoutSnapshots(history), linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
   async revoke(id: string, version: number, actor: Actor): Promise<WorkOrderWriteResult> {
@@ -543,7 +590,7 @@ export const workOrderRepository = {
       // remaining step after Marketing acknowledges is the commit itself.
       const history = await saveHistory(tx, row, before, actor, 'REVOKE');
       const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { revoked: true, action: 'REVOKE' }) : null;
-      return { row: history, linkEventId: event?.id };
+      return { row: withoutSnapshots(history), linkEventId: event?.id };
     }, { maxWait: 10000, timeout: 20000 });
   },
 };

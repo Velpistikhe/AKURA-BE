@@ -33,12 +33,17 @@ export const createCompany = async (token: string, name = syntheticName('COMPANY
   return (response.body as { data: { id: string } }).data.id;
 };
 
-/** Creates a company staff member (the quotation customer contact). */
-export const createCompanyStaff = async (token: string, companyId: string): Promise<string> => {
+/**
+ * Creates a company staff member (the quotation customer contact).
+ *
+ * The display name is unique per branch, so a caller that creates more than
+ * one staff member in the same branch passes a distinct name.
+ */
+export const createCompanyStaff = async (token: string, companyId: string, name = 'Rel Test Staff'): Promise<string> => {
   const response = await httpRequest(`${GATEWAY}/api/v1/marketing/company-staffs`, {
     method: 'POST',
     token,
-    body: { companyId, name: 'Rel Test Staff', title: 'mr', telp: '0000', email: 'staff@reltest.local' },
+    body: { companyId, name, title: 'mr', telp: '0000', email: 'staff@reltest.local' },
   });
   if (response.status !== 201) {
     throw new Error(`createCompanyStaff failed: HTTP ${response.status} ${JSON.stringify(response.body)}`);
@@ -75,9 +80,9 @@ export const createPricedItem = async (token: string): Promise<string> => {
  * Builds the full chain required to create a quotation:
  * company -> staff -> two priced item sizes.
  */
-export const buildCatalogFixture = async (token: string): Promise<CatalogFixture> => {
+export const buildCatalogFixture = async (token: string, staffName?: string): Promise<CatalogFixture> => {
   const companyId = await createCompany(token);
-  const staffId = await createCompanyStaff(token, companyId);
+  const staffId = await createCompanyStaff(token, companyId, staffName);
   const itemSizeId = await createPricedItem(token);
   const itemSizeId2 = await createPricedItem(token);
   const itemSizeId3 = await createPricedItem(token);

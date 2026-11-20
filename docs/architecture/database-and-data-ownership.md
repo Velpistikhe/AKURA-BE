@@ -175,6 +175,13 @@ reach a `jsonb` column:
 
 This is a deliberate data-minimisation control, not an accident of schema.
 
+**VERIFIED** — the Work Order snapshots are also internal server state, not
+part of any API contract. No Work Order response carries `quotationSnapshot` or
+`contractSnapshot`, the change history reports a changed document basis by
+field and label only, and the outbox delivery to Marketing drops both, so the
+captured document never leaves Field Service. The stored copy is still what the
+start transition compares against Marketing to detect drift.
+
 ---
 
 ## 4. Read models (replicated projections)

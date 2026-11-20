@@ -16,6 +16,20 @@ export type WorkOrderLinkAction = 'CREATE' | 'START' | 'UPDATE' | 'REVOKE';
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 
 /**
+ * The document snapshots are never delivered to Marketing.
+ *
+ * Marketing derives the mirrored Work Order status from the delivered
+ * snapshot, so the snapshot stays part of the payload. The captured quotation
+ * and contract documents are internal storage of Field Service and have no
+ * place in another service, so they are dropped at the source instead of at
+ * the receiver.
+ */
+const withoutSnapshots = (workOrder: WorkOrderRow): Record<string, unknown> => {
+  const { quotationSnapshot: _quotationSnapshot, contractSnapshot: _contractSnapshot, ...rest } = workOrder;
+  return rest;
+};
+
+/**
  * Commits a Marketing link delivery in the same transaction as the Work Order write.
  *
  * The Work Order identity is stored in indexed columns next to the payload, so
@@ -30,7 +44,7 @@ export async function enqueueWorkOrderLink(
   if (!workOrder.quotationId || !env.WORK_ORDER_SYNC_SECRET) return null;
   const revoked = options.revoked === true;
   const action = options.action ?? (revoked ? 'REVOKE' : 'UPDATE');
-  const snapshot = json(workOrder);
+  const snapshot = json(withoutSnapshots(workOrder));
   const payload = {
     workOrderId: workOrder.id,
     workOrderNumber: workOrder.number,
