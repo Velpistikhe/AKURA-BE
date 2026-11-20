@@ -164,7 +164,7 @@ Full detail in the linked documents. Summary:
   service. A misconfigured service exits rather than running degraded.
 - **Only `api-gateway` declares an `engines` field**; the five domain services
   do not, so their production Node version is not pinned by this repository.
-- **Testing lives in one place.** `marketing-service/tests/` holds an 11-file
+- **Testing lives in one place.** `marketing-service/tests/` holds a 16-file reliability suite
   reliability suite (functional, concurrency, stress, event-sync, audit-trail)
   that boots all six services against dedicated `_test` databases.
 

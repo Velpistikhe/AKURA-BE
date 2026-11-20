@@ -99,8 +99,6 @@ re-verified and found false; see
 | `WorkOrderInspector` | Assigned inspectors with an ordered position |
 | `WorkOrderSequence` | Sequencing data |
 | `WorkOrderHistory` | Status-change history |
-| `WorkOrderLinkEvent` | Outbox events that mirror a Work Order into a Marketing quotation. Holds the Work Order reference in indexed columns (`workOrderId`, `workOrderNumber`, `workOrderStatus`, `action`, `revoked`) next to the JSONB payload, so the synchronisation history of one Work Order is read with an index instead of a JSONB scan |
-| `WorkOrderLinkDelivery` | Delivery state per event and target service: attempts, next retry, acknowledgement time and last error |
 | `AuditLog` | Work-order audit entries |
 
 ---
@@ -460,7 +458,6 @@ invariant. The service ensures that index on start-up
 and the module fails loudly when `office_branches` does not exist yet.
 
 Field Service applies its schema with `npm run db:push` only. The
-`WorkOrderLinkEvent` denormalised columns and indexes are defined in
 `fieldservice-service/prisma/schema.prisma`; there is no separate SQL migration
 in the repository.
 

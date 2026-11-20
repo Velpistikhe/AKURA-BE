@@ -127,9 +127,9 @@ See [`authentication-flow.md`](./authentication-flow.md#4-two-authorization-mode
 | Database | `akura_marketing` |
 | Modules | `companies/`, `company-staff/`, `contract-prices/`, `contracts/`, `items/`, `quotations/`, `services/`, `taxes/` |
 | Inbound event endpoints | `POST /internal/taxes/events`, `POST /internal/quotations/:quotationId/work-order` — mounted **before** `authenticate` (`src/app.ts:23-25`) |
-| Outbound calls | `GET auth/me` (live profile check), `GET auth/.well-known/jwks.json` |
+| Outbound calls | `GET auth/me` (live profile check), `GET auth/.well-known/jwks.json`, `POST fieldservice/internal/work-orders/from-quotation` (orchestrated quotation-based Work Order creation) |
 | Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
-| Special | The only service with a test suite. Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
+| Special | The only service with a reliability suite (16 test files). Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
 
 **Local development**: routes mount at `/`; the microfrontend calls
 `http://localhost:5003` with `Authorization: Bearer` (paths match what the
@@ -160,17 +160,17 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 | Runtime deps | `@prisma/client`, `jose`, `express`, `zod`, `winston` |
 | Database | `akura_fieldservice` |
 | Modules | `work-orders/` |
-| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `GET /work-orders/:id/sync`, `POST /work-orders` (company basis), `POST /work-orders/from-quotation` (quotation basis), `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start` |
-| Outbound calls | `GET auth/me`, `GET marketing/quotation-references/:quotationId`, `GET marketing/companies/:companyId`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the outbox delivery `POST marketing/internal/quotations/:quotationId/work-order` |
-| Key config | `WORK_ORDER_SYNC_SECRET`, |
-| Special | `requireMarketingUser` admits section MARKETING with role USER only for the company-based Work Order creation and for the update endpoints (`src/middlewares/actor.middleware.ts`); `requireMarketingUserOrAdmin` admits section MARKETING with role USER or ADMIN for the quotation-based creation (`POST /work-orders/from-quotation`), so the marketing admin who approves a quotation may also turn it into a Work Order; `requireActor` admits sections MARKETING and FIELD_SERVICE for the read endpoints, and `requireWorkOrderSection('MARKETING')` guards the start and delete endpoints. The end date must not precede the start date; the same day is allowed. Creating a Work Order from a quotation validates the quotation live against Marketing: it must belong to the actor branch, be active and APPROVED, and must not already back a Work Order. A quotation with an unacknowledged Marketing synchronisation event also blocks the creation with 409 until the event is delivered. `GET /work-orders/:id/sync` returns the recorded Marketing synchronisation of one Work Order as an array (`data`) with the pagination next to it, read from the local outbox only. Denormalises the Work Order reference on `work_order_link_events` into indexed columns (`work_order_id`, `work_order_number`, `work_order_status`, `action`, `revoked`) so synchronisation history is read without a JSONB scan; the schema is applied with `npm run db:push`. The `quotationSnapshot` and `contractSnapshot` columns are internal server state: no Work Order response carries them, the change history reports a changed document basis by field and label only, and the outbox delivery to Marketing drops them, so the captured document never leaves Field Service |
+| Public endpoints | `GET /work-orders`, `GET /work-orders/:id`, `GET /work-orders/:id/history`, `POST /internal/work-orders/from-quotation` (marketing-service caller only), `POST /work-orders` (company basis), `PATCH /work-orders/:id`, `DELETE /work-orders/:id`, `POST /work-orders/:id/start` |
+| Outbound calls | `GET auth/me`, `GET marketing/quotation-references/:quotationId`, `GET marketing/companies/:companyId`, `GET marketing/contract-references*`, `GET marketing/item-size-references*`, `GET auth/.well-known/jwks.json`, and the synchronous mirror `POST marketing/internal/quotations/:quotationId/work-order` after START/UPDATE/REVOKE on quotation-based Work Orders |
+| Key config | `WORK_ORDER_SYNC_SECRET` (min 32 chars), `API_GATEWAY_URL` |
+| Special | `requireMarketingUser` admits section MARKETING with role USER only for company-based creation and PATCH; `requireActor` admits MARKETING and FIELD_SERVICE for reads; `requireWorkOrderSection('MARKETING')` guards start and delete. Quotation-based creation is orchestrated by Marketing. Field Service mirrors quotation links to Marketing synchronously on status changes; `WORK_ORDER_SYNC_SECRET` protects the internal receiver. The `quotationSnapshot` and `contractSnapshot` columns are internal server state and are not exposed in API responses. |
 | Local development | Direct browser access on `http://localhost:5005` with Bearer token |
 
 ---
 
 ## 4. Endpoint index by service
 
-**VERIFIED** — the gateway OpenAPI source defines **95 distinct path keys** across its source files; **7** are under Field Service (six Work Order endpoints including `/sync`, plus health). Other category counts in the table below remain to be re-counted after this change and should not be read as current authoritative totals.
+**VERIFIED** — the gateway OpenAPI source defines **95 distinct path keys** across its source files; **6** are under Field Service (five Work Order endpoints plus health). Other category counts in the table below remain to be re-counted after this change and should not be read as current authoritative totals.
 
 | Service | Documented path count | Source files |
 |---|---|---|

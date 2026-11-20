@@ -115,9 +115,8 @@ the producer does not fail the client's write when delivery is delayed.
 | Acknowledgement shape validation | `tax-delivery.ts:59-60` |
 | Receiver version guard | `marketing-service/src/modules/taxes/tax-events.routes.ts:33-51` |
 | Ack only after commit | `api-gateway/src/docs/tax.ts:56` |
-| Work-order outbox delivery | `fieldservice-service/src/modules/work-orders/work-order-link-delivery.ts` |
-| Work-order outbox enqueue | `fieldservice-service/src/modules/work-orders/work-order-link-outbox.ts` |
-| Work-order sync monitoring endpoint | `fieldservice-service/src/modules/work-orders/work-order-sync.repository.ts` |
+| Work-order link mirror (synchronous, no outbox) | `fieldservice-service/src/modules/work-orders/work-order-marketing-mirror.ts` |
+| Work-order creation orchestration | `marketing-service/src/modules/quotations/quotation-work-order-create.service.ts` |
 | No broker client dependency | All six `package.json` manifests |
 
 ## Related

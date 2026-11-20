@@ -5,7 +5,7 @@ interface ServiceRouteConfig {
   target: string;
   gatewaySecret: string;
   authRequired: boolean;
-  internalCaller?: 'finance-service' | 'auth-service' | 'fieldservice-service';
+  internalCaller?: 'finance-service' | 'auth-service' | 'fieldservice-service' | 'marketing-service';
   pathRewrite: Record<string, string>;
   description: string;
 }
@@ -69,8 +69,18 @@ if (env.FINANCE_SERVICE_URL && env.FINANCE_SERVICE_GATEWAY_SECRET) {
 }
 if (env.FIELDSERVICE_SERVICE_URL && env.FIELDSERVICE_SERVICE_GATEWAY_SECRET) {
   servicesConfig.push({
+    prefix: '/api/v1/fieldservice/internal/work-orders',
+    target: env.FIELDSERVICE_SERVICE_URL,
+    gatewaySecret: env.FIELDSERVICE_SERVICE_GATEWAY_SECRET,
+    authRequired: false,
+    internalCaller: 'marketing-service',
+    pathRewrite: { '^/': '/internal/work-orders/' },
+    description: 'Internal Marketing work order creation in Field Service',
+  });
+  servicesConfig.push({
     prefix: '/api/v1/fieldservice', target: env.FIELDSERVICE_SERVICE_URL,
     gatewaySecret: env.FIELDSERVICE_SERVICE_GATEWAY_SECRET, authRequired: true,
     pathRewrite: { '^/api/v1/fieldservice': '' }, description: 'Field Service Service',
   });
 }
+

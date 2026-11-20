@@ -1,58 +1,7 @@
 {
-  "generatedAt": "2026-11-18T14:35:37.612Z",
+  "generatedAt": "2026-11-20T06:40:54.441Z",
   "environment": "local PostgreSQL, 8 CPU, Node.js test harness",
   "scenarios": [
-    {
-      "scenario": "contended-create",
-      "metrics": {
-        "concurrency": 12,
-        "totalRequests": 12,
-        "successful": 1,
-        "failed": 11,
-        "timeouts": 0,
-        "wallClockMs": 1268.2008999999998,
-        "requestsPerSecond": 9.462223217157472,
-        "latency": {
-          "count": 12,
-          "minMs": 936.0324,
-          "maxMs": 1267.0036,
-          "averageMs": 1133.2866000000001,
-          "p50Ms": 1101.769400000001,
-          "p95Ms": 1267.0036,
-          "p99Ms": 1267.0036
-        },
-        "statusCounts": {
-          "201": 1,
-          "409": 11
-        },
-        "errorMessages": {}
-      }
-    },
-    {
-      "scenario": "parallel-create",
-      "metrics": {
-        "concurrency": 12,
-        "totalRequests": 24,
-        "successful": 24,
-        "failed": 0,
-        "timeouts": 0,
-        "wallClockMs": 1447.3565999999992,
-        "requestsPerSecond": 16.581953611155686,
-        "latency": {
-          "count": 24,
-          "minMs": 335.7118000000046,
-          "maxMs": 1115.3031000000046,
-          "averageMs": 637.0499791666671,
-          "p50Ms": 549.4720000000016,
-          "p95Ms": 1020.5408000000025,
-          "p99Ms": 1115.3031000000046
-        },
-        "statusCounts": {
-          "201": 24
-        },
-        "errorMessages": {}
-      }
-    },
     {
       "scenario": "pending-event-create",
       "metrics": {
@@ -79,6 +28,83 @@
       }
     },
     {
+      "scenario": "contended-create",
+      "metrics": {
+        "concurrency": 12,
+        "totalRequests": 12,
+        "successful": 1,
+        "failed": 11,
+        "timeouts": 0,
+        "wallClockMs": 900.3686000000016,
+        "requestsPerSecond": 13.32787482815369,
+        "latency": {
+          "count": 12,
+          "minMs": 789.1690000000017,
+          "maxMs": 896.2674999999981,
+          "averageMs": 849.6460999999999,
+          "p50Ms": 846.8405999999995,
+          "p95Ms": 896.2674999999981,
+          "p99Ms": 896.2674999999981
+        },
+        "statusCounts": {
+          "201": 1,
+          "409": 11
+        },
+        "errorMessages": {}
+      }
+    },
+    {
+      "scenario": "parallel-create",
+      "metrics": {
+        "concurrency": 12,
+        "totalRequests": 24,
+        "successful": 24,
+        "failed": 0,
+        "timeouts": 0,
+        "wallClockMs": 888.7712999999931,
+        "requestsPerSecond": 27.003572235062258,
+        "latency": {
+          "count": 24,
+          "minMs": 178.96050000000105,
+          "maxMs": 626.482600000003,
+          "averageMs": 387.7444250000026,
+          "p50Ms": 425.91320000000997,
+          "p95Ms": 597.2455999999947,
+          "p99Ms": 626.482600000003
+        },
+        "statusCounts": {
+          "201": 24
+        },
+        "errorMessages": {}
+      }
+    },
+    {
+      "scenario": "duplicate-quotation-create",
+      "metrics": {
+        "concurrency": 10,
+        "totalRequests": 20,
+        "successful": 1,
+        "failed": 19,
+        "timeouts": 0,
+        "wallClockMs": 244.09500000000116,
+        "requestsPerSecond": 81.93531207111945,
+        "latency": {
+          "count": 20,
+          "minMs": 34.53199999999197,
+          "maxMs": 223.78599999999278,
+          "averageMs": 112.97599499999924,
+          "p50Ms": 63.962999999988824,
+          "p95Ms": 215.38259999999718,
+          "p99Ms": 223.78599999999278
+        },
+        "statusCounts": {
+          "201": 1,
+          "409": 19
+        },
+        "errorMessages": {}
+      }
+    },
+    {
       "scenario": "revoke",
       "metrics": {
         "concurrency": 6,
@@ -86,16 +112,16 @@
         "successful": 12,
         "failed": 0,
         "timeouts": 0,
-        "wallClockMs": 631.9789999999921,
-        "requestsPerSecond": 18.987972701624816,
+        "wallClockMs": 727.05799999999,
+        "requestsPerSecond": 16.50487306377231,
         "latency": {
           "count": 12,
-          "minMs": 120.38880000000063,
-          "maxMs": 573.14929999999,
-          "averageMs": 275.9873333333344,
-          "p50Ms": 177.19019999999728,
-          "p95Ms": 573.14929999999,
-          "p99Ms": 573.14929999999
+          "minMs": 137.91830000001937,
+          "maxMs": 598.1333000000159,
+          "averageMs": 345.6922333333326,
+          "p50Ms": 153.95709999999963,
+          "p95Ms": 598.1333000000159,
+          "p99Ms": 598.1333000000159
         },
         "statusCounts": {
           "200": 12
@@ -111,16 +137,16 @@
         "successful": 120,
         "failed": 0,
         "timeouts": 0,
-        "wallClockMs": 1276.852700000003,
-        "requestsPerSecond": 93.98108333091179,
+        "wallClockMs": 1121.1646000000183,
+        "requestsPerSecond": 107.03156342966773,
         "latency": {
           "count": 120,
-          "minMs": 44.811900000000605,
-          "maxMs": 295.3043999999936,
-          "averageMs": 205.8175816666667,
-          "p50Ms": 209.43959999999788,
-          "p95Ms": 263.4844000000012,
-          "p99Ms": 291.33370000000286
+          "minMs": 59.81829999998445,
+          "maxMs": 261.8732000000018,
+          "averageMs": 179.5896550000005,
+          "p50Ms": 177.1518999999971,
+          "p95Ms": 227.7093000000168,
+          "p99Ms": 244.300499999983
         },
         "statusCounts": {
           "200": 120

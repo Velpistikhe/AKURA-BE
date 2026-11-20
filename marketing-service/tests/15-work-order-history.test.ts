@@ -8,7 +8,12 @@ import assert from 'node:assert/strict';
 import {
   GATEWAY, loginAs, seedMarketingTax, seedOfficeBranch, seedUser, type SeededUser,
 } from './support/fixtures.js';
-import { approveQuotation, buildCatalogFixture, createSubmittedQuotation } from './support/catalog.js';
+import {
+  approveQuotation,
+  buildCatalogFixture,
+  createSubmittedQuotation,
+  workOrderFromMarketingCreate,
+} from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
@@ -55,16 +60,16 @@ describe('Field Service Work Order change history response', () => {
     await approveQuotation(admin.accessToken, quotation.id, quotation.version);
 
     const today = new Date().toISOString().slice(0, 10);
-    const created = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+    const created = await httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${quotation.id}/work-order`, {
       method: 'POST', token: user.accessToken,
       body: {
-        quotationId: quotation.id, startDate: today, endDate: today,
+        startDate: today, endDate: today,
         inspectors: ['HistoryTest Inspector'],
         items: [{ itemSizeId: fixture.itemSizeId, quantityInspection: 1, quantityMaintenance: 0 }],
       },
     });
     assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrderId = (created.body as { data: { id: string } }).data.id;
+    const workOrderId = workOrderFromMarketingCreate(created.body).id;
 
     const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/${workOrderId}/history`, {
       method: 'GET', token: user.accessToken,

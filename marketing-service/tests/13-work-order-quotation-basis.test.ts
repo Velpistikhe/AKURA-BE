@@ -15,7 +15,6 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GATEWAY,
-  execute,
   loginAs,
   prismaFor,
   seedMarketingTax,
@@ -23,7 +22,7 @@ import {
   seedUser,
   type SeededUser,
 } from './support/fixtures.js';
-import { approveQuotation, buildCatalogFixture, createQuotation, createSubmittedQuotation } from './support/catalog.js';
+import { approveQuotation, buildCatalogFixture, createQuotation, createSubmittedQuotation, workOrderFromMarketingCreate } from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
@@ -56,11 +55,10 @@ const approvedQuotation = async () => {
 /** Creates a Work Order from a quotation as the marketing officer. */
 const createFromQuotation = async (quotationId: string, itemSizeId: string, token = user.accessToken) => {
   const today = new Date().toISOString().slice(0, 10);
-  return httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+  return httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${quotationId}/work-order`, {
     method: 'POST',
     token,
     body: {
-      quotationId,
       startDate: today,
       endDate: dayAfter(today),
       inspectors: ['BasisTest Inspector'],
@@ -135,7 +133,7 @@ describe('fieldservice-service work order quotation basis rules', () => {
     const { fixture, quotationId } = await approvedQuotation();
     const created = await createFromQuotation(quotationId, fixture.itemSizeId);
     assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrder = (created.body as { data: { id: string; version: number } }).data;
+    const workOrder = workOrderFromMarketingCreate(created.body);
 
     const revoked = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/${workOrder.id}`, {
       method: 'DELETE',
@@ -149,71 +147,22 @@ describe('fieldservice-service work order quotation basis rules', () => {
     assert.equal(again.status, 201, JSON.stringify(again.body));
   });
 
-  test('PENDING SYNC: an undelivered event for the quotation blocks the creation with 409', async () => {
+  test('REMOVED ENDPOINT: Field Service no longer exposes POST from-quotation', async () => {
     const { fixture, quotationId } = await approvedQuotation();
-    // A Work Order exists and was revoked, but its revoke event has not been
-    // acknowledged by Marketing yet, so the mirror may still show the link.
-    const created = await createFromQuotation(quotationId, fixture.itemSizeId);
-    assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrder = (created.body as { data: { id: string; version: number } }).data;
-
-    const revoked = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/${workOrder.id}`, {
-      method: 'DELETE',
+    const today = new Date().toISOString().slice(0, 10);
+    const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+      method: 'POST',
       token: user.accessToken,
-      body: { version: workOrder.version },
+      body: {
+        quotationId,
+        startDate: today,
+        endDate: dayAfter(today),
+        inspectors: ['BasisTest Inspector'],
+        items: [{ itemSizeId: fixture.itemSizeId, quantityInspection: 1, quantityMaintenance: 0 }],
+      },
     });
-    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
-
-    // Force the revoke delivery back to pending, so the quotation carries an
-    // undelivered event like it would while Marketing is unreachable. The
-    // generated client in this harness only knows the marketing models, so the
-    // delivery rows are addressed with raw SQL. Only the revoke event is
-    // reset: the create event stays delivered, because re-delivering it would
-    // link the quotation again instead of clearing it.
-    await execute(
-      'fieldservice',
-      `UPDATE work_order_link_deliveries
-          SET delivered_at = NULL, next_retry_at = (NOW() AT TIME ZONE 'UTC')
-        WHERE delivered_at IS NOT NULL
-          AND event_id IN (SELECT id FROM work_order_link_events WHERE action = 'REVOKE')`,
-    );
-
-    const blocked = await createFromQuotation(quotationId, fixture.itemSizeId);
-    assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
-    assert.match(String((blocked.body as { message?: string }).message), /pending/i);
+    assert.equal(response.status, 404, JSON.stringify(response.body));
   });
-
-  test('PENDING SYNC: the quotation becomes usable again once the event is delivered', async () => {
-    const { fixture, quotationId } = await approvedQuotation();
-    const created = await createFromQuotation(quotationId, fixture.itemSizeId);
-    assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrder = (created.body as { data: { id: string; version: number } }).data;
-
-    const revoked = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/${workOrder.id}`, {
-      method: 'DELETE',
-      token: user.accessToken,
-      body: { version: workOrder.version },
-    });
-    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
-
-    await execute(
-      'fieldservice',
-      `UPDATE work_order_link_deliveries
-          SET delivered_at = NULL, next_retry_at = (NOW() AT TIME ZONE 'UTC')
-        WHERE delivered_at IS NOT NULL
-          AND event_id IN (SELECT id FROM work_order_link_events WHERE action = 'REVOKE')`,
-    );
-
-    const blocked = await createFromQuotation(quotationId, fixture.itemSizeId);
-    assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
-
-    // The worker delivers the pending events again, so the mirror is current.
-    await new Promise(resolve => setTimeout(resolve, 15000));
-
-    const again = await createFromQuotation(quotationId, fixture.itemSizeId);
-    assert.equal(again.status, 201, JSON.stringify(again.body));
-  });
-
   test('BRANCH: a quotation of another branch is not found', async () => {
     const { fixture, quotationId } = await approvedQuotation();
 

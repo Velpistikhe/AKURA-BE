@@ -2,8 +2,7 @@
  * STRESS / LOAD - the quotation-backed Work Order creation path.
  *
  * This is the path that was changed: the creation now validates the quotation
- * against Marketing, checks the mirrored link, checks for an undelivered
- * synchronisation event, and takes a branch-scoped advisory lock.
+ * against Marketing, checks the mirrored link, validates the mirrored link under Marketing locking, and Field Service takes a branch-scoped advisory lock.
  *
  * The scenarios measure throughput and latency under concurrent load and then
  * assert the invariant that matters: a quotation backs at most one live Work
@@ -18,7 +17,7 @@ import {
   GATEWAY, execute, loginAs, query, seedMarketingTax, seedOfficeBranch, seedUser,
   type SeededUser,
 } from './support/fixtures.js';
-import { buildCatalogFixture, createSubmittedQuotation, type CatalogFixture } from './support/catalog.js';
+import { buildCatalogFixture, createSubmittedQuotation, type CatalogFixture, workOrderFromMarketingCreate } from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { buildStressMetrics, runLoad, waitFor } from './support/metrics.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
@@ -82,11 +81,10 @@ const approvedQuotation = async (): Promise<string> => {
  */
 const createFromQuotation = async (quotationId: string, inspectorName?: string) => {
   const today = new Date().toISOString().slice(0, 10);
-  return httpRequest(`${GATEWAY}${WORK_ORDERS}/from-quotation`, {
+  return httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${quotationId}/work-order`, {
     method: 'POST',
     token: officer.accessToken,
     body: {
-      quotationId,
       startDate: today,
       endDate: dayAfter(today),
       inspectors: [inspectorName ?? `StressTest Inspector ${randomUUID().slice(0, 8)}`],
@@ -259,54 +257,23 @@ describe('fieldservice-service quotation work order stress and load', () => {
     }
   });
 
-  test('PENDING EVENT LOAD: many quotations with a pending event are refused with 409', async () => {
+  test('DUPLICATE LOAD: concurrent creates for one quotation yield one 201 and the rest 409', async () => {
     const TOTAL = 20;
     const CONCURRENCY = 10;
+    const quotationId = await approvedQuotation();
 
-    const quotationIds = await prepareQuotations(TOTAL);
-
-    // Every quotation gets a Work Order that is revoked, and its revoke event
-    // is forced back to pending, so the new check sees an undelivered event.
-    for (const quotationId of quotationIds) {
-      const created = await createFromQuotation(quotationId);
-      assert.equal(created.status, 201, JSON.stringify(created.body));
-      const workOrder = (created.body as { data: { id: string; version: number } }).data;
-      const revoked = await httpRequest(`${GATEWAY}${WORK_ORDERS}/${workOrder.id}`, {
-        method: 'DELETE',
-        token: officer.accessToken,
-        body: { version: workOrder.version },
-        timeoutMs: 60_000,
-      });
-      assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
-    }
-    await execute(
-      'fieldservice',
-      `UPDATE work_order_link_deliveries
-          SET delivered_at = NULL, next_retry_at = (NOW() AT TIME ZONE 'UTC')
-        WHERE delivered_at IS NOT NULL
-          AND event_id IN (SELECT id FROM work_order_link_events WHERE action = 'REVOKE')`,
-    );
-
-    const { samples, wallClockMs } = await runLoad(TOTAL, CONCURRENCY, async (index) => {
-      const response = await createFromQuotation(quotationIds[index]);
+    const { samples, wallClockMs } = await runLoad(TOTAL, CONCURRENCY, async () => {
+      const response = await createFromQuotation(quotationId);
       return { status: response.status, durationMs: response.durationMs };
     });
     const metrics = buildStressMetrics(CONCURRENCY, samples, wallClockMs);
-    await writeReport('pending-event-create', metrics);
+    await writeReport('duplicate-quotation-create', metrics);
 
-    // A refusal is the expected outcome here, so the status distribution is
-    // asserted instead of the failure count: every request must be refused
-    // with 409 and none may reach the server as an error.
-    assert.equal(metrics.statusCounts[409] ?? 0, TOTAL, 'every quotation with a pending event must be refused with 409');
+    assert.equal(metrics.statusCounts[201] ?? 0, 1, 'exactly one create may succeed');
+    assert.equal((metrics.statusCounts[409] ?? 0) + (metrics.statusCounts[201] ?? 0), TOTAL);
+    assert.equal(await liveWorkOrdersFor(quotationId), 1, 'only one live Work Order may exist');
     assert.equal(metrics.timeouts, 0, 'no request may time out');
-    for (const [status, count] of Object.entries(metrics.statusCounts)) {
-      assert.ok(Number(status) < 500, `no 5xx is acceptable, saw ${count} responses with status ${status}`);
-    }
-    for (const quotationId of quotationIds) {
-      assert.equal(await liveWorkOrdersFor(quotationId), 0, 'a refused create must not leave a Work Order behind');
-    }
   });
-
   test('REVOKE LOAD: revoking many Work Orders keeps the quotation link consistent', async () => {
     const TOTAL = 12;
     const CONCURRENCY = 6;
@@ -316,7 +283,7 @@ describe('fieldservice-service quotation work order stress and load', () => {
     for (const quotationId of quotationIds) {
       const created = await createFromQuotation(quotationId);
       assert.equal(created.status, 201, JSON.stringify(created.body));
-      workOrders.push((created.body as { data: { id: string; version: number } }).data);
+      workOrders.push(workOrderFromMarketingCreate(created.body));
     }
 
     const { samples, wallClockMs } = await runLoad(TOTAL, CONCURRENCY, async (index) => {

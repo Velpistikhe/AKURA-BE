@@ -166,4 +166,13 @@ export const createSubmittedQuotation = async (
   return { id: quotation.id, version };
 };
 
+
+/** The Field Service Work Order embedded in a Marketing create-from-quotation response. */
+export const workOrderFromMarketingCreate = (body: unknown): { id: string; version: number } => {
+  const workOrder = (body as { data?: { workOrder?: { id: string; version: number } } }).data?.workOrder;
+  if (!workOrder?.id) {
+    throw new Error(`Marketing create response missing workOrder: ${JSON.stringify(body)}`);
+  }
+  return workOrder;
+};
 export { randomUUID };

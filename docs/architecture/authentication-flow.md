@@ -291,9 +291,13 @@ authorization middleware (`marketing-service/src/middlewares/authorize.middlewar
 `FINANCE` or `MARKETING` (`finance-service/src/middlewares/actor.middleware.ts:18`).
 
 **VERIFIED** — Field Service Work Order writes are stricter still: the
-quotation-based creation (`POST /work-orders/from-quotation`) requires section
-`MARKETING` **and** role `USER` or `ADMIN`, while the company-based creation and
-`PATCH` require role `USER` only (`fieldservice-service/src/middlewares/actor.middleware.ts`).
+company-based creation and `PATCH` require section `MARKETING` **and** role
+`USER` only (`fieldservice-service/src/middlewares/actor.middleware.ts`).
+
+**VERIFIED** — the quotation-based Work Order creation moved to Marketing:
+`POST /api/v1/marketing/quotations/{quotationId}/work-order` requires section
+`MARKETING` **and** role `USER` or `ADMIN`
+(`marketing-service/src/modules/quotations/quotation.routes.ts`).
 
 ---
 

@@ -18,7 +18,7 @@ import {
   seedUser,
   type SeededUser,
 } from './support/fixtures.js';
-import { approveQuotation, buildCatalogFixture, createSubmittedQuotation } from './support/catalog.js';
+import { approveQuotation, buildCatalogFixture, createSubmittedQuotation, workOrderFromMarketingCreate } from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
@@ -56,11 +56,10 @@ const approvedQuotation = async () => {
 
 /** Creates a Work Order from an approved quotation as the marketing officer. */
 const createFromQuotation = async (quotationId: string, itemSizeId: string, startDate: string, endDate: string, token = user.accessToken) =>
-  httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+  httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${quotationId}/work-order`, {
     method: 'POST',
     token,
     body: {
-      quotationId,
       startDate,
       endDate,
       inspectors: ['RelTest Inspector'],
@@ -159,7 +158,7 @@ describe('fieldservice-service work order write rules', () => {
 
     const created = await createFromQuotation(quotationId, fixture.itemSizeId, today, dayAfter(today));
     assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrder = (created.body as { data: { id: string; version: number } }).data;
+    const workOrder = workOrderFromMarketingCreate(created.body);
 
     const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/${workOrder.id}`, {
       method: 'PATCH',
@@ -175,7 +174,7 @@ describe('fieldservice-service work order write rules', () => {
 
     const created = await createFromQuotation(quotationId, fixture.itemSizeId, today, dayAfter(today));
     assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrder = (created.body as { data: { id: string; version: number } }).data;
+    const workOrder = workOrderFromMarketingCreate(created.body);
 
     // Only the end date is submitted, so it is compared with the stored start
     // date. The Work Order must keep its stored period after the rejection.
@@ -198,10 +197,14 @@ describe('fieldservice-service work order write rules', () => {
     assert.equal(stored.version, workOrder.version, 'a rejected PATCH must not consume the version');
   });
 
-  test('REMOVED ENDPOINTS: the deleted read-only routes are no longer mounted', async () => {
+  test('REMOVED ENDPOINTS: deleted Field Service routes are no longer mounted', async () => {
     const quotationId = randomUUID();
     const responses = await Promise.all([
-      httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/by-quotation/${quotationId}`, {
+      httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+        method: 'POST',
+        token: user.accessToken,
+        body: { quotationId, startDate: '2026-01-01', endDate: '2026-01-02', inspectors: ['X'], items: [{ itemSizeId: randomUUID(), quantityInspection: 1, quantityMaintenance: 0 }] },
+      }),      httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/by-quotation/${quotationId}`, {
         method: 'GET',
         token: user.accessToken,
       }),

@@ -26,6 +26,7 @@ import {
   approveQuotation,
   buildCatalogFixture,
   createSubmittedQuotation,
+  workOrderFromMarketingCreate,
 } from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { TEST_PORTS } from './support/env.js';
@@ -201,7 +202,7 @@ describe('marketing-service event synchronisation', () => {
     }
   });
 
-  test('CREATE FROM QUOTATION: outbox delivery updates Marketing after the Work Order commits', async () => {
+  test('CREATE FROM QUOTATION: Marketing attaches the link after Field Service creates the Work Order updates Marketing after the Work Order commits', async () => {
     const fixture = await buildCatalogFixture(admin.accessToken);
     const submitted = await createSubmittedQuotation(admin.accessToken, fixture);
     await approveQuotation(admin.accessToken, submitted.id, submitted.version);
@@ -211,11 +212,10 @@ describe('marketing-service event synchronisation', () => {
     const officer = await seedUser({ role: 'USER', section: 'MARKETING', officeBranchId: branchId });
     await loginAs(officer);
 
-    const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+    const response = await httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${submitted.id}/work-order`, {
       method: 'POST',
       token: officer.accessToken,
       body: {
-        quotationId: submitted.id,
         startDate: today,
         endDate: today,
         inspectors: ['RelTest Inspector'],
@@ -223,8 +223,10 @@ describe('marketing-service event synchronisation', () => {
       },
     });
     assert.equal(response.status, 201, JSON.stringify(response.body));
-    const workOrder = (response.body as { data: { id: string; quotationId: string } }).data;
-    assert.equal(workOrder.quotationId, submitted.id);
+    const workOrder = workOrderFromMarketingCreate(response.body);
+    const linked = (response.body as { data: { quotation: { id: string; hasWorkOrder: boolean; workOrderId: string | null } } }).data.quotation;
+    assert.equal(linked.id, submitted.id);
+    assert.equal(linked.hasWorkOrder, true);
 
     const marketingPrisma = prismaFor('marketing');
     try {

@@ -3,10 +3,12 @@ import { Router, RequestHandler } from 'express';
 import { validate } from '../../middlewares/validate.middleware.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { quotationController } from './quotation.controller.js';
-import { quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema } from './quotation.schemas.js';
+import { createWorkOrderFromQuotationBodySchema, quotationIdSchema, listQuotationsSchema, quotationHistoryQuerySchema, createQuotationSchema, deactivateQuotationSchema, approveQuotationSchema, submitQuotationSchema, rejectQuotationSchema, reviseQuotationSchema, updateQuotationSchema, addQuotationItemSchema, deleteQuotationItemSchema } from './quotation.schemas.js';
 import { HttpError } from '../../utils/httpError.js';
-import { getOfficeBranchId } from '../../utils/officeBranch.js';
+import { getAuditActor, getOfficeBranchId } from '../../utils/officeBranch.js';
 import { quotationRepository } from './quotation.repository.js';
+import { createWorkOrderFromQuotation } from './quotation-work-order-create.service.js';
+import { getAccessToken } from '../../utils/requestTokens.js';
 
 const requireMarketingSection: RequestHandler = (_req, res, next) => {
   if (res.locals.authUser?.section !== 'MARKETING') {
@@ -17,6 +19,14 @@ const requireMarketingSection: RequestHandler = (_req, res, next) => {
 
 };
 
+const requireMarketingUserOrAdmin: RequestHandler = (_req, res, next) => {
+  const user = res.locals.authUser;
+  if (user?.section !== 'MARKETING' || (user.role !== 'USER' && user.role !== 'ADMIN')) {
+    next(new HttpError('Marketing section with USER or ADMIN role is required', 403));
+    return;
+  }
+  next();
+};
 const requireMarketingAdmin: RequestHandler = (_req, res, next) => {
   const user = res.locals.authUser;
   if (user?.role !== 'ADMIN' || user.section !== 'MARKETING') {
@@ -32,6 +42,15 @@ router.get('/:quotationId/pdf', validate('params', quotationIdSchema), asyncHand
 router.post('/:quotationId/approve', requireMarketingAdmin, validate('params', quotationIdSchema), validate('body', approveQuotationSchema), asyncHandler(quotationController.approve));
 router.post('/:quotationId/submit', requireMarketingSection, validate('params', quotationIdSchema), validate('body', submitQuotationSchema), asyncHandler(quotationController.submit));
 router.post('/:quotationId/reject', requireMarketingAdmin, validate('params', quotationIdSchema), validate('body', rejectQuotationSchema), asyncHandler(quotationController.reject));
+router.post('/:quotationId/work-order', requireMarketingUserOrAdmin, validate('params', quotationIdSchema), validate('body', createWorkOrderFromQuotationBodySchema), asyncHandler(async (req, res) => {
+  const quotationId = res.locals.params.quotationId;
+  const branch = getOfficeBranchId(res);
+  const token = getAccessToken(req);
+  if (!token) throw new HttpError('Access token is required', 401);
+  const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined;
+  const result = await createWorkOrderFromQuotation(quotationId, branch, res.locals.body, getAuditActor(res), token, requestId);
+  res.status(201).json({ status: 201, success: true, message: 'Work order created successfully', data: result, requestId: req.headers['x-request-id'] });
+}));
 router.post('/:quotationId/revise', requireMarketingAdmin, validate('params', quotationIdSchema), validate('body', reviseQuotationSchema), asyncHandler(quotationController.revise));
 
 router.get('/:quotationId/history', validate('params', quotationIdSchema), validate('query', quotationHistoryQuerySchema), asyncHandler(async (req, res) => {

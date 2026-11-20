@@ -210,62 +210,20 @@ export async function loadCompany(req: Request, companyId: string, branch: strin
 export async function loadQuotationForBasis(req: Request, id: string, branch: string): Promise<QuotationSnapshot> {
   const parsed = quotationSchema.safeParse(await gatewayGet(`marketing/quotation-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid quotation response', 502);
+  return parseMarketingQuotationReference(parsed.data, id, branch);
+}
+
+/** Validates a Marketing quotation reference supplied by an internal service caller. */
+export function parseMarketingQuotationReference(payload: unknown, id: string, branch: string): QuotationSnapshot {
+  const parsed = quotationSchema.safeParse(payload);
+  if (!parsed.success) throw new HttpError('Invalid quotation reference', 400);
   const quotation = parsed.data;
   if (quotation.id !== id || quotation.officeBranchId !== branch) throw new HttpError('Quotation not found', 404);
   if (!quotation.isActive || quotation.status !== 'APPROVED') throw new HttpError('Work order requires an APPROVED quotation', 409);
   return quotation;
 }
 
-/**
- * The quotation basis of a Work Order that is being created.
- *
- * On top of the branch, lifecycle and approval checks of loadQuotationForBasis,
- * the quotation must not already back a Work Order. Marketing owns the mirrored
- * link, so the same rule Marketing applies when it claims the quotation is
- * checked here: a quotation is "in use" while it has the link flag or the
- * Work Order reference.
- *
- * The mirrored link is cleared when Field Service revokes the Work Order, and
- * that delivery is asynchronous. Until Marketing has accepted the revoke, the
- * quotation is still reported as in use, so a second Work Order for it is
- * rejected instead of being created against a stale mirror.
- */
-export async function loadQuotationForNewWorkOrder(req: Request, id: string, branch: string): Promise<QuotationSnapshot> {
-  const quotation = await loadQuotationForBasis(req, id, branch);
-  if (quotation.hasWorkOrder || quotation.workOrderId) {
-    throw new HttpError('Quotation already has a Work Order; revoke it before creating another', 409);
-  }
-  return quotation;
-}
-
-const contractDate = z.union([z.string().datetime(), z.string().date()])
-  .transform(value => value.length === 10 ? `${value}T00:00:00.000Z` : value);
-export const contractSchema = z.object({
-  id: z.string().uuid(), version: z.number().int().nonnegative(), companyId: z.string().uuid(),
-  isActive: z.boolean().optional(), isDeleted: z.boolean().optional(), status: z.string(), effectiveFrom: contractDate, effectiveUntil: contractDate,
-  contractNumber: z.string().min(1), contractDate,
-  company: z.object({ id: z.string().uuid(), name: z.string().min(1), officeBranchId: z.string().uuid(), revoked: z.boolean() }).passthrough(),
-}).passthrough()
-  .refine(value => value.isActive !== undefined || value.isDeleted !== undefined, 'Contract lifecycle state is required')
-  .transform(value => ({ ...value, isActive: value.isActive !== false && value.isDeleted !== true }));
-export type ContractSnapshot = z.infer<typeof contractSchema>;
-/**
- * The only contract fields persisted on a Work Order. An explicit projection (not
- * a spread or a pick of known keys) so the upstream price rows, company record and
- * any future Marketing column can never leak into the snapshot column.
- */
-export type WorkOrderContractSnapshot = {
-  id: string; version: number; contractNumber: string; contractDate: string;
-  effectiveFrom: string; effectiveUntil: string; companyId: string; companyName: string;
-};
-export function toContractSnapshot(contract: ContractSnapshot): WorkOrderContractSnapshot {
-  return {
-    id: contract.id, version: contract.version, contractNumber: contract.contractNumber,
-    contractDate: contract.contractDate, effectiveFrom: contract.effectiveFrom,
-    effectiveUntil: contract.effectiveUntil, companyId: contract.companyId, companyName: contract.company.name,
-  };
-}
-export async function loadContract(req: Request, id: string, branch: string) {
+const contractDate = z.union([z.string().datetime(), z.string().date()])   .transform(value => value.length === 10 ? `${value}T00:00:00.000Z` : value); export const contractSchema = z.object({   id: z.string().uuid(), version: z.number().int().nonnegative(), companyId: z.string().uuid(),   isActive: z.boolean().optional(), isDeleted: z.boolean().optional(), status: z.string(), effectiveFrom: contractDate, effectiveUntil: contractDate,   contractNumber: z.string().min(1), contractDate,   company: z.object({ id: z.string().uuid(), name: z.string().min(1), officeBranchId: z.string().uuid(), revoked: z.boolean() }).passthrough(), }).passthrough()   .refine(value => value.isActive !== undefined || value.isDeleted !== undefined, 'Contract lifecycle state is required')   .transform(value => ({ ...value, isActive: value.isActive !== false && value.isDeleted !== true })); export type ContractSnapshot = z.infer<typeof contractSchema>; /**  * The only contract fields persisted on a Work Order. An explicit projection (not  * a spread or a pick of known keys) so the upstream price rows, company record and  * any future Marketing column can never leak into the snapshot column.  */ export type WorkOrderContractSnapshot = {   id: string; version: number; contractNumber: string; contractDate: string;   effectiveFrom: string; effectiveUntil: string; companyId: string; companyName: string; }; export function toContractSnapshot(contract: ContractSnapshot): WorkOrderContractSnapshot {   return {     id: contract.id, version: contract.version, contractNumber: contract.contractNumber,     contractDate: contract.contractDate, effectiveFrom: contract.effectiveFrom,     effectiveUntil: contract.effectiveUntil, companyId: contract.companyId, companyName: contract.company.name,   }; } export async function loadContract(req: Request, id: string, branch: string) {
   const parsed = contractSchema.safeParse(await gatewayGet(`marketing/contract-references/${id}`, req));
   if (!parsed.success) throw new HttpError('Invalid contract response', 502);
   const contract = parsed.data;

@@ -23,6 +23,24 @@ const envelope = (data: object) => ({
   properties: { status: { type: 'integer' }, success: { type: 'boolean', enum: [true] }, message: { type: 'string' }, data, requestId: uuid },
 });
 export const quotationSchemas = {
+  QuotationWorkOrderCreateRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['startDate', 'endDate', 'inspectors', 'items'],
+    description: 'Work Order fields for creation from the quotation identified in the path (quotationId is not repeated in the body).',
+    properties: {
+      startDate: { type: 'string', format: 'date' }, endDate: { type: 'string', format: 'date' },
+      subject: { type: 'string', minLength: 1, maxLength: 255 }, officialReport: { type: 'boolean' },
+      dailyReport: { type: 'string', format: 'date' }, officialReportDelivery: { type: 'string', format: 'date' },
+      dailyReportDelivery: { type: 'string', format: 'date' }, poNumber: { type: 'string', minLength: 1, maxLength: 100 },
+      poDate: { type: 'string', format: 'date' },
+      inspectors: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 255 } },
+      items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId', 'quantityInspection', 'quantityMaintenance'], properties: {
+        itemSizeId: { type: 'string', format: 'uuid' }, quantityInspection: { type: 'number', minimum: 0, maximum: 999999999999.999 },
+        quantityMaintenance: { type: 'number', minimum: 0, maximum: 999999999999.999 },
+      } } },
+    },
+  },
+  QuotationWorkOrderCreateResponse: envelope({ type: 'object', required: ['workOrder', 'quotation'], properties: { workOrder: ref('WorkOrder'), quotation: ref('Quotation') } }),
   DeleteQuotationRequest: {
     type: 'object', additionalProperties: false, required: ['version'],
     properties: { version: { type: 'integer', minimum: 0, maximum: 2147483646 } },
@@ -161,7 +179,7 @@ export const quotationPaths = {
   '/api/v1/marketing/internal/quotations/{quotationId}/work-order': {
     post: {
       tags: ['Quotations'], summary: 'Internal: update the Work Order link of a quotation', security: [],
-      description: 'Field Service delivers the Work Order link of a quotation through the Gateway (transactional outbox worker or in-request batch). Requires Field Service credentials and the Work Order sync secret. The quotation is updated in place: hasWorkOrder, workOrderId, and workOrderSnapshot. workOrderStatus in public quotation responses is derived from the stored snapshot, not a separate column. Branch ownership is checked before updating a quotation. Duplicate deliveries are idempotent; CANCELED clears derived status and a revoke clears the whole Work Order link.',
+      description: 'Field Service updates the Work Order mirror of a quotation through the Gateway synchronously after START, UPDATE and REVOKE writes. Requires Field Service credentials and the Work Order sync secret. The quotation is updated in place: hasWorkOrder, workOrderId, and workOrderSnapshot. workOrderStatus in public quotation responses is derived from the stored snapshot, not a separate column. Branch ownership is checked before updating a quotation. Duplicate deliveries are idempotent; CANCELED clears derived status and a revoke clears the whole Work Order link.',
       parameters: [
         { in: 'path', name: 'quotationId', required: true, schema: uuid },
         { in: 'header', name: 'x-service-name', required: true, schema: { type: 'string', enum: ['fieldservice-service'] } },
@@ -210,6 +228,14 @@ export const quotationPaths = {
         404: response('Active quotation not found in this branch', 'ErrorResponse'),
         409: response('Version conflict, unsupported status or no active items', 'ErrorResponse'),
         503: response('PDF storage unavailable; reload quotation before retrying', 'ErrorResponse') },
+    },
+  },
+  '/api/v1/marketing/quotations/{quotationId}/work-order': {
+    post: {
+      ...common, summary: 'Create a Work Order from an approved quotation', parameters: [idParameter],
+      description: 'Orchestrates Work Order creation in Field Service for an approved quotation in the authenticated branch. Requires section MARKETING with role USER or ADMIN. Marketing locks the quotation row, verifies it is active APPROVED without an existing Work Order, calls the internal Field Service creation endpoint, then stores the returned Work Order snapshot and sets hasWorkOrder. Concurrent requests for the same quotation are rejected with 409.',
+      requestBody: { required: true, content: { 'application/json': { schema: ref('QuotationWorkOrderCreateRequest') } } },
+      responses: { ...commonErrors, 201: response('Work order created', 'QuotationWorkOrderCreateResponse'), 403: response('Marketing section with USER or ADMIN role is required', 'ErrorResponse'), 404: response('Quotation not found in this branch', 'ErrorResponse'), 409: response('Quotation is inactive, not APPROVED, or already has a Work Order', 'ErrorResponse'), 502: response('Invalid Field Service response', 'ErrorResponse'), 503: response('Field Service unavailable', 'ErrorResponse') },
     },
   },
   '/api/v1/marketing/quotations/{quotationId}/revise': {

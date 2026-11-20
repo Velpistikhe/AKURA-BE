@@ -71,7 +71,7 @@ export const createWorkOrderByCompanySchema = z.object({
   items: createItemRows,
 }).strict()
   .refine(endDateNotBeforeStart, { message: END_DATE_BEFORE_START, path: ['endDate'] });
-/** POST /work-orders/from-quotation — quotation basis; companyId is taken from the quotation snapshot only. */
+/** Internal POST /internal/work-orders/from-quotation — quotation basis; companyId is taken from the quotation snapshot only. */
 export const createWorkOrderByQuotationSchema = z.object({
   quotationId: z.string().uuid(),
   startDate: date,

@@ -7,9 +7,8 @@ import { recordAudit } from '../../utils/audit.js';
 import { HttpError } from '../../utils/httpError.js';
 import { CreateWorkOrderByCompanyInput, CreateWorkOrderByQuotationInput, CreateWorkOrderInput, UpdateWorkOrderInput, listWorkOrderSchema } from './work-order.schemas.js';
 import { nextWorkOrderIdentity } from './work-order-number.js';
-import { enqueueWorkOrderLink } from './work-order-link-outbox.js';
 
-export type WorkOrderWriteResult = { row: WorkOrderPublic; linkEventId?: string };
+export type WorkOrderWriteResult = { row: WorkOrderPublic };
 /** The complete Work Order row, including the document snapshots. */
 const include = { inspectors: { orderBy: { position: 'asc' as const } }, items: true };
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
@@ -39,7 +38,7 @@ export type WorkOrderPublic = Omit<WorkOrderSnapshot, 'quotationSnapshot' | 'con
  * Removes the document snapshots from a Work Order row.
  *
  * The write paths need the complete row for the change history, the audit trail
- * and the Marketing link delivery, so the snapshots are removed at the
+ * and the synchronous Marketing mirror callback, so the snapshots are removed at the
  * response boundary instead of at the query.
  */
 function withoutSnapshots(row: WorkOrderSnapshot): WorkOrderPublic {
@@ -173,7 +172,7 @@ type CreateHeaderPersist = {
  * The company itself was validated live against Marketing before this call, so
  * the stored companyId always points at an existing, non-revoked company.
  *
- * Quotation basis (POST /work-orders/from-quotation): the header may be omitted
+ * Quotation basis (internal POST /internal/work-orders/from-quotation): the header may be omitted
  * and the server fills the defaults from the live Marketing quotation. The
  * companyId is taken from the quotation company snapshot only; the client can
  * never supply a different company for a quotation-based Work Order.
@@ -250,27 +249,10 @@ function resolveItemSnapshots(items: CreateWorkOrderInput['items'], input: { quo
  *
  * The advisory transaction lock is scoped per branch + quotation and taken before
  * either check, so concurrent creations for the same quotation serialize instead
- * of both passing a check-then-insert race. Any unacknowledged Marketing delivery
  * for the quotation (CREATE, STATUS or REVOKE) also blocks a new creation: the
- * mirror may still be stale until that event is delivered.
  */
 async function assertQuotationNotInUse(tx: Prisma.TransactionClient, officeBranchId: string, quotationId: string, excludeId?: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'work-order-quotation:' + officeBranchId + ':' + quotationId}))`;
-
-  const pendingDelivery = await tx.workOrderLinkDelivery.findFirst({
-    where: {
-      deliveredAt: null,
-      event: { officeBranchId, quotationId },
-    },
-    select: { id: true, event: { select: { action: true, workOrderNumber: true } } },
-    orderBy: { nextRetryAt: 'asc' },
-  });
-  if (pendingDelivery) {
-    throw new HttpError(
-      `Quotation synchronisation is pending for Work Order ${pendingDelivery.event.workOrderNumber} (${pendingDelivery.event.action}); retry after the sync is delivered`,
-      409,
-    );
-  }
 
   const existing = await tx.workOrder.findFirst({
     where: { officeBranchId, quotationId, revoked: false, ...(excludeId ? { id: { not: excludeId } } : {}) },
@@ -387,15 +369,11 @@ export const workOrderRepository = {
     }, { maxWait: 10000, timeout: 20000 });
   },
   /**
-   * Quotation basis (POST /work-orders/from-quotation). The quotation was
-   * validated live against Marketing before this call, so the stored quotation
-   * snapshot matches the approved document and the companyId is the company of
-   * that quotation.
-   *
-   * A link delivery event is queued in the same transaction; Marketing is updated
-   * asynchronously from the transactional outbox after the Work Order commits.
+   * Quotation basis (internal POST /internal/work-orders/from-quotation). The quotation
+   * payload is supplied by Marketing after it locks and validates the quotation row.
+   * Marketing attaches the Work Order mirror after Field Service commits the create.
    */
-  async createByQuotation(input: CreateWorkOrderByQuotationInput, quotation: QuotationSnapshot, actor: Actor): Promise<WorkOrderWriteResult> {
+  async createByQuotation(input: CreateWorkOrderByQuotationInput, quotation: QuotationSnapshot, actor: Actor): Promise<WorkOrderPublic> {
     const {
       inspectors = [], items,
       quotationId: _quotationId,
@@ -421,8 +399,7 @@ export const workOrderRepository = {
         items: { create: itemRows.map(item => ({ itemSizeId: item.itemSizeId, item: json(item.item),
           quantityInspection: item.quantityInspection, quantityMaintenance: item.quantityMaintenance })) } }, include });
       const history = await saveHistory(tx, row, null, actor, 'CREATE');
-      const event = await enqueueWorkOrderLink(tx, history, { action: 'CREATE' });
-      return { row: withoutSnapshots(history), linkEventId: event?.id };
+      return withoutSnapshots(history);
     }, { maxWait: 10000, timeout: 20000 });
   },
   async list(input: z.infer<typeof listWorkOrderSchema>, actor: Actor) {
@@ -524,9 +501,7 @@ export const workOrderRepository = {
       }
       const row = await tx.workOrder.update({ where: { id }, data: { ...fields, ...quotation }, include });
       const history = await saveHistory(tx, row, before, actor, 'UPDATE');
-      const event = row.quotationId && row.status !== before?.status
-        ? await enqueueWorkOrderLink(tx, history, { action: 'UPDATE' }) : null;
-      return { row: withoutSnapshots(history), linkEventId: event?.id };
+      return { row: withoutSnapshots(history) };
     }, { maxWait: 10000, timeout: 20000 });
   },
   /**
@@ -567,8 +542,7 @@ export const workOrderRepository = {
       }
       const row = await tx.workOrder.findUniqueOrThrow({ where: { id }, include });
       const history = await saveHistory(tx, row, before, actor, 'START');
-      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { action: 'START' }) : null;
-      return { row: withoutSnapshots(history), linkEventId: event?.id };
+      return { row: withoutSnapshots(history) };
     }, { maxWait: 10000, timeout: 20000 });
   },
   async revoke(id: string, version: number, actor: Actor): Promise<WorkOrderWriteResult> {
@@ -589,9 +563,7 @@ export const workOrderRepository = {
       // The history row is written before the Marketing callback so the only
       // remaining step after Marketing acknowledges is the commit itself.
       const history = await saveHistory(tx, row, before, actor, 'REVOKE');
-      const event = row.quotationId ? await enqueueWorkOrderLink(tx, history, { revoked: true, action: 'REVOKE' }) : null;
-      return { row: withoutSnapshots(history), linkEventId: event?.id };
+      return { row: withoutSnapshots(history) };
     }, { maxWait: 10000, timeout: 20000 });
   },
 };
-

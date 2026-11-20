@@ -92,3 +92,28 @@ export const deleteQuotationItemSchema = z.object({
 }).strict();
 export type QuotationItemInput = z.infer<typeof item>;
 export type UpdateQuotationInput = z.infer<typeof updateQuotationSchema>;
+const woQuantity = z.number().finite().nonnegative().max(999999999999.999)
+  .refine(value => /^\d{1,12}(\.\d{1,3})?$/.test(String(value)), 'Quantity must have at most three decimal places');
+const woInspectorNames = z.array(z.string().trim().min(1).max(255)).min(1).max(100)
+  .refine(names => new Set(names.map(name => name.toLowerCase())).size === names.length, 'Inspector names must be unique');
+const woEndDateAfterStart = (value: { startDate?: Date; endDate?: Date }) =>
+  !value.startDate || !value.endDate || value.endDate.getTime() >= value.startDate.getTime();
+
+export const createWorkOrderFromQuotationBodySchema = z.object({
+  startDate: date,
+  endDate: date,
+  subject: z.string().trim().min(1).max(255).optional(),
+  officialReport: z.boolean().optional(),
+  dailyReport: date.optional(),
+  officialReportDelivery: date.optional(),
+  dailyReportDelivery: date.optional(),
+  poNumber: z.string().trim().min(1).max(100).optional(),
+  poDate: date.optional(),
+  inspectors: woInspectorNames,
+  items: z.array(z.object({
+    itemSizeId: z.string().uuid(),
+    quantityInspection: woQuantity,
+    quantityMaintenance: woQuantity,
+  }).strict()).min(1),
+}).strict().refine(woEndDateAfterStart, { message: 'End date cannot precede start date', path: ['endDate'] });
+export type CreateWorkOrderFromQuotationBody = z.infer<typeof createWorkOrderFromQuotationBodySchema>;

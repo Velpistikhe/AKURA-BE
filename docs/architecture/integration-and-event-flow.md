@@ -130,15 +130,18 @@ explicit allowlist projection"*
 
 ### 2.6 Compensation for partial failure
 
-**VERIFIED** — quotation link updates use the same outbox pattern as tax:
-Field Service commits the Work Order and a `work_order_link_events` row together,
-then delivers the Marketing callback asynchronously (`work-order-link-delivery.ts`).
-A failed delivery does **not** roll back the Work Order; the job retries with
-backoff until Marketing acknowledges or an operator intervenes.
+**VERIFIED** — the Work Order link is no longer an outbox flow. Marketing
+orchestrates the creation: it locks the quotation row, calls the internal Field
+Service endpoint, and attaches the Work Order itself. If the attach fails,
+Marketing compensates by revoking the Work Order it just created, so no orphan
+Work Order is left behind.
 
-The callback posts to `marketing/internal/quotations/{quotationId}/work-order` with
-the `x-work-order-sync-secret` header. Marketing stores the quotation link inside
-its own transaction and is idempotent on duplicate deliveries.
+The status mirror for START/UPDATE/REVOKE posts to
+`marketing/internal/quotations/{quotationId}/work-order` with the
+`x-work-order-sync-secret` header. It is synchronous and fail-closed: if
+Marketing is unavailable the Field Service write fails with a `503` and the
+Work Order is not changed. Marketing stores the quotation link inside its own
+transaction and is idempotent on duplicate deliveries.
 
 **Gateway rewrite.** The callback travels through the API Gateway, which mounts
 `/api/v1/marketing/internal/quotations` and rewrites the stripped path to
@@ -203,12 +206,17 @@ Producer transaction:
 | # | Producer | Consumer | Endpoint | Secret header | Outbox tables |
 |---|---|---|---|---|---|
 | 1 | finance | marketing | `POST /api/v1/marketing/internal/taxes/events` | `x-tax-sync-secret` | `tax_events`, `tax_deliveries` |
-| 2 | fieldservice | marketing | `POST /api/v1/marketing/internal/quotations/{quotationId}/work-order` | `x-work-order-sync-secret` | `work_order_link_events`, `work_order_link_deliveries` |
+| 2 | fieldservice | marketing | `POST /api/v1/marketing/internal/quotations/{quotationId}/work-order` | `x-work-order-sync-secret` | none (synchronous) |
 
-Both flows use the same delivery machinery described in the sections below. Field
-Service's link worker additionally uses a **blocking** advisory lock
-(`pg_advisory_xact_lock`) so concurrent in-request flushes cannot both return
-before Marketing has the mirror (`work-order-link-delivery.ts:18-25`).
+Only the tax flow uses the outbox machinery described in the sections below. The
+Work Order link mirror is a synchronous call
+(`work-order-marketing-mirror.ts`), so there is no delivery state, no retry
+queue and no monitoring table for it.
+
+The quotation-based creation travels the other way and is also synchronous:
+Marketing calls `POST /api/v1/fieldservice/internal/work-orders/from-quotation`
+through the Gateway, which rewrites the stripped path to
+`/internal/work-orders/` and authenticates the caller as `marketing-service`.
 
 **The user event endpoints are gone.** Auth used to push user snapshots to
 Marketing and Field Service; the directory is now read live, so there is no
@@ -337,12 +345,10 @@ also works while Marketing is down — which is exactly when the delivery state
 matters. There is **no permanent failure state**, because a delivery is retried
 until it is acknowledged.
 
-The Work Order reference is stored in indexed columns on
-`work_order_link_events` (`work_order_id`, `work_order_number`,
-`work_order_status`, `action`, `revoked`) next to the JSONB payload, so the
-history of one Work Order is read with an index instead of a JSONB scan. The
-columns are filled by the application on every write; they are defined in
-`fieldservice-service/prisma/schema.prisma` and applied with `prisma db push`.
+The Work Order link no longer has a delivery table: the mirror is synchronous,
+so there is nothing to queue. The Work Order itself keeps the quotation
+reference in indexed columns on `work_order` (`quotation_id`), and Field Service
+applies the schema with `prisma db push`.
 
 ### 3.9 Load behaviour of the Work Order creation path
 
@@ -416,9 +422,10 @@ and `quotation.repository.ts` (attach / clear helpers).
 
 The Work Order link callback posts to
 `marketing/internal/quotations/{quotationId}/work-order` with
-`x-work-order-sync-secret`. Field Service delivers it **from the outbox**
-(`work-order-link-delivery.ts`), not from the synchronous reference lookups in
-`gateway.ts`.
+`x-work-order-sync-secret`. Field Service sends it **synchronously** from the
+START/UPDATE/REVOKE write path
+(`fieldservice-service/src/modules/work-orders/work-order-marketing-mirror.ts`),
+not from an outbox.
 
 Marketing applies a **link guard** instead of a version counter:
 
@@ -429,17 +436,11 @@ Marketing applies a **link guard** instead of a version counter:
 - `revoked: true` clears the mirrored link (`hasWorkOrder`, `workOrderId`,
   snapshot).
 
-**Consequence:** if Marketing is unavailable, the Work Order write has **already
-committed** and the outbox row remains queued. The client's response still
-reflects the Field Service truth; Marketing's mirror converges when delivery
-succeeds. The write path calls `deliverWorkOrderLinkAndWait` so the caller does
-not finish while an earlier link for the same quotation is still pending, which
-is what enforces the 409 guard on concurrent Work Order creation
-(§2.7). A failed delivery does **not** roll back the Work Order; it retries with
-backoff like the tax outbox (§3.3).
+**Consequence:** if Marketing is unavailable the Field Service write fails closed
+with a `503` and the Work Order is left unchanged, so the client is never told
+that a status change succeeded while the mirror disagrees.
 
-The receiver is idempotent on duplicate deliveries, so at-least-once delivery is
-safe.
+The receiver is idempotent on duplicate deliveries, so a retried call is safe.
 
 ### 4.4 Receiver-side secret handling
 
@@ -474,15 +475,15 @@ outbox event is recorded in one transaction; delivery happens afterwards. If
 delivery fails, the retry loop handles it, and Marketing's cache converges
 (`tax-delivery.ts:55-59`).
 
-**Worked example — a Work Order quotation link.** Like the tax write, the Work
-Order row and the outbox event commit together; delivery happens afterwards
-(`work-order-link-outbox.ts`, `work-order-link-delivery.ts`). If Marketing is
-temporarily unreachable, the Work Order still exists and the delivery worker
-retries. Creation from the same quotation is blocked with 409 while an event is
-still unacknowledged, so a second Work Order is not created against a quotation
-that Marketing still reports as linked. The mirror may lag briefly, but it
-converges without requiring Field Service writes to fail whenever Marketing is
-down.
+**Worked example — a Work Order quotation link.** Unlike the tax write, the Work
+Order link is not an outbox flow. Marketing owns the quotation, so it locks the
+quotation row and validates it (§2.7) before it calls Field Service. A second
+request for the same quotation is rejected with 409 while the first one holds
+the lock, so only one Work Order can ever back a quotation.
+
+If the attach to the quotation fails after Field Service created the Work Order,
+Marketing revokes that Work Order again instead of leaving an orphan
+(`marketing-service/src/modules/quotations/quotation-work-order-create.service.ts`).
 
 ---
 
@@ -492,7 +493,7 @@ down.
 |---|---|---|---|
 | **No broker → delivery requires a reachable gateway** | Medium | If the gateway is down, outbox deliveries cannot be sent | Outbox persists across restarts; backoff + jitter; the in-request fallback covers the serverless case |
 | **No dead-letter queue** | Medium | A permanently failing delivery retries every 5 minutes forever, silently | `attempts` and `lastError` are exposed via the delivery-monitoring endpoints |
-| **Quotation link lags behind Work Order** | Medium | Marketing mirror is eventual after WO commit | Outbox + in-request flush; monitor `work_order_link_deliveries` |
+| **Marketing outage blocks Work Order status writes** | Medium | The START/UPDATE/REVOKE mirror is fail-closed, so Marketing must be reachable to change a quotation-based Work Order | Marketing is read live anyway; the create flow is fail-closed by design |
 | **No cross-service tracing** | Low | `x-request-id` propagates through the gateway and is forwarded on outbound calls, but there is no distributed tracing | Correlation IDs are present in every log line; enough to follow a request manually |
 | **Delivery target URLs are validated, but not the secret** | Low | Finance validates that the tax delivery target is the gateway URL (`tax-delivery.ts:22`) | The gateway still has to route the request |
 

@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import {
   GATEWAY, loginAs, query, seedMarketingTax, seedOfficeBranch, seedUser, type SeededUser,
 } from './support/fixtures.js';
-import { approveQuotation, buildCatalogFixture, createSubmittedQuotation } from './support/catalog.js';
+import { approveQuotation, buildCatalogFixture, createSubmittedQuotation, workOrderFromMarketingCreate } from './support/catalog.js';
 import { httpRequest } from './support/http.js';
 import { ensureDatabases, resetBeforeEach } from './support/suite.js';
 import { startGateway, startService } from './support/processes.js';
@@ -55,11 +55,10 @@ const approvedQuotation = async (staffName?: string) => {
 /** Creates a Work Order from an approved quotation as the marketing officer. */
 const createFromQuotation = async (quotationId: string, itemSizeId: string) => {
   const today = new Date().toISOString().slice(0, 10);
-  const response = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+  const response = await httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${quotationId}/work-order`, {
     method: 'POST',
     token: user.accessToken,
     body: {
-      quotationId,
       startDate: today,
       endDate: dayAfter(today),
       inspectors: ['SnapshotTest Inspector'],
@@ -67,7 +66,7 @@ const createFromQuotation = async (quotationId: string, itemSizeId: string) => {
     },
   });
   assert.equal(response.status, 201, JSON.stringify(response.body));
-  return (response.body as { data: { id: string; version: number } }).data;
+  return workOrderFromMarketingCreate(response.body);
 };
 
 /** Reads the detail of one Work Order. */
@@ -131,11 +130,10 @@ describe('fieldservice-service work order snapshot minimisation', () => {
     const { fixture, quotationId } = await approvedQuotation();
     const today = new Date().toISOString().slice(0, 10);
 
-    const created = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/from-quotation`, {
+    const created = await httpRequest(`${GATEWAY}/api/v1/marketing/quotations/${quotationId}/work-order`, {
       method: 'POST',
       token: user.accessToken,
       body: {
-        quotationId,
         startDate: today,
         endDate: dayAfter(today),
         inspectors: ['SnapshotTest Inspector'],
@@ -143,8 +141,9 @@ describe('fieldservice-service work order snapshot minimisation', () => {
       },
     });
     assert.equal(created.status, 201, JSON.stringify(created.body));
-    const workOrder = (created.body as { data: { id: string; version: number } }).data;
-    assertNoSnapshots((created.body as { data: Record<string, unknown> }).data, 'the creation response');
+    const workOrder = workOrderFromMarketingCreate(created.body);
+    const createData = (created.body as { data: { workOrder: Record<string, unknown> } }).data;
+    assertNoSnapshots(createData.workOrder, 'the creation response');
 
     const patched = await httpRequest(`${GATEWAY}/api/v1/fieldservice/work-orders/${workOrder.id}`, {
       method: 'PATCH',

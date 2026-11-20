@@ -7,6 +7,7 @@ import { errorHandler } from './middlewares/error.middleware.js';
 import { verifyGatewaySecret } from './middlewares/gateway.middleware.js';
 import { requestIdMiddleware } from './middlewares/requestId.middleware.js';
 import routes from './routes/index.js';
+import workOrderInternal from './modules/work-orders/work-order-internal.routes.js';
 import { corsOrigin } from './utils/corsOrigin.js';
 
 const app: Express = express();
@@ -18,6 +19,7 @@ app.use(requestIdMiddleware);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/internal/work-orders', workOrderInternal);
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({
     status: 200,

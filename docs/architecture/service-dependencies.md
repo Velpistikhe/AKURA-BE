@@ -62,22 +62,22 @@ gone. Auth now only serves the profile and the directory, and the consumers
 ### 2.3 fieldservice → marketing (quotation basis and link callback)
 
 **VERIFIED** — `fieldservice-service/src/integrations/gateway.ts` (reads) and
-`fieldservice-service/src/modules/work-orders/work-order-link-delivery.ts` (async link).
+`fieldservice-service/src/modules/work-orders/work-order-marketing-mirror.ts` (synchronous mirror) and Marketing `quotation-work-order-create.service.ts` (CREATE orchestration).
 
 | Direction | Call | Purpose |
 |---|---|---|
 | Field Service → Marketing | `GET marketing/quotation-references/:id` | Live quotation basis for a Work Order |
 | Field Service → Marketing | `GET marketing/contract-references/:id` | Live contract basis |
 | Field Service → Marketing | `GET marketing/item-size-references/:id` | Catalog identity for an item size |
-| Field Service → Marketing | `POST marketing/internal/quotations/:id/work-order` | Async quotation link mirror (outbox) |
+| Field Service → Marketing | `POST marketing/internal/quotations/:id/work-order` | Synchronous quotation link mirror |
 
-Quotation-based Work Order writes enqueue a link event in the Field Service
-database (`work_order_link_events` / `work_order_link_deliveries`) in the same
-transaction as the Work Order row. A worker (and an in-request bounded batch)
-delivers `POST marketing/internal/quotations/{quotationId}/work-order` with
-`x-work-order-sync-secret`. The client's HTTP response succeeds when the Work
-Order commits; Marketing's `hasWorkOrder` / `workOrderSnapshot` update is
-**eventually consistent**, with idempotent retries on failure.
+Quotation-based Work Order writes call
+`POST marketing/internal/quotations/{quotationId}/work-order` synchronously
+with `x-work-order-sync-secret`
+(`fieldservice-service/src/modules/work-orders/work-order-marketing-mirror.ts`).
+There is no link outbox and no link worker any more. If Marketing is
+unreachable the write fails closed with a `503` and the Work Order is not
+written, so the client's response and the Marketing mirror never disagree.
 
 ### 2.4 finance → marketing (async)
 
@@ -164,14 +164,17 @@ by the client instead.
 Field Service  ──(POST work-order link)──▶  Marketing
 ```
 
-The Work Order is **not** created through Marketing. The client creates it
-directly on Field Service (`POST /api/v1/fieldservice/work-orders/from-quotation`),
-and Field Service resolves the quotation through the Marketing quotation
-reference and notifies Marketing of the new link. The callback is synchronous
-and idempotent, and Marketing mirrors the link on its own quotation row, so no
-return leg to Field Service is needed. See
-[ADR-0003](./adr/ADR-0003-http-outbox-over-message-broker.md) for why an outbox
-was chosen over a broker on the asynchronous legs.
+The Work Order **is** created through Marketing. The client calls
+`POST /api/v1/marketing/quotations/{quotationId}/work-order`; Marketing locks
+and validates the quotation, then calls the internal Field Service endpoint
+`POST /api/v1/fieldservice/internal/work-orders/from-quotation` and attaches
+the returned Work Order to the quotation.
+
+The remaining leg, Field Service → Marketing for START/UPDATE/REVOKE, is a
+synchronous mirror of the Work Order status, so it is not a cycle: the create
+already completed before the status changes happen. See
+[ADR-0003](./adr/ADR-0003-http-outbox-over-message-broker.md) for why the tax
+outbox is kept on the asynchronous leg.
 
 ### 3.4 Fan-in and fan-out
 

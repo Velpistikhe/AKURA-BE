@@ -230,22 +230,26 @@ A single request demonstrates how the pieces fit. Full detail in
 
 ```
 Client
-  │  POST /api/v1/fieldservice/work-orders/from-quotation
+  │  POST /api/v1/marketing/quotations/{quotationId}/work-order
   │  Authorization: Bearer <access token>
   ▼
 API Gateway
   │  authRateLimiter → authenticateServiceCaller → authenticateJwt (remote JWKS)
   │  strips inbound X-User-*, injects its own, adds x-gateway-secret
   ▼
+Marketing Service
+  │  verifyGatewaySecret → authenticate → requireMarketingUserOrAdmin (section MARKETING, role USER or ADMIN)
+  │  → lock the quotation row (SELECT ... FOR UPDATE) and assert it is active, APPROVED and unlinked
+  │  → POST fieldservice/internal/work-orders/from-quotation via Gateway (service credentials)
+  ▼
 Field Service
-  │  verifyGatewaySecret → authenticate → requireActor (GET auth/me)
-  │  → requireMarketingUserOrAdmin (section MARKETING, role USER or ADMIN)
-  │  → GET marketing/quotation-references/{id} via Gateway (snapshot basis)
-  │  → persist Work Order
-  │  → enqueue work-order link outbox → POST marketing/internal/quotations/{id}/work-order (async)
+  │  verifyGatewaySecret → persist Work Order
+  │  respond 201 with the created Work Order
   ▼
 Marketing Service
-     attachWorkOrder(quotation, workOrder)  ← same DB transaction as the audit entry
+  │  attachWorkOrder(quotation, workOrder) ← same DB transaction as the audit entry
+  │  set hasWorkOrder / workOrderId and store the Work Order snapshot
+  │  if the attach fails: DELETE the Work Order again (compensating revoke)
 ```
 
 Two properties of this flow are worth naming explicitly:
@@ -253,11 +257,12 @@ Two properties of this flow are worth naming explicitly:
 - **Fail-closed on upstream errors.** A timeout or 5xx from an upstream service
   becomes a `503`, never a silent `false`. See
   `fieldservice-service/src/integrations/gateway.ts:22-33`.
-- **No cross-service transaction boundary.** The quotation link is written by
-  Marketing inside the callback that Field Service makes from within its own
-  transaction. A failed callback rolls the Work Order back, so the two
-  services can never disagree
-  (`fieldservice-service/src/modules/work-orders/work-order.repository.ts:342-346`).
+- **No cross-service transaction boundary.** Marketing owns the quotation link
+  and Field Service owns the Work Order, so the two writes cannot share one
+  transaction. The quotation row is locked for the whole flow and the Work
+  Order is compensated (revoked) when the attach fails, so the two services
+  converge instead of disagreeing
+  (`marketing-service/src/modules/quotations/quotation-work-order-create.service.ts`).
 
 ---
 
@@ -275,7 +280,7 @@ Two properties of this flow are worth naming explicitly:
 | Shared library | **NONE** — no shared package, no monorepo | no root `package.json` |
 | Observability | **PARTIAL** — structured `winston` logs and `x-request-id` propagation; **no metrics/tracing** | `src/utils/logger.ts` |
 | API contract | **VERIFIED** — OpenAPI 3.0.3 spec **2.8.2** at `/api-docs`, 98 path definitions; documents hybrid local development in `info.description` | `api-gateway/src/docs/` |
-| Automated tests | **VERIFIED** — 11-file reliability suite in `marketing-service/tests/` | `marketing-service/package.json:14-16` |
+| Automated tests | **VERIFIED** — 16-file reliability suite in `marketing-service/tests/` | `marketing-service/package.json:14-16` |
 | CI/CD | **UNKNOWN** — no workflow file in the repository | no `.github/`, no CI config |
 | Containerization | **NONE** — no Dockerfile or compose file | verified by search |
 
