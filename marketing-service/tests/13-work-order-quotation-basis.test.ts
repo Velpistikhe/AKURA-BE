@@ -203,4 +203,3 @@ describe('fieldservice-service work order quotation basis rules', () => {
     assert.equal(response.status, 404, JSON.stringify(response.body));
   });
 });
-// TESTS_PLACEHOLDER

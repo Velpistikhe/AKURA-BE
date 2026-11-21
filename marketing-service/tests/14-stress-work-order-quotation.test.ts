@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
-  GATEWAY, execute, loginAs, query, seedMarketingTax, seedOfficeBranch, seedUser,
+  GATEWAY, loginAs, query, seedMarketingTax, seedOfficeBranch, seedUser,
   type SeededUser,
 } from './support/fixtures.js';
 import { buildCatalogFixture, createSubmittedQuotation, type CatalogFixture, workOrderFromMarketingCreate } from './support/catalog.js';

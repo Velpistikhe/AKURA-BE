@@ -76,7 +76,7 @@ export const openApiDocument = groupByModule({
   openapi: '3.0.3',
   info: {
     title: 'Akura API Gateway',
-    version: '2.8.2',
+    version: '2.8.3',
     description: [
       'HTTP API for the Akura gateway, authentication, application management, marketing, finance, and field service.',
       '',

@@ -41,6 +41,7 @@ holds no database and no business logic.
 |---|---|---|---|---|
 | `/api/v1/marketing/internal/taxes/events` | marketing | **false** | `finance-service` | `^/` → `/internal/taxes/events` |
 | `/api/v1/marketing/internal/quotations` | marketing | **false** | `fieldservice-service` | `^/` → `/internal/quotations/` |
+| `/api/v1/fieldservice/internal/work-orders`* | fieldservice | **false** | `marketing-service` | `^/` → `/internal/work-orders/` |
 | `/api/v1/auth` | auth | **false** | — | `^/api/v1/auth` → `''` |
 | `/api/v1/app-manager` | app-manager | **true** | — | `^/api/v1/app-manager` → `''` |
 | `/api/v1/marketing` | marketing | **true** | — | `^/api/v1/marketing` → `''` |
@@ -49,12 +50,7 @@ holds no database and no business logic.
 
 \* Conditional — see §5.
 
-**Ordering matters.** The two `internal/...` prefixes are registered
-**before** their parent prefixes. Since Express matches `router.use` in
-registration order and `/api/v1/marketing/internal/taxes/events` is a strict
-prefix of `/api/v1/marketing`, the internal route wins for those exact paths.
-This ordering is load-bearing — reordering it would route internal events
-through the user-facing route and break authentication.
+**Ordering matters.** The three service-caller prefixes (`marketing/internal/taxes/events`, `marketing/internal/quotations`, and `fieldservice/internal/work-orders`) are registered **before** their parent prefixes. Since Express matches `router.use` in registration order, the more specific internal prefix must win; reordering would route internal traffic through user-facing authentication and break cross-service flows.
 
 ### How the rewrite works
 
@@ -78,6 +74,10 @@ Net effect for an internal route:
 ```
 /api/v1/marketing/internal/taxes/events  →  Express strips  →  /
                                            →  pathRewrite    →  /internal/taxes/events
+
+/api/v1/fieldservice/internal/work-orders/from-quotation
+  →  Express strips  →  /from-quotation
+  →  pathRewrite    →  /internal/work-orders/from-quotation
 ```
 
 Work Order link callback (Field Service → Marketing; the rewrite target
@@ -253,7 +253,7 @@ mid-stream failure does not attempt to write a second response body
 
 **VERIFIED** — the gateway authors a complete OpenAPI 3 document in
 `api-gateway/src/docs/` and serves it at `/api-docs` and `/api-docs.json`.
-The published spec version is **2.8.2**. The `info.description` and downstream
+The published spec version is **2.8.3**. The `info.description` and downstream
 health operation descriptions document **hybrid local development**: auth via
 the deployed gateway, module APIs on `localhost:5002`–`5005`, approved Neon
 and gateway hosts without `DEV_ALLOWED_REMOTE_HOSTS` on the four domain
@@ -270,9 +270,8 @@ services, and Bearer tokens echoed from login / `GET /api/v1/auth/me`.
 | `operational-documents.ts` | 3 KB | Quotation and item-size reference endpoints |
 | `module-tags.ts` | 4 KB | Maps each path to an OpenAPI tag |
 
-**Path count: 94 path definitions** (131 operations), with **no duplicate path
-keys** between files (verified by extracting every path key and grouping by
-value). The user directory is not read over the network: Auth owns the users
+**Path count: 95 path definitions** (132 operations), with **no duplicate path
+keys** between files (verified by loading `openApiDocument.paths` with `tsx`). The user directory is not read over the network: Auth owns the users
 table, and the directory lookups that other services used to consume have been
 removed, so no service reads the user directory any more.
 
@@ -294,11 +293,11 @@ the per-flow sync secret (`tax.ts:55`, `quotation.ts:198-200`).
 |---|---|---|
 | Auth | 11 | 12 |
 | App Manager | 13 | 24 |
-| Marketing | 55 | 76 |
+| Marketing | 57 | 76 |
 | Finance | 4 | 5 |
-| Field Service | 5 | 8 |
+| Field Service | 6 | 9 |
 | Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | 4 |
-| Internal event endpoints | 2 (counted within the above) | 2 |
+| Service-caller integration endpoints | 3 (counted within the above) | 3 |
 
 **Note — the spec is the gateway's contract, not each service's own route
 table.** The gateway documents paths that individual services implement

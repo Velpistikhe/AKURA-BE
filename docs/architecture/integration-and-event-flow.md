@@ -16,7 +16,7 @@
 | Failure mode | Fails the caller's request | Retried in the background |
 | Consistency | Strong at the moment of the call | Eventual |
 | Used for | Reading data owned by another service | Replicating data into a read model |
-| Inventory | 12 distinct calls | 2 flows |
+| Inventory | 13 distinct calls | 2 flows |
 
 **The user directory is read, not replicated.** Auth owns the users table, and
 the consumers pull the contacts and inspectors they need live. There is no
@@ -41,6 +41,7 @@ URL anywhere in the codebase.
 | 4 | fieldservice | `GET marketing/quotation-references/:id` | Quotation basis | `src/integrations/gateway.ts:144` |
 | 5 | fieldservice | `GET marketing/contract-references/:id` | Contract basis | `src/integrations/gateway.ts:310` |
 | 6 | fieldservice | `GET marketing/item-size-references/:id` | Item size identity | `src/integrations/gateway.ts:253` |
+| 7 | marketing | `POST fieldservice/internal/work-orders/from-quotation` | Quotation-based Work Order create (orchestrated) | `src/modules/quotations/quotation-work-order-create.service.ts:105` |
 | — | all services | `GET auth/.well-known/jwks.json` | Key material | `*/src/utils/tokens.ts:11` |
 
 ### 2.2 The standard call shape
@@ -363,7 +364,7 @@ synchronisation check and the branch scoped advisory lock.
 |---|---|---|---|
 | `contended-create` | 12 | 12 | 1 created, 11 refused with 409 |
 | `parallel-create` | 12 | 24 | 24 created |
-| `pending-event-create` | 10 | 20 | 20 refused with 409 |
+| `duplicate-quotation-create` | 10 | 20 | 1 created, 19 refused with 409 |
 | `revoke` | 6 | 12 | 12 revoked |
 | `read-list` | 20 | 120 | 120 listed |
 

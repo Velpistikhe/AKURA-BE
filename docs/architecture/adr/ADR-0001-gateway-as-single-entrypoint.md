@@ -52,7 +52,7 @@ Finance, and Field Service allow direct browser access when
 (`allowsLocalDirectAccess` in `*/src/utils/localDirectAccess.ts`). Public routes
 accept a Bearer token without `x-gateway-secret`; `/internal/*` remains
 gateway-only. Auth Service does not use this exception. Documented in OpenAPI
-**2.8.2** `info.description` and [`authentication-flow.md`](../authentication-flow.md#8-the-gateway-is-the-entry-point).
+**2.8.3** `info.description` and [`authentication-flow.md`](../authentication-flow.md#8-the-gateway-is-the-entry-point).
 
 **The path allowlist** — each service's `src/utils/serviceUrl.ts` validates
 the target path against a per-service prefix regex and rejects `..` and `://`:

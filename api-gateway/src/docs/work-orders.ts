@@ -146,6 +146,59 @@ export const workOrderPaths = {
       responses: { 200: { description: 'Work Order revoked', content: { 'application/json': { schema: ref('WorkOrderResponse') } } }, 400: { description: 'Invalid ID or version' }, 401: { description: 'Unauthenticated or stale branch' }, 403: { description: 'Access denied' }, 404: { description: 'Work Order not found' }, 409: { description: 'Work Order changed, is already revoked, or is completed/canceled' } },
     },
   },
+  '/api/v1/fieldservice/internal/work-orders/from-quotation': {
+    post: {
+      tags: ['Work Order'],
+      summary: 'Internal: create a Work Order from a Marketing quotation',
+      security: [],
+      description: 'Marketing calls this endpoint through the Gateway after locking an APPROVED, unlinked quotation. Requires Marketing service credentials. The public client path is POST /api/v1/marketing/quotations/{quotationId}/work-order. Direct Field Service calls to POST /work-orders/from-quotation (without the /internal prefix) are not mounted. Marketing supplies the full quotation reference snapshot and the Work Order input; Field Service validates branch alignment, rejects quotations that already carry a link, creates a DRAFT Work Order, and returns the row for Marketing to attach.',
+      parameters: [
+        { in: 'header', name: 'x-service-name', required: true, schema: { type: 'string', enum: ['marketing-service'] } },
+        { in: 'header', name: 'x-service-secret', required: true, schema: { type: 'string' } },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object', additionalProperties: false,
+              required: ['officeBranchId', 'quotationId', 'actor', 'quotation', 'workOrder'],
+              properties: {
+                officeBranchId: uuid,
+                quotationId: uuid,
+                actor: {
+                  type: 'object', additionalProperties: false, required: ['id', 'name'],
+                  properties: { id: uuid, name: { type: 'string', minLength: 1, maxLength: 255 } },
+                },
+                quotation: { type: 'object', description: 'Active APPROVED quotation reference payload from Marketing, including items and decimal amounts as strings.' },
+                workOrder: {
+                  type: 'object', additionalProperties: false, required: ['quotationId', 'startDate', 'endDate', 'inspectors', 'items'],
+                  properties: {
+                    quotationId: uuid,
+                    startDate: date, endDate: date,
+                    subject: { type: 'string', minLength: 1, maxLength: 255 },
+                    officialReport: { type: 'boolean' },
+                    dailyReport: date, officialReportDelivery: date, dailyReportDelivery: date,
+                    poNumber: { type: 'string', minLength: 1, maxLength: 100 }, poDate: date,
+                    inspectors: { ...inspectorNames, minItems: 1 },
+                    items: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['itemSizeId', 'quantityInspection', 'quantityMaintenance'], properties: {
+                      itemSizeId: uuid, quantityInspection: { type: 'number', minimum: 0 }, quantityMaintenance: { type: 'number', minimum: 0 },
+                    } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: { description: 'Work Order created', content: { 'application/json': { schema: ref('WorkOrderResponse') } } },
+        400: { description: 'Invalid internal request' },
+        403: { description: 'Invalid service credentials' },
+        409: { description: 'Quotation already has a Work Order or branch mismatch' },
+      },
+    },
+  },
   '/api/v1/fieldservice/work-orders/{id}/start': {
     post: {
       ...operation('Start Work Order (DRAFT to IN_PROGRESS)', 'WorkOrderResponse', [id], 'WorkOrderStart'),

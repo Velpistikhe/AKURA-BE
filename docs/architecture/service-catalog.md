@@ -70,7 +70,7 @@ layout, not an oversight in the docs.
 | Database | **None** — no Prisma, no `DATABASE_URL` |
 | Modules | `config/` (env, services, swagger), `middlewares/` (auth, serviceCaller, rateLimiter, requestId, logger, error), `routes/proxy.routes.ts`, `utils/` (tokens, requestTokens, logger, localOrigin, errorDetails), `docs/` (OpenAPI source) |
 | Self endpoints | `GET /health`, `GET /services`, `GET /api-docs`, `GET /api-docs.json` |
-| Proxied prefixes | `/api/v1/auth`, `/api/v1/app-manager`, `/api/v1/marketing`, `/api/v1/finance`*, `/api/v1/fieldservice`* + 2 internal event prefixes |
+| Proxied prefixes | `/api/v1/auth`, `/api/v1/app-manager`, `/api/v1/marketing`, `/api/v1/finance`*, `/api/v1/fieldservice`* + 3 service-caller prefixes (`marketing/internal/taxes/events`, `marketing/internal/quotations`, `fieldservice/internal/work-orders`) |
 | Outbound calls | To Auth's JWKS endpoint only (`src/utils/tokens.ts:10-15`) |
 | Key config | `AUTH_SERVICE_URL`, `AUTH_JWKS_URL`, `APP_MANAGER_SERVICE_URL`, `MARKETING_SERVICE_URL`, `FINANCE_SERVICE_URL`*, `FIELDSERVICE_SERVICE_URL`*, plus one `*_GATEWAY_SECRET` per service |
 
@@ -129,7 +129,7 @@ See [`authentication-flow.md`](./authentication-flow.md#4-two-authorization-mode
 | Inbound event endpoints | `POST /internal/taxes/events`, `POST /internal/quotations/:quotationId/work-order` — mounted **before** `authenticate` (`src/app.ts:23-25`) |
 | Outbound calls | `GET auth/me` (live profile check), `GET auth/.well-known/jwks.json`, `POST fieldservice/internal/work-orders/from-quotation` (orchestrated quotation-based Work Order creation) |
 | Key config | `TAX_SYNC_SECRET`, `WORK_ORDER_SYNC_SECRET` (each min 32 chars), `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (default `us-east-2`), `AWS_S3_BUCKET` (default `akura`) |
-| Special | The only service with a reliability suite (16 test files). Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
+| Special | The only service with a reliability suite (**16** `*.test.ts` files, numbered `00`–`16` with no `12-*.test.ts`). Also the only one with a `vercel.json` **and** `@vercel/nft` as a dependency |
 
 **Local development**: routes mount at `/`; the microfrontend calls
 `http://localhost:5003` with `Authorization: Bearer` (paths match what the
@@ -170,17 +170,17 @@ Tax write permission requires role `ADMIN` **and** section `FINANCE` or
 
 ## 4. Endpoint index by service
 
-**VERIFIED** — the gateway OpenAPI source defines **95 distinct path keys** across its source files; **6** are under Field Service (five Work Order endpoints plus health). Other category counts in the table below remain to be re-counted after this change and should not be read as current authoritative totals.
+**VERIFIED** — `openApiDocument.paths` (OpenAPI **2.8.3**) contains **95** path keys and **132** operations, counted by loading the composed spec with `tsx`.
 
 | Service | Documented path count | Source files |
 |---|---|---|
 | Auth | 11 | `openapi.ts` |
 | App Manager | 13 | `openapi.ts`, `audit-trail.ts` |
-| Marketing | 55 | `catalog.ts`, `quotation.ts`, `operational-documents.ts`, `work-orders.ts`, `tax.ts` |
-| Finance | 4 | `tax.ts` |
-| Field Service | 10 | `work-orders.ts`, `quotation.ts` |
+| Marketing | 57 | `catalog.ts`, `quotation.ts`, `operational-documents.ts`, `tax.ts`, `openapi.ts` |
+| Finance | 4 | `tax.ts`, `openapi.ts` |
+| Field Service | 6 | `work-orders.ts`, `openapi.ts` |
 | Gateway-owned (`/health`, `/services`, `/api-docs`, `/api-docs.json`) | 4 | `openapi.ts` |
-| Internal event endpoints | 2 | `tax.ts`, `quotation.ts` |
+| Service-caller integration endpoints | 3 | `tax.ts`, `quotation.ts`, `work-orders.ts` |
 
 Per-endpoint detail, including the full routing table and header rules, is in
 [`api-gateway-routing.md`](./api-gateway-routing.md).

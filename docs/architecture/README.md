@@ -53,7 +53,7 @@ matches the task.
 | [`system-overview.md`](./system-overview.md) | What is this platform, what pattern does it use, what is each service responsible for? | First read; any high-level question. |
 | [`service-catalog.md`](./service-catalog.md) | What does service X own? Ports, stack, modules, database, endpoints. | You need the specifics of one service. |
 | [`service-dependencies.md`](./service-dependencies.md) | Who depends on whom, in which direction, and how tightly? | You are changing a call path or adding a dependency. |
-| [`api-gateway-routing.md`](./api-gateway-routing.md) | Which prefix routes where, what headers are added or stripped, OpenAPI **2.8.2** and hybrid local usage? | You add or change an endpoint. |
+| [`api-gateway-routing.md`](./api-gateway-routing.md) | Which prefix routes where, what headers are added or stripped, OpenAPI **2.8.3** and hybrid local usage? | You add or change an endpoint. |
 | [`authentication-flow.md`](./authentication-flow.md) | How are tokens issued, verified, and propagated? Where is authorization enforced? | You touch login, tokens, roles, or permissions. |
 | [`database-and-data-ownership.md`](./database-and-data-ownership.md) | Which service owns which table? Where do read models live? | You add a table, a field, or a cross-service query. |
 | [`integration-and-event-flow.md`](./integration-and-event-flow.md) | How do services talk to each other synchronously and asynchronously? How are retries and idempotency handled? | You add or modify an integration. |
@@ -164,9 +164,9 @@ Full detail in the linked documents. Summary:
   service. A misconfigured service exits rather than running degraded.
 - **Only `api-gateway` declares an `engines` field**; the five domain services
   do not, so their production Node version is not pinned by this repository.
-- **Testing lives in one place.** `marketing-service/tests/` holds a 16-file reliability suite
-  reliability suite (functional, concurrency, stress, event-sync, audit-trail)
-  that boots all six services against dedicated `_test` databases.
+- **Testing lives in one place.** `marketing-service/tests/` holds a **16-file**
+  reliability suite (numbered `00`–`16`, with no `12-*.test.ts`) that boots all six
+  services against dedicated `_test` databases.
 
 ---
 
